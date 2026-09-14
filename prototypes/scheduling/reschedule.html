@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Reschedule — Decoded Hiring</title>
+<link rel="stylesheet" href="../tokens.css">
+<link rel="stylesheet" href="../base.css">
+<link rel="stylesheet" href="../components.css">
+<script>window.DH_PACK_ROOT = '..';</script>
+<script src="../_review-chrome.js" defer></script>
+<script src="../app.js" defer></script>
+</head>
+<body data-screen="SCH-09" data-screen-title="Reschedule flow — policy-governed">
+
+<header class="site-header">
+  <div class="wrap bar">
+    <a class="wordmark" href="../public/home.html"><strong>Ahmed Awad</strong><span>HIRING, DECODED</span></a>
+    <nav class="primary-nav" aria-label="Primary">
+      <a href="../public/home.html">Home</a>
+      <details class="nav-details"><summary>Learn</summary><div class="menu"><a href="#">Programmes</a><a href="../public/course.html">Mission 01</a><a href="../public/workshop.html">The Workshop</a><a href="../public/coaching.html">Coaching</a></div></details>
+      <details class="nav-details"><summary>Explore</summary><div class="menu"><a href="#">About</a><a href="#">Field Notes</a><a href="#">Guides</a><a href="../public/contact.html">Contact</a></div></details>
+      <a href="../public/login.html">Log in</a>
+    </nav>
+    <button class="menu-toggle" type="button" data-sheet-open>Menu</button>
+  </div>
+</header>
+
+
+<div class="mobile-sheet" id="mobile-sheet" role="dialog" aria-modal="true" aria-label="Site menu">
+  <div class="sheet-head">
+    <span class="wordmark"><strong>Ahmed Awad</strong><span>HIRING, DECODED</span></span>
+    <button class="btn secondary small" type="button" data-sheet-close>Close</button>
+  </div>
+  <nav aria-label="Mobile">
+    <a href="../public/home.html">Home</a>
+    <details>
+      <summary>Learn</summary>
+      <div>
+        <a href="#">Programmes</a>
+        <a href="../public/course.html">Mission 01 — free course</a>
+        <a href="../public/workshop.html">The Workshop</a>
+        <a href="../public/coaching.html">Coaching</a>
+      </div>
+    </details>
+    <details>
+      <summary>Explore</summary>
+      <div>
+        <a href="#">About</a>
+        <a href="#">Field Notes</a>
+        <a href="#">Guides</a>
+        <a href="../public/contact.html">Contact</a>
+      </div>
+    </details>
+    <a href="../public/login.html">Log in</a>
+  </nav>
+  <div class="sheet-foot">
+    <span>Better recruitment thinking, made visible.</span>
+  </div>
+</div>
+
+<main id="main" class="sec" style="padding-block:clamp(40px,6vw,72px)">
+  <div class="wrap-reading">
+
+    <span class="t-eyebrow">RESCHEDULE · COACHING SESSION</span>
+    <h1 class="display-h1" style="font-size:clamp(2rem,1.3rem+3.4vw,3.6rem);margin-top:14px">Move your session, <em>keep your place.</em></h1>
+
+    <!-- Current booking + policy state -->
+    <div style="margin-top:28px;border:1px solid var(--line);border-radius:var(--radius-card);background:var(--paper-bright);padding:18px 20px">
+      <div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;align-items:center">
+        <div>
+          <b style="font-size:15px">Currently: Thu, Sep 24 · 11:00–12:00 (Africa/Cairo)</b>
+          <p class="muted" style="font-size:12.5px;margin-top:4px">Coaching Session · one live case · Google Meet</p>
+        </div>
+        <span class="lifecycle confirmed">CONFIRMED</span>
+      </div>
+    </div>
+
+    <!-- SCH-c06 PolicyNotice: consequences BEFORE action (S-3) -->
+    <div class="policy-notice ok" style="margin-top:16px"><span class="pn-ico">✓</span><span><b>You're inside the free window</b> (until Wed, Sep 23 · 11:00). Move it once or twice with no fee — your slot is held during the change, and Ahmed is notified automatically.</span></div>
+
+    <!-- New slot picker -->
+    <section style="margin-top:28px" aria-labelledby="ns-h">
+      <h2 class="editorial" id="ns-h" style="font-size:clamp(1.5rem,1.2rem+1.2vw,2rem)">Choose the new time</h2>
+      <div class="tz-line" style="margin-top:14px">
+        <span class="tz-detected">◷ Detected: <b>Africa/Cairo (GMT+2)</b></span>
+        <span class="mono" style="font-size:11px;color:var(--muted)">60 MIN · SAME POLICY · SAME MEETING LINK</span>
+      </div>
+      <div class="day-strip" style="margin-top:16px" role="group" aria-label="Choose a day">
+        <button class="day-btn" type="button" aria-current="true"><span class="d-dow">SUN</span><span class="d-num">28</span><span class="d-left">6 slots</span></button>
+        <button class="day-btn" type="button"><span class="d-dow">MON</span><span class="d-num">29</span><span class="d-left">3 slots</span></button>
+        <button class="day-btn" type="button"><span class="d-dow">TUE</span><span class="d-num">30</span><span class="d-left">5 slots</span></button>
+        <button class="day-btn" type="button"><span class="d-dow">WED</span><span class="d-num">OCT 1</span><span class="d-left">4 slots</span></button>
+      </div>
+      <div class="slot-grid" role="group" aria-label="Available times Sunday Sep 28">
+        <button class="slot-btn" type="button">10:00</button>
+        <button class="slot-btn" type="button">11:30</button>
+        <button class="slot-btn" type="button">16:00</button>
+        <button class="slot-btn" type="button">17:30</button>
+      </div>
+    </section>
+
+    <!-- Confirm the move -->
+    <section style="margin-top:28px" aria-labelledby="rm-h">
+      <h2 class="a-h2" id="rm-h">Confirm the change</h2>
+      <dl class="booking-summary" style="margin-top:14px">
+        <div class="bs-row"><dt>From</dt><dd class="mono">Thu, Sep 24 · 11:00–12:00</dd></div>
+        <div class="bs-row"><dt>To</dt><dd class="mono">Sun, Sep 28 · 11:30–12:30 (Africa/Cairo)</dd></div>
+        <div class="bs-row"><dt>Cost</dt><dd>Nothing — inside your free window</dd></div>
+        <div class="bs-row"><dt>Ahmed</dt><dd>Notified automatically; his calendar updates itself</dd></div>
+      </dl>
+      <div style="display:flex;gap:10px;margin-top:18px;flex-wrap:wrap">
+        <button class="btn primary" type="button" data-toast="Session moved|Sun, Sep 28 · 11:30 — invite updated on both sides.">Confirm new time</button>
+        <a class="btn secondary" href="../learner/bookings.html">Keep current time</a>
+      </div>
+    </section>
+
+    <p class="muted" style="margin-top:32px;font-size:12px">What if you're OUTSIDE the window? The policy notice turns coral and states the consequence honestly (fee / Ahmed review) before any confirm — shown in the states demo. Cancellation uses the same protocol with its own consequence card.</p>
+  </div>
+</main>
+
+</body>
+</html>
