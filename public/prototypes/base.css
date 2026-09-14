@@ -132,8 +132,36 @@ h3.editorial { font-family: var(--font-display); font-weight: 400; font-size: va
 .article-body h3 { font-family: var(--font-display); font-weight: 400; font-size: 1.6rem; margin-top: 1.8em; color: var(--ink); }
 .article-body p strong, .article-body strong { color: var(--ink); font-weight: 600; }
 .article-body a.u-link { color: var(--ink); text-decoration: underline; text-decoration-color: var(--mint-strong); text-underline-offset: 4px; }
-.article-body ul:not([class]), .article-body ol:not([class]) { padding-left: 1.4em; }
-.article-body ul:not([class]) li, .article-body ol:not([class]) li { margin-top: .6em; }
+.article-body ul:not([class]), .article-body ol:not([class]) {
+  padding-left: 1.5em;
+  margin-block: 1.2em;
+}
+.article-body ul:not([class]) {
+  list-style-type: disc;
+  list-style-position: outside;
+}
+.article-body ol:not([class]) {
+  list-style-type: decimal;
+  list-style-position: outside;
+}
+.article-body ul:not([class]) li, .article-body ol:not([class]) li {
+  margin-top: .5em;
+  line-height: 1.65;
+  position: static;
+  transform: none;
+}
+.article-body li::marker {
+  color: var(--ink);
+  font-size: 0.9em;
+}
+.article-body ul:not([class]) ul:not([class]),
+.article-body ul:not([class]) ol:not([class]),
+.article-body ol:not([class]) ul:not([class]),
+.article-body ol:not([class]) ol:not([class]) {
+  margin-top: .4em;
+  margin-bottom: 0;
+  padding-left: 1.4em;
+}
 
 /* Pull-quote (V1: serif 46px, no border, padded) */
 .pull-quote {

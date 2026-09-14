@@ -117,6 +117,14 @@ const SECTIONS: ReviewSection[] = [
         description:
           "Categorized cookie audit, consent management rules, and tracking definitions.",
       },
+      {
+        href: "/prototypes/public/guide.html",
+        id: "PUB-04g",
+        badge: "Guide Detail",
+        title: "Guide: Talent Acquisition Strategy",
+        description:
+          "Full editorial guide with responsive 2-column sticky TOC layout, stabilized lists, pull-quotes, evidence tables, and cluster strip.",
+      },
     ],
   },
   {

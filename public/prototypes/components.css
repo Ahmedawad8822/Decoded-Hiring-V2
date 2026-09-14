@@ -227,16 +227,41 @@ nav[aria-label="The five questions"] a.chip[aria-current="true"] b { color: var(
 .article-hero .meta-line b { color: var(--muted-strong); font-weight: 500; }
 .article-hero .dek { margin-top: 18px; font-size: 1.125rem; line-height: 1.6; color: var(--muted-strong); max-width: 34em; }
 
-/* ===== PUB-c09 TableOfContents ================================================== */
+/* ===== PUB-c09 TableOfContents & Article Layout ================================= */
+
+.article-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 32px;
+  max-width: var(--container);
+  margin-inline: auto;
+  padding-inline: 24px;
+}
 
 .toc-rail { display: none; }
 @media (min-width: 1024px) {
+  .article-layout {
+    grid-template-columns: 240px minmax(0, 1fr);
+    gap: clamp(40px, 5vw, 64px);
+    align-items: start;
+  }
+  .article-layout > .article-main {
+    min-width: 0;
+  }
+  .article-layout > .article-main .article-hero {
+    padding-top: 0;
+    max-width: var(--measure-reading);
+  }
+  .article-layout > .article-main .article-body {
+    max-width: var(--measure-reading);
+  }
+
   .toc-rail {
-    display: block; position: sticky; top: 32px; width: 262px; max-height: calc(100vh - 96px);
+    display: block; position: sticky; top: 32px; width: 240px; max-height: calc(100vh - 96px);
     overflow-y: auto; font-size: 13px; align-self: start;
   }
   .toc-rail .toc-title { font-size: var(--t-micro); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); font-weight: 500; margin-bottom: 14px; }
-  .toc-rail ol { display: grid; gap: 2px; }
+  .toc-rail ol { display: grid; gap: 2px; list-style: none; padding: 0; margin: 0; }
   .toc-rail li { margin: 0; }
   .toc-rail a { display: block; padding: 6px 0 6px 14px; border-left: 1px solid var(--line); color: var(--muted-strong); line-height: 1.45; }
   .toc-rail a.active { border-left: 2px solid var(--blue); color: var(--ink); font-weight: 500; padding-left: 13px; }
@@ -246,7 +271,7 @@ nav[aria-label="The five questions"] a.chip[aria-current="true"] b { color: var(
 .toc-collapsible summary::-webkit-details-marker { display: none; }
 .toc-collapsible summary::after { content: "+"; font-size: 16px; color: var(--muted); }
 .toc-collapsible[open] summary::after { content: "–"; }
-.toc-collapsible ol { padding: 4px 18px 16px; display: grid; gap: 8px; font-size: 13.5px; }
+.toc-collapsible ol { padding: 4px 18px 16px; display: grid; gap: 8px; font-size: 13.5px; list-style: none; margin: 0; }
 .toc-collapsible a { color: var(--muted-strong); text-decoration: underline; text-underline-offset: 3px; }
 @media (min-width: 1024px) { .toc-collapsible { display: none; } }
 
