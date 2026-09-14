@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Decoded Hiring V2 — Interactive Visual Prototype Pack</title>
+<link rel="stylesheet" href="tokens.css">
+<link rel="stylesheet" href="base.css">
+<link rel="stylesheet" href="components.css">
+<script>window.DH_PACK_ROOT = '.';</script>
+<script src="_review-chrome.js" defer></script>
+<script src="app.js" defer></script>
+<style>
+  .idx-hero { padding-block: clamp(48px, 7vw, 88px) clamp(32px, 5vw, 56px); }
+  .pack-grid { display: grid; gap: 24px; }
+  .pack-group { border: 1px solid var(--line); border-radius: var(--radius-surface); background: var(--paper-bright); overflow: hidden; }
+  .pack-group > h2 { font-family: var(--font-display); font-weight: 400; font-size: 22px; padding: 18px 22px; border-bottom: 1px solid var(--line); display: flex; justify-content: space-between; gap: 12px; align-items: baseline; }
+  .pack-group > h2 small { font-family: var(--font-mono); font-size: 10px; color: var(--muted); letter-spacing: .08em; }
+  .pack-list { display: grid; gap: 0; }
+  .pack-item { display: flex; gap: 16px; padding: 14px 22px; border-bottom: 1px solid var(--line); align-items: baseline; }
+  .pack-item:last-child { border-bottom: 0; }
+  .pack-item .pi-id { font-family: var(--font-mono); font-size: 10.5px; color: var(--blue); min-width: 92px; letter-spacing: .04em; }
+  .pack-item .pi-main b { display: block; font-size: 14.5px; font-weight: 600; }
+  .pack-item .pi-main span { font-size: 12.5px; color: var(--muted-strong); line-height: 1.5; }
+  .pack-item .pi-go { margin-left: auto; color: var(--blue); font-size: 13px; white-space: nowrap; }
+  .pack-item:hover { background: var(--paper); }
+  .flow-strip { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; font-family: var(--font-mono); font-size: 10.5px; color: var(--muted-strong); padding: 12px 22px; border-top: 1px solid var(--line); background: var(--paper); }
+  .flow-strip b { color: var(--ink); }
+  @media (max-width: 759px) { .pack-item { flex-wrap: wrap; } .pack-item .pi-go { margin-left: 0; } }
+</style>
+</head>
+<body data-screen="INDEX" data-screen-title="Prototype pack index — Mission 02B">
+
+<main id="main">
+
+  <header class="idx-hero">
+    <div class="wrap">
+      <span class="t-eyebrow numerals">MISSION 02B · INTERACTIVE VISUAL PROTOTYPE PACK · 24 SCREENS</span>
+      <h1 class="display-h1" style="margin-top:16px;max-width:14em">The V2 experience, <em>clickable.</em></h1>
+      <p class="support" style="margin-top:18px;max-width:40em">Every prototype runs on the real design tokens extracted from V1 and the 02A component contracts. Open any screen below — each carries a review strip with its screen ID and demo states where they exist.</p>
+      <div class="cta-row" style="margin-top:24px">
+        <a class="btn primary" href="/review" style="background:var(--blue);color:#fff;border-color:var(--blue)">← Unified V2 Review Hub (/review)</a>
+        <a class="btn secondary" href="#start-here">Start the guided tour</a>
+      </div>
+    </div>
+  </header>
+
+  <div class="wrap" style="padding-bottom:clamp(56px,8vw,96px)">
+
+    <!-- HOW TO REVIEW -->
+    <section class="callout" style="margin-bottom:40px" id="start-here" aria-labelledby="how-h">
+      <span class="c-label">HOW TO REVIEW THIS PACK</span>
+      <p style="margin-top:6px" id="how-h">Open pages directly in a browser (no server needed), or run <span class="mono">python3 -m http.server</span> inside <span class="mono">prototypes/</span>. Resize each page — 360 / 768 / 1280 are the contract widths; mobile is not a shrunk desktop. On state-enabled screens, the dark strip at the top switches demo states (loading, empty, error, hold-expired, checkout outcomes). The <b>Public website — restored V1</b> section below links to the real Next.js pages from Mission 03 — those need the V2 dev server running (<span class="mono">npm run dev -- --port 3100</span> from the repo root).</p>
+    </section>
+
+    <div class="pack-grid">
+
+      <!-- PUBLIC WEBSITE — RESTORED V1 (MISSION 03) -->
+      <section class="pack-group" aria-labelledby="g-restored">
+        <h2 id="g-restored">Public website — restored V1 <small>RESTORED FROM V1 · MISSION 03</small></h2>
+        <div class="pack-list">
+          <a class="pack-item" href="/"><span class="pi-id">/</span><span class="pi-main"><b>Homepage</b><span>Restored V1 public homepage (Mission 03 port)</span></span><span class="pi-go">Open →</span></a>
+          <a class="pack-item" href="/programmes"><span class="pi-id">/programmes</span><span class="pi-main"><b>Programmes</b><span>Restored V1 programmes overview (Mission 03 port)</span></span><span class="pi-go">Open →</span></a>
+          <a class="pack-item" href="/mission-01"><span class="pi-id">/mission-01</span><span class="pi-main"><b>Mission 01</b><span>Restored V1 Mission 01 page (Mission 03 port)</span></span><span class="pi-go">Open →</span></a>
+          <a class="pack-item" href="/workshop"><span class="pi-id">/workshop</span><span class="pi-main"><b>Workshop</b><span>Restored V1 workshop page (Mission 03 port)</span></span><span class="pi-go">Open →</span></a>
+          <a class="pack-item" href="/coaching"><span class="pi-id">/coaching</span><span class="pi-main"><b>Coaching</b><span>Restored V1 coaching page (Mission 03 port)</span></span><span class="pi-go">Open →</span></a>
+          <a class="pack-item" href="/about"><span class="pi-id">/about</span><span class="pi-main"><b>About</b><span>Restored V1 about page (Mission 03 port)</span></span><span class="pi-go">Open →</span></a>
+          <a class="pack-item" href="/contact"><span class="pi-id">/contact</span><span class="pi-main"><b>Contact</b><span>Restored V1 contact / enquiry page (Mission 03 port)</span></span><span class="pi-go">Open →</span></a>
+          <a class="pack-item" href="/ai-recruiter-os"><span class="pi-id">/ai-recruiter-os</span><span class="pi-main"><b>AI Recruiter OS</b><span>Restored V1 AI Recruiter OS page (Mission 03 port)</span></span><span class="pi-go">Open →</span></a>
+          <a class="pack-item" href="/privacy"><span class="pi-id">/privacy</span><span class="pi-main"><b>Privacy</b><span>Restored V1 privacy policy (Mission 03 port)</span></span><span class="pi-go">Open →</span></a>
+          <a class="pack-item" href="/terms"><span class="pi-id">/terms</span><span class="pi-main"><b>Terms</b><span>Restored V1 terms of service (Mission 03 port)</span></span><span class="pi-go">Open →</span></a>
+          <a class="pack-item" href="/cookies"><span class="pi-id">/cookies</span><span class="pi-main"><b>Cookies</b><span>Restored V1 cookie policy (Mission 03 port)</span></span><span class="pi-go">Open →</span></a>
+        </div>
+        <div class="flow-strip">UNIFIED SERVER: <b>Single Next.js server</b> (npm run dev) · source: Mission 03 commit 2fb1997 · Hub at <a href="/review" style="color:var(--blue);margin-left:4px"><b>/review</b></a></div>
+      </section>
+
+      <!-- PUBLIC -->
+      <section class="pack-group" aria-labelledby="g-public">
+        <h2 id="g-public">Public site <small>PREMIUM EDITORIAL · V1 SOUL PRESERVED</small></h2>
+        <div class="pack-list">
+          <a class="pack-item" href="public/home.html"><span class="pi-id">PUB-01</span><span class="pi-main"><b>Homepage</b><span>Positioning hero · Situation Map (interactive) · five-stage system · entry routing · newsletter</span></span><span class="pi-go">Open →</span></a>
+          <a class="pack-item" href="public/guide.html"><span class="pi-id">PUB-04</span><span class="pi-main"><b>Guide detail</b><span>Sticky TOC · 720px reading · pull-quotes · email-gated resource · cluster strip · course CTA</span></span><span class="pi-go">Open →</span></a>
+          <a class="pack-item" href="public/course.html"><span class="pi-id">PUB-07</span><span class="pi-main"><b>Course sales page + CTA state machine</b><span>FREE today — switch all five Access Modes live on the page (no redesign, no broken CTAs)</span></span><span class="pi-go">Open →</span></a>
+          <a class="pack-item" href="public/workshop.html"><span class="pi-id">PUB-08</span><span class="pi-main"><b>Workshop page</b><span>AHA proof · 7-stage OS diagram · 4-day programme · enquiry form → discovery meeting</span></span><span class="pi-go">Open →</span></a>
+          <a class="pack-item" href="public/coaching.html"><span class="pi-id">PUB-09</span><span class="pi-main"><b>Coaching page</b><span>Symptom board (4 interactive cases) · working canvas → booking flow</span></span><span class="pi-go">Open →</span></a>
+          <a class="pack-item" href="public/contact.html"><span class="pi-id">PUB-12</span><span class="pi-main"><b>Contact / enquiry</b><span>V1-verified qualification form · inline validation · consent group</span></span><span class="pi-go">Open →</span></a>
+          <a class="pack-item" href="public/login.html"><span class="pi-id">PUB-13</span><span class="pi-main"><b>Log in</b><span>Magic link + Google · "Pick up where you left off"</span></span><span class="pi-go">Open →</span></a>
+          <a class="pack-item" href="public/signup.html"><span class="pi-id">PUB-14</span><span class="pi-main"><b>Sign up (FREE)</b><span>Instant enrollment — no checkout, no card, no Order</span></span><span class="pi-go">Open →</span></a>
+          <a class="pack-item" href="public/404.html"><span class="pi-id">PUB-18</span><span class="pi-main"><b>404 branded recovery</b><span>Search + best content + Situation Map — no dead ends</span></span><span class="pi-go">Open →</span></a>
+        </div>
+        <div class="flow-strip">FLOW: <b>homepage → guide → course → signup → learner home</b> (links connect)</div>
+      </section>
+
+      <!-- LEARNER -->
+      <section class="pack-group" aria-labelledby="g-learner">
+        <h2 id="g-learner">Learner experience <small>CONTINUE LEARNING FIRST · MOBILE-FIRST CLASSROOM</small></h2>
+        <div class="pack-list">
+          <a class="pack-item" href="learner/home.html"><span class="pi-id">LEARN-01</span><span class="pi-main"><b>Learner home</b><span>Continue Learning card on top · honest progress · completion states · bottom tab bar on mobile</span></span><span class="pi-go">Open →</span></a>
+          <a class="pack-item" href="learner/lesson.html"><span class="pi-id">LEARN-04</span><span class="pi-main"><b>Lesson player</b><span>Two-pane classroom · curriculum drawer on mobile · sticky thumb-zone actions · gated resources explained</span></span><span class="pi-go">Open →</span></a>
+          <a class="pack-item" href="learner/courses.html"><span class="pi-id">LEARN-02/03</span><span class="pi-main"><b>My courses + course overview</b><span>One screen merged (list→overview is a state) · curriculum outline · resources</span></span><span class="pi-go">Open →</span></a>
+          <a class="pack-item" href="learner/bookings.html"><span class="pi-id">LEARN-07</span><span class="pi-main"><b>My bookings</b><span>Confirmed + awaiting-approval + past · policy consequences before actions · booking timeline · cancel dialog</span></span><span class="pi-go">Open →</span></a>
+          <a class="pack-item" href="learner/account.html"><span class="pi-id">LEARN-08</span><span class="pi-main"><b>Account / settings</b><span>Enrollments with sources · consent channels · data export</span></span><span class="pi-go">Open →</span></a>
+        </div>
+        <div class="flow-strip">FLOW: <b>learner home → lesson → complete → next lesson</b> · bookings reschedule ↔ scheduling flow</div>
+      </section>
+
+      <!-- SCHEDULING -->
+      <section class="pack-group" aria-labelledby="g-sch">
+        <h2 id="g-sch">Scheduling <small>TIMEZONE-SAFE · HOLDS · APPROVALS · NEVER A BROKEN CTA</small></h2>
+        <div class="pack-list">
+          <a class="pack-item" href="scheduling/booking.html"><span class="pi-id">SCH-01..06</span><span class="pi-main"><b>Coaching booking — full wizard</b><span>Service → decision brief → timezone-safe slots → 15-min hold countdown (real timer) → confirm-all-before-commit → awaiting Ahmed approval. Includes hold-expiry graceful alternatives</span></span><span class="pi-go">Open →</span></a>
+          <a class="pack-item" href="scheduling/discovery.html"><span class="pi-id">SCH-11/08</span><span class="pi-main"><b>Workshop discovery meeting — auto-confirmed</b><span>The other confirmation policy: same engine, no approval wait</span></span><span class="pi-go">Open →</span></a>
+          <a class="pack-item" href="scheduling/confirmed.html"><span class="pi-id">SCH-08</span><span class="pi-main"><b>Booking confirmed (after approval + payment)</b><span>Calendar + Meet link + reminders + full audit trail</span></span><span class="pi-go">Open →</span></a>
+          <a class="pack-item" href="scheduling/reschedule.html"><span class="pi-id">SCH-09</span><span class="pi-main"><b>Reschedule</b><span>Policy window + consequences before confirm · same protocol for cancel</span></span><span class="pi-go">Open →</span></a>
+        </div>
+        <div class="flow-strip">FLOW: <b>coaching page → wizard → hold → confirm → approval-wait → confirmed</b> · studio decides in approvals queue</div>
+      </section>
+
+      <!-- COMMERCE -->
+      <section class="pack-group" aria-labelledby="g-com">
+        <h2 id="g-com">Commerce <small>PROVIDER-NEUTRAL · ALL FOUR MODES · NO INVENTED BRANDING</small></h2>
+        <div class="pack-list">
+          <a class="pack-item" href="commerce/checkout.html"><span class="pi-id">COM-06..09</span><span class="pi-main"><b>Checkout — all states on one screen</b><span>Available → pending (server truth + booking hold) → success (idempotent grant) → failure (reason class + retry + manual fallback). Manual/invoice state included</span></span><span class="pi-go">Open →</span></a>
+          <a class="pack-item" href="public/course.html#lab-h"><span class="pi-id">COM-01..04</span><span class="pi-main"><b>CTA state machine — on a real sales page</b><span>FREE / PAID / PAID_SESSION / MANUAL / DISABLED switch live; consequences shown per mode</span></span><span class="pi-go">Open →</span></a>
+        </div>
+        <div class="flow-strip">RULE: <b>Buy Now never renders with a dormant gateway (BR-3)</b> — fallbacks carry the conversion instead</div>
+      </section>
+
+      <!-- STUDIO -->
+      <section class="pack-group" aria-labelledby="g-stu">
+        <h2 id="g-stu">Studio (admin) <small>OPERATIONAL CALM · PRODUCT-CENTERED · ≤2 LEVELS DEEP</small></h2>
+        <div class="pack-list">
+          <a class="pack-item" href="studio/command.html"><span class="pi-id">STU-01</span><span class="pi-main"><b>Command Center</b><span>The five questions answered before raw numbers · prioritized agent recommendations with evidence · read-first panels, no dashboards-in-dashboards</span></span><span class="pi-go">Open →</span></a>
+          <a class="pack-item" href="studio/approvals.html"><span class="pi-id">STU-02</span><span class="pi-main"><b>Approvals queue — unified</b><span>Booking + editorial draft + high-risk op in one queue · decline requires rationale</span></span><span class="pi-go">Open →</span></a>
+          <a class="pack-item" href="studio/content.html"><span class="pi-id">STU-03/04</span><span class="pi-main"><b>Content list + shared editor</b><span>One screen for both states (list ↔ editor) · all content kinds share it · block editor · SEO panel · revisions · phone = card list</span></span><span class="pi-go">Open →</span></a>
+          <a class="pack-item" href="studio/curriculum.html"><span class="pi-id">STU-12</span><span class="pi-main"><b>Curriculum editor</b><span>Sections/lessons reorder (drag ≥760px, buttons always) · required flags · enrollment-guarded delete</span></span><span class="pi-go">Open →</span></a>
+          <a class="pack-item" href="studio/products.html"><span class="pi-id">STU-13..15</span><span class="pi-main"><b>Products — Access Mode system</b><span>All four offerings with their live modes · mode switching with consequence summaries · waitlist viewer</span></span><span class="pi-go">Open →</span></a>
+          <a class="pack-item" href="studio/bookings.html"><span class="pi-id">STU-18</span><span class="pi-main"><b>Bookings</b><span>Approval pending with live hold countdowns · policy per type · audit trail emphasis</span></span><span class="pi-go">Open →</span></a>
+          <a class="pack-item" href="studio/enquiries.html"><span class="pi-id">STU-17</span><span class="pi-main"><b>Enquiries + teaching empty state</b><span>Follow-up states · source/UTM · empty state that teaches the next action</span></span><span class="pi-go">Open →</span></a>
+          <a class="pack-item" href="studio/students.html"><span class="pi-id">STU-16</span><span class="pi-main"><b>Students</b><span>Progress · orders · bookings per person · manual grant with stated reason</span></span><span class="pi-go">Open →</span></a>
+          <a class="pack-item" href="studio/courses.html"><span class="pi-id">STU-11</span><span class="pi-main"><b>Courses list</b><span>Published / pilot / draft states · direct routes to curriculum, product, sales page</span></span><span class="pi-go">Open →</span></a>
+          <a class="pack-item" href="studio/intelligence.html"><span class="pi-id">STU-23/24</span><span class="pi-main"><b>Intelligence + loading & error states</b><span>Search clusters · AI referrals · skeleton demo · honest error demo</span></span><span class="pi-go">Open →</span></a>
+          <a class="pack-item" href="studio/editorial.html"><span class="pi-id">STU-25/26</span><span class="pi-main"><b>AI Content Studio</b><span>J8 loop visible · draft with provenance · approve/decline · calendar · source library</span></span><span class="pi-go">Open →</span></a>
+          <a class="pack-item" href="studio/reliability.html"><span class="pi-id">STU-27</span><span class="pi-main"><b>Reliability</b><span>J9 incident with full trail · autonomy policy · improvement backlog (not only bugs)</span></span><span class="pi-go">Open →</span></a>
+          <a class="pack-item" href="studio/settings.html"><span class="pi-id">STU-28</span><span class="pi-main"><b>Settings + danger zone</b><span>Grouped by consequence · write-only credentials · permission-denied demo · typed destructive confirm</span></span><span class="pi-go">Open →</span></a>
+          <a class="pack-item" href="studio/login.html"><span class="pi-id">STU-30</span><span class="pi-main"><b>Studio sign-in</b><span>Passkey/2FA door — separate from the learner door</span></span><span class="pi-go">Open →</span></a>
+        </div>
+        <div class="flow-strip">FLOW: <b>Command Center → approvals → decide booking</b> → learner side confirms · <b>content → editor → publish</b> · phone floor: read/approve/decide anywhere</div>
+      </section>
+
+    </div>
+
+    <!-- TOKENS + FOUNDATION -->
+    <section class="pack-group" style="margin-top:24px" aria-labelledby="g-foundation">
+      <h2 id="g-foundation">Foundation files <small>THE CONTRACT, NOT A MUSEUM</small></h2>
+      <div class="pack-list">
+        <a class="pack-item" href="tokens.css"><span class="pi-id">TOKENS</span><span class="pi-main"><b>tokens.css</b><span>Every value V1 proved, codified — Phase 2 imports this file as the token contract</span></span><span class="pi-go">View →</span></a>
+        <div class="pack-item"><span class="pi-id">BASE</span><span class="pi-main"><b>base.css · components.css · app.js</b><span>Reset, utilities, all contracted components as composable classes, interaction demos</span></span></div>
+      </div>
+    </section>
+
+    <!-- SIGN-OFF QUESTIONS -->
+    <section class="callout evidence" style="margin-top:40px" aria-labelledby="q-h">
+      <span class="c-label">WHAT THIS PACK ASKS OF AHMED</span>
+      <p style="margin-top:6px" id="q-h">Judge each environment against its own bar: Does the public site still feel like Decoded Hiring — premium, editorial, calm? Is the learner experience obvious without explanation? Is the Studio simple enough to run a Tuesday from a phone? Does the Command Center answer the five questions before showing numbers? Is booking timezone-honest? Is checkout ready for whichever provider comes later? Open questions are collected in MISSION-02B-HANDOFF.md → the unresolved-questions section.</p>
+    </section>
+  </div>
+</main>
+
+<footer class="site-footer">
+  <div class="wrap">
+    <div class="foot-legal" style="border:0;padding-block:32px">
+      <span>Decoded Hiring V2 · Mission 02B prototype pack · design artifact — not the production app</span>
+      <span class="mono">24 SCREENS · 4 ENVIRONMENTS · 1 TOKEN FILE</span>
+    </div>
+  </div>
+</footer>
+
+</body>
+</html>

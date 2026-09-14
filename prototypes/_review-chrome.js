@@ -43,7 +43,7 @@
         return '<button type="button" data-vp="' + w + '"' + ' aria-pressed="false">' + w + '</button>';
       }).join('') + '</span>';
   }
-  html += '<a class="rs-index-link" href="' + (window.DH_PACK_ROOT || '..') + '/index.html">Prototype index ↗</a>';
+  html += '<a class="rs-index-link" href="/review">Review Hub ↗</a>';
   strip.innerHTML = html;
   body.insertBefore(strip, body.firstChild);
 

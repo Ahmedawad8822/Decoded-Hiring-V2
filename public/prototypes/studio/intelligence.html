@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Intelligence — Studio</title>
+<link rel="stylesheet" href="../tokens.css">
+<link rel="stylesheet" href="../base.css">
+<link rel="stylesheet" href="../components.css">
+<script>window.DH_PACK_ROOT = '..';</script>
+<script src="../_review-chrome.js" defer></script>
+<script src="../app.js" defer></script>
+</head>
+<body class="env-studio" data-screen="STU-23/24 + SYS-01/03" data-screen-title="Intelligence — search, AI referrals, loading & error states">
+
+<div class="studio">
+  <aside class="studio-rail" aria-label="Studio navigation">
+    <div class="sr-brand"><b>STUDIO</b><span>DECODED HIRING</span></div>
+    <div class="sr-section">Today</div>
+    <a class="sr-link" href="command.html">◧ Command Center</a>
+    <a class="sr-link" href="approvals.html">✓ Approvals <span class="badge">3</span></a>
+    <a class="sr-link" href="enquiries.html">✉ Enquiries</a>
+    <div class="sr-section">Product</div>
+    <a class="sr-link" href="content.html">▤ Content</a>
+    <a class="sr-link" href="courses.html">◈ Courses</a>
+    <a class="sr-link" href="products.html">◉ Products</a>
+    <a class="sr-link" href="bookings.html">◷ Bookings</a>
+    <a class="sr-link" href="students.html">◍ Students</a>
+    <div class="sr-section">Intelligence</div>
+    <a class="sr-link" href="intelligence.html" aria-current="page">◒ Intelligence</a>
+    <a class="sr-link" href="editorial.html">✎ AI Content Studio</a>
+    <div class="sr-section">System</div>
+    <a class="sr-link" href="reliability.html">⚑ Reliability</a>
+    <a class="sr-link" href="settings.html">⚙ Settings</a>
+  </aside>
+
+  <div class="studio-main">
+    <header class="studio-topbar">
+      <button class="st-burger btn secondary small" type="button" data-studio-drawer-open aria-label="Open navigation">☰</button>
+      <span class="st-crumb">Studio · <b>Intelligence</b></span>
+      <span class="st-spacer"></span>
+      <a href="approvals.html" class="btn secondary small" style="text-decoration:none">Approvals <span class="badge">3</span></a>
+      <span class="st-avatar" title="Ahmed Awad — Owner">AA</span>
+    </header>
+
+    <main class="studio-page" id="main">
+      <h1 class="a-h1" style="margin-bottom:4px">Website intelligence</h1>
+      <p class="muted" style="margin-bottom:24px">Search, discovery, clusters and AI referrals — the drill-downs behind the Command Center panels. Not a wall of charts: every row links to its evidence and its action.</p>
+
+      <!-- Demo states (strip switcher): data (default) / loading / error -->
+      <div data-state-panel="data">
+      <div class="panel-grid">
+        <!-- Search per cluster -->
+        <section class="cmd-panel">
+          <div class="cp-head"><div><span class="q">SEARCH</span><h3>Topic clusters</h3></div><span class="chip"><b>SOURCE</b> GSC + BING</span></div>
+          <div class="cp-body">
+            <div class="table-scroll" style="border:0">
+              <table class="data">
+                <thead><tr><th>Cluster</th><th class="num">Impr.</th><th class="num">Clicks</th><th class="num">Pos.</th><th class="num">Δ Pos.</th><th>Trend</th></tr></thead>
+                <tbody>
+                  <tr><td><span class="cell-main">TA strategy</span><span class="cell-sub">pillar + 3 members</span></td><td class="num">6.2k</td><td class="num">412</td><td class="num">8.4</td><td class="num" style="color:#1f7a52">▲ +2.1</td><td><span style="display:inline-block;width:80px;height:4px;background:var(--paper-dim);border-radius:2px"><i style="display:block;height:100%;width:72%;background:var(--mint-strong);border-radius:2px"></i></span></td></tr>
+                  <tr><td><span class="cell-main">Assessment &amp; evidence</span><span class="cell-sub">pillar + 2 members</span></td><td class="num">3.1k</td><td class="num">176</td><td class="num">12.9</td><td class="num" style="color:#1f7a52">▲ +0.8</td><td><span style="display:inline-block;width:80px;height:4px;background:var(--paper-dim);border-radius:2px"><i style="display:block;height:100%;width:48%;background:var(--mint-strong);border-radius:2px"></i></span></td></tr>
+                  <tr><td><span class="cell-main">AI in recruitment</span><span class="cell-sub">pillar + 1 member + 1 draft</span></td><td class="num">1.8k</td><td class="num">121</td><td class="num">15.2</td><td class="num" style="color:var(--muted)">—</td><td><span style="display:inline-block;width:80px;height:4px;background:var(--paper-dim);border-radius:2px"><i style="display:block;height:100%;width:38%;background:var(--blue-soft);border-radius:2px"></i></span></td></tr>
+                  <tr><td><span class="cell-main">Workshops</span><span class="cell-sub">product page + FAQ</span></td><td class="num">900</td><td class="num">64</td><td class="num">7.0</td><td class="num" style="color:var(--coral-deep)">▼ −4.0</td><td><span style="display:inline-block;width:80px;height:4px;background:var(--paper-dim);border-radius:2px"><i style="display:block;height:100%;width:52%;background:var(--coral-soft);border-radius:2px"></i></span></td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+          <div class="cp-foot"><a href="#">Workshops cluster has a recommendation attached →</a></div>
+        </section>
+
+        <!-- AI referrals -->
+        <section class="cmd-panel">
+          <div class="cp-head"><div><span class="q">AI SURFACES</span><h3>AI referrals &amp; citations</h3></div></div>
+          <div class="cp-body">
+            <div class="kpi-row">
+              <div class="kpi"><span class="k-label">Referrals 7d</span><div class="k-val">96</div><span class="k-delta up">▲ +31%</span></div>
+              <div class="kpi"><span class="k-label">Cited pages</span><div class="k-val">7</div><span class="k-delta up">▲ +2</span></div>
+              <div class="kpi"><span class="k-label">Top cited</span><div class="k-val" style="font-size:14px">TA Strategy</div><span class="k-delta flat">pillar × 3 engines</span></div>
+            </div>
+            <div class="insight-row" style="margin-top:14px">
+              <div class="ir-title">Answer engines cite the definition sections</div>
+              <p class="ir-why">The "four situations" definition block is pulled nearly verbatim by 2 answer engines — original frameworks, stated cleanly, get cited.</p>
+              <span class="ir-meta">BING WEBMASTER · AI REFERRAL SOURCE CLASS</span>
+            </div>
+            <div class="insight-row">
+              <div class="ir-title">Recommendation surfaces show the map canvas</div>
+              <p class="ir-why">21 canvas downloads this week; 9 arrived via recommendation surfaces (feature-image driven).</p>
+              <span class="ir-meta">FEATURED IMAGES ≥1200PX WORKING AS DESIGNED</span>
+            </div>
+          </div>
+        </section>
+      </div>
+      </div><!-- /data-state-panel -->
+
+      <!-- SYS-01: loading state — same grid, skeletons where data truly streams -->
+      <div data-state-panel="loading" hidden>
+        <div class="panel-grid">
+          <section class="cmd-panel" aria-busy="true">
+            <div class="cp-head"><div><span class="q">SEARCH</span><h3>Topic clusters</h3></div><span class="chip"><b>SOURCE</b> GSC + BING</span></div>
+            <div class="cp-body">
+              <div style="display:grid;gap:12px">
+                <div class="skeleton" style="height:18px;width:40%"></div>
+                <div class="skeleton" style="height:64px"></div>
+                <div class="skeleton" style="height:64px"></div>
+                <div class="skeleton" style="height:64px;width:92%"></div>
+                <div class="skeleton" style="height:64px"></div>
+              </div>
+              <p class="ir-why" style="margin-top:12px">Authenticated panels stream — they get skeletons. Public pages render complete on the server and would never show this.</p>
+            </div>
+          </section>
+          <section class="cmd-panel" aria-busy="true">
+            <div class="cp-head"><div><span class="q">AI SURFACES</span><h3>AI referrals &amp; citations</h3></div></div>
+            <div class="cp-body">
+              <div style="display:grid;gap:12px">
+                <div class="skeleton" style="height:22px;width:30%"></div>
+                <div class="skeleton" style="height:64px"></div>
+                <div class="skeleton" style="height:64px;width:85%"></div>
+              </div>
+            </div>
+          </section>
+        </div>
+      </div><!-- /loading-state-panel -->
+
+      <!-- SYS-03: error state — what happened + what to do next -->
+      <div data-state-panel="error" hidden>
+        <div class="panel-grid">
+          <section class="cmd-panel">
+            <div class="cp-head"><div><span class="q">INTELLIGENCE FEED</span><h3>Search Console sync didn't finish</h3></div><span class="sev low">RETRYABLE</span></div>
+            <div class="cp-body">
+              <div class="error-state">
+                <h4>What happened</h4>
+                <p>The overnight token refresh expired mid-sync. Metrics are complete through Friday; nothing was lost — the sync resumes from its checkpoint.</p>
+                <h4>What to do next</h4>
+                <div class="es-retry">
+                  <button class="btn secondary small" type="button" data-toast="Sync restarted|Resuming from checkpoint — you'll see Saturday's data within ~10 minutes.">⟲ Retry sync now</button>
+                  <a class="btn ghost small" href="reliability.html">It'll fix itself if I wait? →</a>
+                </div>
+              </div>
+              <p class="ir-why" style="margin-top:12px">Never silent, never blames the user, never a dead end. The incident feed in Reliability shows the same event with its runbook.</p>
+            </div>
+          </section>
+        </div>
+      </div><!-- /error-state-panel -->
+    </main>
+  </div>
+</div>
+
+<div class="studio-drawer" id="studio-drawer" role="dialog" aria-label="Studio navigation">
+  <div class="panel">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px"><b>STUDIO</b><button class="btn secondary small" type="button" data-studio-drawer-close>Close</button></div>
+    <div class="sr-section" style="padding-top:0">Today</div>
+    <a class="sr-link" href="command.html">◧ Command Center</a>
+    <a class="sr-link" href="approvals.html">✓ Approvals <span class="badge">3</span></a>
+    <a class="sr-link" href="enquiries.html">✉ Enquiries</a>
+    <div class="sr-section">Product</div>
+    <a class="sr-link" href="content.html">▤ Content</a>
+    <a class="sr-link" href="courses.html">◈ Courses</a>
+    <a class="sr-link" href="products.html">◉ Products</a>
+    <a class="sr-link" href="bookings.html">◷ Bookings</a>
+    <a class="sr-link" href="students.html">◍ Students</a>
+    <div class="sr-section">Intelligence</div>
+    <a class="sr-link" href="intelligence.html" aria-current="page">◒ Intelligence</a>
+    <a class="sr-link" href="editorial.html">✎ AI Content Studio</a>
+    <div class="sr-section">System</div>
+    <a class="sr-link" href="reliability.html">⚑ Reliability</a>
+    <a class="sr-link" href="settings.html">⚙ Settings</a>
+  </div>
+</div>
+
+</body>
+</html>

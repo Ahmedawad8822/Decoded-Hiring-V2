@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Curriculum editor — Mission 01 — Studio</title>
+<link rel="stylesheet" href="../tokens.css">
+<link rel="stylesheet" href="../base.css">
+<link rel="stylesheet" href="../components.css">
+<script>window.DH_PACK_ROOT = '..';</script>
+<script src="../_review-chrome.js" defer></script>
+<script src="../app.js" defer></script>
+</head>
+<body class="env-studio" data-screen="STU-12" data-screen-title="Curriculum editor">
+
+<div class="studio">
+  <aside class="studio-rail" aria-label="Studio navigation">
+    <div class="sr-brand"><b>STUDIO</b><span>DECODED HIRING</span></div>
+    <div class="sr-section">Today</div>
+    <a class="sr-link" href="command.html">◧ Command Center</a>
+    <a class="sr-link" href="approvals.html">✓ Approvals <span class="badge">3</span></a>
+    <a class="sr-link" href="enquiries.html">✉ Enquiries</a>
+    <div class="sr-section">Product</div>
+    <a class="sr-link" href="content.html">▤ Content</a>
+    <a class="sr-link" href="courses.html" aria-current="page">◈ Courses</a>
+    <a class="sr-link" href="products.html">◉ Products</a>
+    <a class="sr-link" href="bookings.html">◷ Bookings</a>
+    <a class="sr-link" href="students.html">◍ Students</a>
+    <div class="sr-section">Intelligence</div>
+    <a class="sr-link" href="intelligence.html">◒ Intelligence</a>
+    <a class="sr-link" href="editorial.html">✎ AI Content Studio</a>
+    <div class="sr-section">System</div>
+    <a class="sr-link" href="reliability.html">⚑ Reliability</a>
+    <a class="sr-link" href="settings.html">⚙ Settings</a>
+  </aside>
+
+  <div class="studio-main">
+    <header class="studio-topbar">
+      <button class="st-burger btn secondary small" type="button" data-studio-drawer-open aria-label="Open navigation">☰</button>
+      <span class="st-crumb">Courses · <b>Mission 01 — curriculum</b></span>
+      <span class="st-spacer"></span>
+      <a href="approvals.html" class="btn secondary small" style="text-decoration:none">Approvals <span class="badge">3</span></a>
+      <span class="st-avatar" title="Ahmed Awad — Owner">AA</span>
+    </header>
+
+    <main class="studio-page" id="main">
+      <div class="editor-subhead" style="margin:-24px -20px 20px;border-radius:0;top:56px">
+        <span class="es-title">Mission 01 · Super Recruiter</span>
+        <span class="lifecycle published">PUBLISHED</span>
+        <span class="es-saved">✓ Saved</span>
+        <span class="es-spacer"></span>
+        <button class="btn secondary small" type="button" data-toast="Preview|Curriculum preview renders exactly as learners see it.">Preview</button>
+        <button class="btn primary small" type="button" data-toast="Updated|Curriculum published. Learners see changes on next load; progress math unaffected.">Update</button>
+      </div>
+
+      <p class="muted" style="margin-bottom:20px;font-size:12.5px">Sections → lessons. Drag to reorder on pointer ≥760px; ↑↓ buttons everywhere (no broken affordances). Required flags drive honest progress. 23 learners are mid-course — reorder is safe, deletes are guarded.</p>
+
+      <div style="display:grid;gap:16px">
+
+        <!-- Section 1 -->
+        <section class="settings-section" style="padding:0;overflow:hidden" aria-labelledby="s1-h">
+          <div style="display:flex;align-items:center;gap:10px;padding:14px 18px;background:var(--paper)">
+            <button class="btn ghost small" type="button" aria-label="Move section down">↓</button>
+            <b id="s1-h" style="font-size:14px;flex:1">MISSION 01 · DECODE THE ROLE</b>
+            <span class="a-micro">3 LESSONS · 1 REQUIRED-ALL</span>
+            <button class="btn ghost small" type="button">Rename</button>
+          </div>
+          <div class="table-scroll">
+            <table class="data">
+              <thead><tr><th style="width:40px"></th><th>Lesson</th><th>Type</th><th>Required</th><th>State</th><th class="num">Completions</th><th>Actions</th></tr></thead>
+              <tbody>
+                <tr><td><button class="btn ghost small" type="button" aria-label="Move up">↑</button></td><td><span class="cell-main">Why role clarity fails</span></td><td>Text + video embed</td><td><input type="checkbox" checked aria-label="Required"></td><td><span class="lifecycle published">PUBLISHED</span></td><td class="num">21</td><td><button class="btn ghost small" type="button">Edit</button> <button class="btn ghost small" type="button">View</button></td></tr>
+                <tr><td><button class="btn ghost small" type="button" aria-label="Move up">↑</button></td><td><span class="cell-main">The role brief, piece by piece</span></td><td>Text + resource</td><td><input type="checkbox" checked aria-label="Required"></td><td><span class="lifecycle published">PUBLISHED</span></td><td class="num">19</td><td><button class="btn ghost small" type="button">Edit</button> <button class="btn ghost small" type="button">View</button></td></tr>
+                <tr><td><button class="btn ghost small" type="button" aria-label="Move up">↑</button></td><td><span class="cell-main">Impact and success measures</span></td><td>Text</td><td><input type="checkbox" checked aria-label="Required"></td><td><span class="lifecycle published">PUBLISHED</span></td><td class="num">18</td><td><button class="btn ghost small" type="button">Edit</button> <button class="btn ghost small" type="button">View</button></td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div style="padding:10px 18px;border-top:1px dashed var(--line)"><button class="btn ghost small" type="button">＋ Add lesson</button></div>
+        </section>
+
+        <!-- Section 3 (current focus) -->
+        <section class="settings-section" style="padding:0;overflow:hidden;border-color:var(--blue);box-shadow:inset 0 0 0 1px var(--blue-soft)" aria-labelledby="s3-h">
+          <div style="display:flex;align-items:center;gap:10px;padding:14px 18px;background:var(--blue-soft)">
+            <button class="btn ghost small" type="button" aria-label="Move section up">↑</button>
+            <b id="s3-h" style="font-size:14px;flex:1">MISSION 03 · BUILD EVIDENCE</b>
+            <span class="a-micro">4 LESSONS · 1 OPTIONAL</span>
+            <button class="btn ghost small" type="button">Rename</button>
+          </div>
+          <div class="table-scroll">
+            <table class="data">
+              <thead><tr><th style="width:40px"></th><th>Lesson</th><th>Type</th><th>Required</th><th>State</th><th class="num">Completions</th><th>Actions</th></tr></thead>
+              <tbody>
+                <tr><td><button class="btn ghost small" type="button" aria-label="Move up">↑</button></td><td><span class="cell-main">What evidence survives challenge</span></td><td>Text</td><td><input type="checkbox" checked aria-label="Required"></td><td><span class="lifecycle published">PUBLISHED</span></td><td class="num">11</td><td><button class="btn ghost small" type="button">Edit</button></td></tr>
+                <tr style="background:var(--paper)"><td><button class="btn ghost small" type="button" aria-label="Move up">↑</button></td><td><span class="cell-main">Designing a scorecard that survives challenge</span> <span class="cell-sub">← live lesson, mid-edit</span></td><td>Text + 2 resources</td><td><input type="checkbox" checked aria-label="Required"></td><td><span class="lifecycle draft">DRAFT VISIBLE*</span></td><td class="num">—</td><td><button class="btn ghost small" type="button">Edit</button> <button class="btn ghost small" type="button" data-toast="Lesson published|Live for learners on next load.">Publish</button></td></tr>
+                <tr><td><button class="btn ghost small" type="button" aria-label="Move up">↑</button></td><td><span class="cell-main">Evidence synthesis practice</span></td><td>Text + worksheet</td><td><input type="checkbox" checked aria-label="Required"></td><td><span class="lifecycle published">PUBLISHED</span></td><td class="num">9</td><td><button class="btn ghost small" type="button">Edit</button></td></tr>
+                <tr><td><button class="btn ghost small" type="button" aria-label="Move up">↑</button></td><td><span class="cell-main">Quality checks before you recommend</span></td><td>Text</td><td><input type="checkbox" aria-label="Required"></td><td><span class="lifecycle published">PUBLISHED · OPTIONAL</span></td><td class="num">7</td><td><button class="btn ghost small" type="button">Edit</button></td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div style="padding:10px 18px;border-top:1px dashed var(--line);display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+            <button class="btn ghost small" type="button">＋ Add lesson</button>
+            <button class="btn ghost small" type="button">＋ Add resource to section</button>
+            <span class="help" style="margin-left:auto">*Draft-visible lessons: enrolled learners see the draft only if you turn per-lesson draft visibility on (off by default).</span>
+          </div>
+        </section>
+      </div>
+
+      <!-- Delete guard (OD-9 / BR-8a) -->
+      <div class="settings-section danger-zone" style="margin-top:20px">
+        <h3>Danger zone</h3>
+        <p class="ss-hint">This course has 23 active enrollments. Permanent delete is blocked while real progress depends on it.</p>
+        <div style="display:flex;gap:10px;flex-wrap:wrap">
+          <button class="btn secondary small" type="button" data-toast="Archived|Course hidden from public navigation; learners keep access; restore anytime.">Archive course</button>
+          <button class="btn danger small" type="button" disabled title="Blocked: 23 active enrollments depend on this course (OD-9)" aria-disabled="true">Delete permanently — blocked by 23 enrollments</button>
+        </div>
+      </div>
+    </main>
+  </div>
+</div>
+
+<div class="studio-drawer" id="studio-drawer" role="dialog" aria-label="Studio navigation">
+  <div class="panel">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px"><b>STUDIO</b><button class="btn secondary small" type="button" data-studio-drawer-close>Close</button></div>
+    <div class="sr-section" style="padding-top:0">Today</div>
+    <a class="sr-link" href="command.html">◧ Command Center</a>
+    <a class="sr-link" href="approvals.html">✓ Approvals <span class="badge">3</span></a>
+    <a class="sr-link" href="enquiries.html">✉ Enquiries</a>
+    <div class="sr-section">Product</div>
+    <a class="sr-link" href="content.html">▤ Content</a>
+    <a class="sr-link" href="courses.html" aria-current="page">◈ Courses</a>
+    <a class="sr-link" href="products.html">◉ Products</a>
+    <a class="sr-link" href="bookings.html">◷ Bookings</a>
+    <a class="sr-link" href="students.html">◍ Students</a>
+    <div class="sr-section">Intelligence</div>
+    <a class="sr-link" href="intelligence.html">◒ Intelligence</a>
+    <a class="sr-link" href="editorial.html">✎ AI Content Studio</a>
+    <div class="sr-section">System</div>
+    <a class="sr-link" href="reliability.html">⚑ Reliability</a>
+    <a class="sr-link" href="settings.html">⚙ Settings</a>
+  </div>
+</div>
+
+</body>
+</html>

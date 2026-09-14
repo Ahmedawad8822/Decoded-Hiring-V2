@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Command Center — Studio</title>
+<link rel="stylesheet" href="../tokens.css">
+<link rel="stylesheet" href="../base.css">
+<link rel="stylesheet" href="../components.css">
+<script>window.DH_PACK_ROOT = '..';</script>
+<script src="../_review-chrome.js" defer></script>
+<script src="../app.js" defer></script>
+</head>
+<body class="env-studio" data-screen="STU-01" data-screen-title="Command Center — five questions">
+
+<div class="studio">
+  <!-- STU-c01 StudioShell rail -->
+  <aside class="studio-rail" aria-label="Studio navigation">
+    <div class="sr-brand"><b>STUDIO</b><span>DECODED HIRING</span></div>
+    <div class="sr-section">Today</div>
+    <a class="sr-link" href="command.html" aria-current="page">◧ Command Center</a>
+    <a class="sr-link" href="approvals.html">✓ Approvals <span class="badge">3</span></a>
+    <a class="sr-link" href="enquiries.html">✉ Enquiries</a>
+    <div class="sr-section">Product</div>
+    <a class="sr-link" href="content.html">▤ Content</a>
+    <a class="sr-link" href="courses.html">◈ Courses</a>
+    <a class="sr-link" href="products.html">◉ Products</a>
+    <a class="sr-link" href="bookings.html">◷ Bookings</a>
+    <a class="sr-link" href="students.html">◍ Students</a>
+    <div class="sr-section">Intelligence</div>
+    <a class="sr-link" href="intelligence.html">◒ Intelligence</a>
+    <a class="sr-link" href="editorial.html">✎ AI Content Studio</a>
+    <div class="sr-section">System</div>
+    <a class="sr-link" href="reliability.html">⚑ Reliability</a>
+    <a class="sr-link" href="settings.html">⚙ Settings</a>
+  </aside>
+
+  <div class="studio-main">
+    <header class="studio-topbar">
+      <button class="st-burger btn secondary small" type="button" data-studio-drawer-open aria-label="Open navigation">☰</button>
+      <span class="st-crumb">Studio · <b>Command Center</b></span>
+      <span class="st-spacer"></span>
+      <a href="approvals.html" class="btn secondary small" style="text-decoration:none">Approvals <span class="badge">3</span></a>
+      <span class="st-avatar" title="Ahmed Awad — Owner">AA</span>
+    </header>
+
+    <main class="studio-page" id="main">
+      <div style="display:flex;justify-content:space-between;align-items:baseline;gap:14px;flex-wrap:wrap;margin-bottom:6px">
+        <div>
+          <h1 class="a-h1">Command Center</h1>
+          <p class="muted" style="margin-top:4px">Sunday, Sep 14 · data through Saturday · <span class="mono" style="font-size:11px">KPIs illustrative for prototype</span></p>
+        </div>
+        <span class="chip"><b>PERIOD</b> Last 7 days ▾</span>
+      </div>
+
+      <!-- THE FIVE QUESTIONS (UX A-7): answered before raw numbers.
+           aria-current updates via scrollspy (app.js) — the active question
+           is always marked (02D FINDING 02). -->
+      <nav aria-label="The five questions" style="display:flex;gap:8px;overflow-x:auto;padding:14px 0 4px;scrollbar-width:none">
+        <a class="chip" href="#q1" aria-current="true"><b>01</b> What changed?</a>
+        <a class="chip" href="#q2"><b>02</b> Why?</a>
+        <a class="chip" href="#q3"><b>03</b> What may be wrong?</a>
+        <a class="chip" href="#q4"><b>04</b> What opportunity exists?</a>
+        <a class="chip" href="#q5"><b>05</b> What should we do next?</a>
+      </nav>
+
+      <div class="panel-grid cols-2" style="margin-top:18px">
+
+        <!-- Panel 1: Executive snapshot → What changed? -->
+        <section class="cmd-panel" id="q1" aria-labelledby="p1-h">
+          <div class="cp-head"><div><span class="q">QUESTION 01 · WHAT CHANGED?</span><h3 id="p1-h">Executive snapshot</h3></div><span class="chip"><b>Δ</b> vs prior week</span></div>
+          <div class="cp-body">
+            <div class="kpi-row">
+              <div class="kpi"><span class="k-label">Visitors</span><div class="k-val">1,284</div><span class="k-delta up">▲ +18%</span></div>
+              <div class="kpi"><span class="k-label">Engaged readers</span><div class="k-val">412</div><span class="k-delta up">▲ +11%</span></div>
+              <div class="kpi"><span class="k-label">Leads</span><div class="k-val">9</div><span class="k-delta up">▲ +2</span></div>
+              <div class="kpi"><span class="k-label">Course starts</span><div class="k-val">23</div><span class="k-delta up">▲ +5</span></div>
+            </div>
+            <div class="insight-row" style="margin-top:14px">
+              <div class="ir-title">Guide traffic is carrying the week. <span class="lifecycle published" style="font-size:10px">WHY → Q2</span></div>
+              <p class="ir-why">The TA-strategy cluster doubled entrances after the Aug 29 update — most growth is one pillar page.</p>
+              <span class="ir-meta">SOURCE: GA4 + GSC · T+1 DAILY SYNC</span>
+            </div>
+          </div>
+          <div class="cp-foot"><a href="intelligence.html">Drill into acquisition →</a></div>
+        </section>
+
+        <!-- Panel 2: Content performance → Why? -->
+        <section class="cmd-panel" id="q2" aria-labelledby="p2-h">
+          <div class="cp-head"><div><span class="q">QUESTION 02 · WHY?</span><h3 id="p2-h">Content performance</h3></div></div>
+          <div class="cp-body">
+            <div class="insight-row">
+              <div class="ir-title">"Talent Acquisition Strategy" — 612 entrances, 38% of site total</div>
+              <p class="ir-why">Scroll-depth p75 at 71%; the pull-quote and situation-map sections hold readers. Two cluster members picked up the momentum.</p>
+              <span class="ir-meta">GUIDE · PUBLISHED AUG 2 · UPDATED AUG 29</span>
+            </div>
+            <div class="insight-row">
+              <div class="ir-title">Field Note underperforming: "Activity is not outcome"</div>
+              <p class="ir-why">CTR fine, but p50 scroll is 22% — the opening doesn't land for search visitors. Candidate for editorial refresh, not deletion.</p>
+              <span class="ir-meta">FIELD NOTE · PUBLISHED SEP 1</span>
+            </div>
+            <div class="insight-row">
+              <div class="ir-title">Resource downloads: 34 (map canvas ×21)</div>
+              <p class="ir-why">Email-gated canvas converts at 61% of clicks — the guide→resource funnel is real.</p>
+              <span class="ir-meta">12 EMAIL CAPTURES THIS WEEK</span>
+            </div>
+          </div>
+          <div class="cp-foot"><a href="content.html">Open content →</a></div>
+        </section>
+
+        <!-- Panel 3: Search & discovery + AI referrals → What may be wrong? -->
+        <section class="cmd-panel" id="q3" aria-labelledby="p3-h">
+          <div class="cp-head"><div><span class="q">QUESTION 03 · WHAT MAY BE WRONG?</span><h3 id="p3-h">Search, discovery &amp; health</h3></div><span class="sev medium">1 WATCH</span></div>
+          <div class="cp-body">
+            <div class="kpi-row">
+              <div class="kpi"><span class="k-label">Impressions</span><div class="k-val">18.4k</div><span class="k-delta up">▲ +9%</span></div>
+              <div class="kpi"><span class="k-label">Avg position</span><div class="k-val">14.2</div><span class="k-delta up">▲ +1.8</span></div>
+              <div class="kpi"><span class="k-label">AI referrals</span><div class="k-val">96</div><span class="k-delta up">▲ +31%</span></div>
+              <div class="kpi"><span class="k-label">Indexed</span><div class="k-val">41/42</div><span class="k-delta flat">—</span></div>
+            </div>
+            <div class="insight-row" style="margin-top:14px">
+              <div class="ir-title"><span class="sev medium">WATCH</span> Workshop page lost position 3→7 for "recruitment workshop"</div>
+              <p class="ir-why">Competitor published a near-duplicate structure. Not a penalty — but the enquiry flow depends on this query. Candidate for the improvement plan.</p>
+              <span class="ir-meta">GSC · CLUSTER: WORKSHOPS</span>
+            </div>
+            <div class="insight-row">
+              <div class="ir-title">Technical health green: CWV p75 in budget, 0 route errors, cache 96%</div>
+              <p class="ir-why">No open incidents. One scheduled publish tonight (Field Note draft awaiting your approval →).</p>
+              <span class="ir-meta">RELIABILITY · ALL SYSTEMS NOMINAL</span>
+            </div>
+          </div>
+          <div class="cp-foot"><a href="reliability.html">Reliability →</a></div>
+        </section>
+
+        <!-- Panel 4: Growth funnel + learning → What opportunity exists? -->
+        <section class="cmd-panel" id="q4" aria-labelledby="p4-h">
+          <div class="cp-head"><div><span class="q">QUESTION 04 · WHAT OPPORTUNITY EXISTS?</span><h3 id="p4-h">Funnel &amp; learning</h3></div></div>
+          <div class="cp-body">
+            <ol style="list-style:none;margin:0;padding:0;display:grid">
+              <li class="insight-row" style="border-top:0"><div class="ir-title">Visitor → engaged reader <span class="mono" style="margin-left:auto;color:#1f7a52">32%</span></div><p class="ir-why">Healthy for an authority site.</p></li>
+              <li class="insight-row"><div class="ir-title">Engaged → resource action <span class="mono" style="margin-left:auto;color:#1f7a52">8.2%</span></div><p class="ir-why">Canvas is the engine — 21 of 26 downloads.</p></li>
+              <li class="insight-row"><div class="ir-title">Reader → guide→enquiry assist <span class="mono" style="margin-left:auto;color:var(--coral-deep)">1.6%</span></div><p class="ir-why">The drop the editorial agent flagged: workshop CTA on Guide readers fell 2.8%→1.6%. The recommendations panel has a ranked fix.</p></li>
+              <li class="insight-row"><div class="ir-title">Signup → learner → lesson 2 <span class="mono" style="margin-left:auto;color:#1f7a52">74%</span></div><p class="ir-why">Mission 03 lesson 2 is the current drop-off point (data thin — 5 learners). Watch, don't act yet.</p></li>
+            </ol>
+          </div>
+          <div class="cp-foot"><a href="intelligence.html">Funnel detail →</a></div>
+        </section>
+
+        <!-- Panel 5: Prioritized actions → What should we do next? (the answer panel) -->
+        <section class="cmd-panel" id="q5" aria-labelledby="p5-h" style="grid-column:1/-1">
+          <div class="cp-head"><div><span class="q">QUESTION 05 · WHAT SHOULD WE DO NEXT?</span><h3 id="p5-h">Prioritized actions — agent recommendations, evidence attached</h3></div><span class="chip"><b>3</b> RANKED BY EXPECTED IMPACT</span></div>
+          <div class="cp-body">
+            <!-- STU-c16 RecommendationCard -->
+            <div class="reco-card">
+              <span class="rc-rank">RECOMMENDATION 01 · PROPOSED</span>
+              <p class="rc-title">Test a contextual workshop CTA on the three highest-intent guides (the drop is real and specific).</p>
+              <p class="rc-evidence">Guide traffic +38% this period, but workshop CTA conversion on Guide visitors fell 2.8% → 1.6%. The guides getting the traffic are exactly the ones with generic end-CTAs. <span class="mono" style="display:block;margin-top:6px;font-size:10.5px">EVIDENCE: GSC + POSTHOG FUNNEL · SEPT 1–13</span></p>
+              <div class="rc-meta"><span class="chip"><b>IMPACT</b> medium-high</span><span class="chip"><b>EFFORT</b> low</span><span class="chip"><b>CONFIDENCE</b> medium-high</span><span class="chip"><b>METRIC</b> guide→enquiry %</span></div>
+              <div class="rc-actions"><button class="btn secondary small" type="button" data-toast="Recommendation accepted|Added to the improvement plan — status: accepted.">Accept</button><button class="btn ghost small" type="button">See full evidence</button><button class="btn ghost small" type="button">Decline</button></div>
+            </div>
+            <div class="reco-card" style="margin-top:12px">
+              <span class="rc-rank">RECOMMENDATION 02 · PROPOSED</span>
+              <p class="rc-title">Refresh the "Activity is not outcome" opening — search visitors bounce before the argument starts.</p>
+              <p class="rc-evidence">p50 scroll 22% vs 58% site median for field notes; entrances from search, where the first two paragraphs assume newsletter context. <span class="mono" style="display:block;margin-top:6px;font-size:10.5px">EVIDENCE: POSTHOG SCROLL DEPTH · SEP 1–13</span></p>
+              <div class="rc-meta"><span class="chip"><b>IMPACT</b> medium</span><span class="chip"><b>EFFORT</b> low</span><span class="chip"><b>CONFIDENCE</b> high</span><span class="chip"><b>METRIC</b> scroll p50</span></div>
+              <div class="rc-actions"><button class="btn secondary small" type="button" data-toast="Draft requested|Editorial agent will prepare a revised opening for your approval.">Draft it for me</button><button class="btn ghost small" type="button">Decline</button></div>
+            </div>
+            <div class="reco-card" style="margin-top:12px">
+              <span class="rc-rank">RECOMMENDATION 03 · IMPLEMENTED → EVALUATED SEPT 12</span>
+              <p class="rc-title">Structured data + IndexNow on the TA-strategy cluster (last month's rec) — result: impressions +9%, position +1.8. Loop closed. ✓</p>
+              <p class="rc-evidence">This is what a closed loop looks like: the recommendation, its evidence, the change, and the measured outcome stay linked. <span class="mono" style="display:block;margin-top:6px;font-size:10.5px">OUTCOME: MET — RETAINED AS PATTERN</span></p>
+            </div>
+          </div>
+        </section>
+
+        <!-- Panels 6-9 condensed strip (commerce, security, agent activity) -->
+        <section class="cmd-panel" aria-labelledby="p6-h">
+          <div class="cp-head"><div><span class="q">COMMERCE &amp; SCHEDULING</span><h3 id="p6-h">This week's pipeline</h3></div></div>
+          <div class="cp-body">
+            <div class="kpi-row">
+              <div class="kpi"><span class="k-label">Coaching requests</span><div class="k-val">4</div><span class="k-delta up">▲ +1</span></div>
+              <div class="kpi"><span class="k-label">Discovery mtgs</span><div class="k-val">2</div><span class="k-delta flat">—</span></div>
+              <div class="kpi"><span class="k-label">Capacity used</span><div class="k-val">31%</div><span class="k-delta flat">—</span></div>
+              <div class="kpi"><span class="k-label">No-shows</span><div class="k-val">0</div><span class="k-delta flat">—</span></div>
+            </div>
+            <p class="ir-why" style="margin-top:12px;font-size:12.5px">One approval waiting in the queue now (Salma El-Tayeb, Thu 11:00 — strong brief). <a href="approvals.html" style="color:var(--blue)">Review →</a></p>
+          </div>
+        </section>
+
+        <section class="cmd-panel" aria-labelledby="p7-h">
+          <div class="cp-head"><div><span class="q">AGENT ACTIVITY</span><h3 id="p7-h">What the agents did — transparently</h3></div></div>
+          <div class="cp-body">
+            <div class="insight-row" style="border-top:0"><div class="ir-title">Editorial agent: 2 drafts prepared</div><p class="ir-why">Field Note "What the OS actually changes" + revised opening for "Activity is not outcome". Both await your approval — nothing publishes without you (BR-7).</p></div>
+            <div class="insight-row"><div class="ir-title">Reliability agent: 0 incidents, 1 watch item</div><p class="ir-why">Workshop-page position drop monitored, no action taken — recommendation routed to the plan instead.</p></div>
+            <div class="insight-row"><div class="ir-title">Scheduling agent: 2 bookings confirmed, 4 template emails</div><p class="ir-why">All within booking-scoped templates. Full audit trail in Reliability.</p></div>
+          </div>
+          <div class="cp-foot"><a href="editorial.html">AI Content Studio →</a></div>
+        </section>
+      </div>
+    </main>
+  </div>
+</div>
+
+<!-- Studio drawer (phone, SYS-11) -->
+<div class="studio-drawer" id="studio-drawer" role="dialog" aria-label="Studio navigation">
+  <div class="panel">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+      <b>STUDIO</b>
+      <button class="btn secondary small" type="button" data-studio-drawer-close>Close</button>
+    </div>
+    <div class="sr-section" style="padding-top:0">Today</div>
+    <a class="sr-link" href="command.html" aria-current="page">◧ Command Center</a>
+    <a class="sr-link" href="approvals.html">✓ Approvals <span class="badge">3</span></a>
+    <a class="sr-link" href="enquiries.html">✉ Enquiries</a>
+    <div class="sr-section">Product</div>
+    <a class="sr-link" href="content.html">▤ Content</a>
+    <a class="sr-link" href="courses.html">◈ Courses</a>
+    <a class="sr-link" href="products.html">◉ Products</a>
+    <a class="sr-link" href="bookings.html">◷ Bookings</a>
+    <a class="sr-link" href="students.html">◍ Students</a>
+    <div class="sr-section">Intelligence</div>
+    <a class="sr-link" href="intelligence.html">◒ Intelligence</a>
+    <a class="sr-link" href="editorial.html">✎ AI Content Studio</a>
+    <div class="sr-section">System</div>
+    <a class="sr-link" href="reliability.html">⚑ Reliability</a>
+    <a class="sr-link" href="settings.html">⚙ Settings</a>
+  </div>
+</div>
+
+</body>
+</html>
