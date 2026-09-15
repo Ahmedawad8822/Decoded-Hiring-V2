@@ -21,6 +21,9 @@ export interface CourseProgress {
   completedRequired: number;
   percent: number;
   completed: boolean;
+  /** ALL published lessons (required + optional) — feeds dashboard cards so
+   *  collection reads never re-fetch the curriculum just for a lesson total. */
+  totalPublished: number;
   completedLessonIds: string[];
   resumeLesson: Lesson | null;
   nextAfterLessonId: Record<string, Lesson | null>;
@@ -71,6 +74,7 @@ export async function getEnrollmentProgress(enrollment: Enrollment): Promise<Cou
     completedRequired,
     percent,
     completed,
+    totalPublished: publishedAll.length,
     completedLessonIds: completedIds,
     resumeLesson,
     nextAfterLessonId,
@@ -81,9 +85,18 @@ export async function getEnrollmentProgress(enrollment: Enrollment): Promise<Cou
  * Bring enrollment.status/completedAt in line with the recomputed completion
  * verdict. No-op when already consistent. Exported for tests.
  *
+ * SECURITY INVARIANT: cancelled is terminal for learner access. This helper
+ * NEVER modifies a cancelled enrollment — only active ↔ completed
+ * transitions happen here. Without this guard a cancelled learner who had
+ * already finished the (current) required set would be resurrected to
+ * completed by a mere dashboard/progress read. Reactivation happens ONLY
+ * through the explicit re-enrollment flow (enrollFree).
+ *
  * Reads the CURRENT row (never the caller-passed snapshot): progress callers
  * routinely hold objects fetched before earlier completions, and a stale
- * status="active" snapshot must not suppress the reopen write.
+ * status="active" snapshot must not suppress the reopen write. The same
+ * current-row read is what makes the cancelled guard authoritative even
+ * when the caller holds a stale pre-cancellation snapshot.
  */
 export async function reconcileEnrollmentCompletion(
   enrollment: Enrollment,
@@ -96,7 +109,8 @@ export async function reconcileEnrollmentCompletion(
     .where(eq(enrollments.id, enrollment.id))
     .get();
   if (!current) return;
-  if (completed && current.status !== "completed") {
+  if (current.status === "cancelled") return;
+  if (completed && current.status === "active") {
     await db
       .update(enrollments)
       .set({ completedAt: new Date(), status: "completed" })

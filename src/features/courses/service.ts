@@ -69,6 +69,22 @@ export async function getAdminCourseBySlug(slug: string): Promise<Course | null>
   return course || null;
 }
 
+/**
+ * Batch course metadata for learner collection reads (/learn, /learn/courses).
+ * ONE query for many ids instead of one getAdminCourseById per enrollment.
+ * Missing ids are simply absent from the map. No generic repository — one
+ * narrow helper for the dashboard fan-out.
+ */
+export async function getCoursesByIds(courseIds: string[]): Promise<Map<string, Course>> {
+  if (courseIds.length === 0) return new Map();
+  const db = await getDb();
+  const rows = await db
+    .select()
+    .from(courses)
+    .where(inArray(courses.id, courseIds));
+  return new Map(rows.map((c) => [c.id, c]));
+}
+
 // ---------------------------------------------------------------- Admin writes
 
 export async function createCourse(input: CreateCourseInput): Promise<Course> {

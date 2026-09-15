@@ -1,8 +1,8 @@
 import Link from "next/link";
 import { getServerSession } from "@/lib/auth";
-import { getUserEnrollments } from "@/features/enrollments/service";
+import { getAccessibleEnrollments } from "@/features/enrollments/service";
 import { getEnrollmentProgress } from "@/features/progress/service";
-import { getAdminCourseById, getPublishedCourseLessons } from "@/features/courses/service";
+import { getCoursesByIds } from "@/features/courses/service";
 
 export const metadata = {
   title: "Continue learning | Decoded Hiring",
@@ -13,14 +13,23 @@ export default async function LearnHomePage() {
   const session = await getServerSession();
   const userId = session!.user.id;
 
-  const memberships = await getUserEnrollments(userId);
+  // QUERY SHAPE (post fan-out fix): 1 enrollments read + 1 batched course
+  // lookup + one getEnrollmentProgress per ACCESSIBLE enrollment (each: 2
+  // curriculum queries + 1 progress read + 1 reconcile read). Cancelled
+  // enrollments are filtered BEFORE any course/progress work, so they never
+  // appear here and never trigger reconciliation. The per-enrollment
+  // getPublishedCourseLessons fetch purely for lessonCount is gone —
+  // CourseProgress.totalPublished (already loaded curriculum) feeds the card.
+  // Before: 1 + N * (1 course + 4 progress + 2 lessonCount) ≈ 1 + 7N queries
+  // (N = all enrollments incl. cancelled). After: 2 + 4M (M = accessible).
+  const memberships = await getAccessibleEnrollments(userId);
+  const courseMap = await getCoursesByIds(memberships.map((e) => e.courseId));
   const cards = await Promise.all(
     memberships.map(async (enrollment) => {
-      const course = await getAdminCourseById(enrollment.courseId);
+      const course = courseMap.get(enrollment.courseId);
       if (!course) return null;
       const progress = await getEnrollmentProgress(enrollment);
-      const published = await getPublishedCourseLessons(enrollment.courseId);
-      return { enrollment, course, progress, lessonCount: published.length };
+      return { enrollment, course, progress, lessonCount: progress.totalPublished };
     })
   ).then((rows) => rows.filter((r) => r !== null));
 

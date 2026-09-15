@@ -26,6 +26,18 @@ export async function getUserEnrollments(userId: string): Promise<Enrollment[]> 
   return db.select().from(enrollments).where(eq(enrollments.userId, userId)).orderBy(desc(enrollments.enrolledAt));
 }
 
+/**
+ * Learner collection reads (/learn, /learn/courses).
+ * Cancelled enrollments are filtered BEFORE any course/progress work: they
+ * must not appear as active/completed learner courses and must not trigger
+ * progress reconciliation. Uses the shared hasLearnerAccess() rule — never
+ * a second local status check.
+ */
+export async function getAccessibleEnrollments(userId: string): Promise<Enrollment[]> {
+  const all = await getUserEnrollments(userId);
+  return all.filter((e) => hasLearnerAccess(e));
+}
+
 export async function enrollFree(userId: string, courseId: string): Promise<Enrollment> {
   const db = await getDb();
   const course = await getAdminCourseById(courseId);

@@ -28,16 +28,19 @@ import {
   getCourseCurriculum,
   getCourseEnrollmentCounts,
   getPublishedLessonCounts,
+  getCoursesByIds,
 } from "../src/features/courses/service";
 import {
   enrollFree,
   getEnrollment,
   requireEnrollment,
+  getAccessibleEnrollments,
 } from "../src/features/enrollments/service";
 import { hasLearnerAccess } from "../src/features/enrollments/access";
 import {
   getEnrollmentProgress,
   markLessonComplete,
+  reconcileEnrollmentCompletion,
 } from "../src/features/progress/service";
 import {
   extractYouTubeVideoId,
@@ -677,4 +680,92 @@ test("M06-R10: UNIQUE indexes reject duplicate rows at the DB level (B)", async 
   );
 
   await cleanupCourse(slug);
+});
+
+// ---------------------------------------------------------------- final pre-CodeRabbit corrections
+
+test("M06-R11: cancelled enrollments are NEVER resurrected by progress reads", async () => {
+  const { course, req1, req2, slug } = await makeProgressCourse("noresurrect");
+  const userId = await makeUser(`m06-r11-${stamp()}@example.com`);
+
+  // 1. learner completes the course...
+  const enrollment = await enrollFree(userId, course.id);
+  await markLessonComplete(userId, enrollment.id, req1.id);
+  await markLessonComplete(userId, enrollment.id, req2.id);
+
+  // 2. ...enrollment becomes completed.
+  let row = await getEnrollment(userId, course.id);
+  assert.equal(row?.status, "completed");
+
+  // 3. enrollment manually becomes cancelled (status + timestamp cleared,
+  // as a real cancellation would leave it).
+  const db = await getDb();
+  await db
+    .update(enrollments)
+    .set({ status: "cancelled", completedAt: null })
+    .where(eq(enrollments.id, enrollment.id));
+
+  // 4. progress reads run against a STALE pre-cancellation (active) snapshot —
+  // the exact shape dashboard callers hold — plus a direct reconcile call
+  // with a satisfied verdict. Neither may touch the row.
+  await getEnrollmentProgress(enrollment);
+  await reconcileEnrollmentCompletion(enrollment, true);
+
+  // 5. enrollment remains cancelled.
+  row = await getEnrollment(userId, course.id);
+  assert.equal(row?.status, "cancelled");
+  assert.equal(row?.completedAt, null);
+
+  // 6. hasLearnerAccess remains false.
+  assert.equal(hasLearnerAccess(row), false);
+
+  // 7. protected lesson access remains denied: the lesson page gates on
+  // hasLearnerAccess (denied panel) and the write path rejects the same way.
+  await assert.rejects(() => requireEnrollment(userId, course.id), /not enrolled/);
+  await assert.rejects(
+    () => markLessonComplete(userId, enrollment.id, req1.id),
+    /no longer active/
+  );
+
+  // 8. protected resource remains denied: the download route gates on
+  // hasLearnerAccess(getEnrollment(...)) — the identical predicate chain
+  // asserted here — so a cancelled learner gets the same 403 as a stranger.
+  assert.equal(hasLearnerAccess(await getEnrollment(userId, course.id)), false);
+
+  // Explicit FREE re-enrollment is the ONLY path back to active.
+  const reactivated = await enrollFree(userId, course.id);
+  assert.equal(reactivated.status, "active");
+  assert.equal(hasLearnerAccess(reactivated), true);
+
+  await cleanupCourse(slug);
+});
+
+test("M06-R12: cancelled enrollments are filtered from learner collection reads", async () => {
+  const a = await makeProgressCourse("dash-a");
+  const b = await makeProgressCourse("dash-b");
+  const userId = await makeUser(`m06-r12-${stamp()}@example.com`);
+  const enrollmentA = await enrollFree(userId, a.course.id);
+  await enrollFree(userId, b.course.id);
+
+  let visible = await getAccessibleEnrollments(userId);
+  assert.equal(visible.length, 2);
+
+  const db = await getDb();
+  await db
+    .update(enrollments)
+    .set({ status: "cancelled" })
+    .where(eq(enrollments.id, enrollmentA.id));
+
+  // Cancelled enrollment vanishes from the collection read; the surviving
+  // course resolves through the ONE-query batch lookup.
+  visible = await getAccessibleEnrollments(userId);
+  assert.equal(visible.length, 1);
+  assert.equal(visible[0].courseId, b.course.id);
+  const courseMap = await getCoursesByIds(visible.map((e) => e.courseId));
+  assert.equal(courseMap.size, 1);
+  assert.ok(courseMap.get(b.course.id));
+  assert.deepEqual(await getCoursesByIds([]), new Map());
+
+  await cleanupCourse(a.slug);
+  await cleanupCourse(b.slug);
 });

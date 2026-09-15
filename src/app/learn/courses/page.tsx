@@ -1,9 +1,9 @@
 import Link from "next/link";
 import { getServerSession } from "@/lib/auth";
-import { getUserEnrollments } from "@/features/enrollments/service";
+import { getAccessibleEnrollments } from "@/features/enrollments/service";
 import { getEnrollmentProgress } from "@/features/progress/service";
 import {
-  getAdminCourseById,
+  getCoursesByIds,
   getPublishedCourses,
   getPublishedLessonCounts,
 } from "@/features/courses/service";
@@ -17,13 +17,21 @@ export default async function LearnCoursesPage() {
   const session = await getServerSession();
   const userId = session!.user.id;
 
-  const memberships = await getUserEnrollments(userId);
+  // QUERY SHAPE (post fan-out fix): 1 enrollments read + 1 batched course
+  // lookup + 1 published-catalog read + 1 batched catalog count + one
+  // getEnrollmentProgress per ACCESSIBLE enrollment (4 queries each).
+  // Cancelled enrollments are filtered BEFORE any course/progress work; their
+  // courses fall back into the free catalog below (re-enroll reactivates via
+  // enrollFree). Before: 3 + 5N queries (N = all enrollments). After:
+  // 4 + 4M (M = accessible).
+  const memberships = await getAccessibleEnrollments(userId);
   const enrolledIds = new Set(memberships.map((e) => e.courseId));
+  const courseMap = await getCoursesByIds([...enrolledIds]);
 
   const enrolled = (
     await Promise.all(
       memberships.map(async (enrollment) => {
-        const course = await getAdminCourseById(enrollment.courseId);
+        const course = courseMap.get(enrollment.courseId);
         if (!course) return null;
         const progress = await getEnrollmentProgress(enrollment);
         return { enrollment, course, progress };
