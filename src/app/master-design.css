@@ -1981,6 +1981,7 @@
   inset: 4% -6% 7% -6%;
   z-index: 0;
   pointer-events: none;
+  overflow: hidden;
 }
 #hg-master-draft .hg-orbit {
   position: absolute;
@@ -5278,12 +5279,27 @@
   #hg-master-draft .hg-site-footer {
     grid-template-columns: 1fr 1fr;
   }
+  #hg-master-draft .hg-site-footer nav {
+    gap: 4px;
+  }
+  #hg-master-draft .hg-site-footer nav a {
+    min-height: 44px;
+    padding-block: 8px;
+    display: inline-flex;
+    align-items: center;
+  }
   #hg-master-draft .hg-footer-statement {
     grid-column: 1 / -1;
   }
 }
 
 @media (max-width: 520px) {
+  #hg-master-draft .hg-orbits {
+    inset: 4% 0 7% 0;
+  }
+  #hg-master-draft .hg-site-footer {
+    grid-template-columns: 1fr;
+  }
   #hg-master-draft .hg-controls {
     width: auto;
     flex-flow: row nowrap;
@@ -5294,6 +5310,9 @@
   #hg-master-draft .hg-page-control,
   #hg-master-draft .hg-login-entry {
     flex: 0 0 auto;
+    min-height: 44px;
+    display: inline-flex;
+    align-items: center;
   }
   #hg-master-draft .hg-account-name {
     display: none;

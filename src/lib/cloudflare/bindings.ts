@@ -5,7 +5,12 @@ export interface CloudflareEnv {
   MEDIA_BUCKET: R2Bucket;
 }
 
-let localProxyPromise: Promise<{ env: CloudflareEnv }> | null = null;
+interface PlatformProxyResult {
+  env: CloudflareEnv;
+  dispose: () => Promise<void>;
+}
+
+let localProxyPromise: Promise<PlatformProxyResult> | null = null;
 
 /**
  * Clean runtime boundary for Cloudflare bindings:
@@ -32,12 +37,20 @@ export async function getCloudflareBindings(): Promise<CloudflareEnv> {
         configPath: "wrangler.jsonc",
         persist: { path: ".wrangler/state/v3" },
       });
-      return proxy as unknown as { env: CloudflareEnv };
+      return proxy as unknown as PlatformProxyResult;
     })();
   }
 
   const proxy = await localProxyPromise;
   return proxy.env;
+}
+
+export async function disposeCloudflareBindings(): Promise<void> {
+  if (localProxyPromise) {
+    const proxy = await localProxyPromise;
+    localProxyPromise = null;
+    await proxy.dispose();
+  }
 }
 
 export async function getD1Database(): Promise<D1Database> {
