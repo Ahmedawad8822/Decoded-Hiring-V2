@@ -24,12 +24,17 @@ import {
   getPublishedCourseBySlug,
   getPublishedLessonBySlug,
   getPublishedCourseLessons,
+  getLearnerCourseBySlug,
+  getCourseCurriculum,
+  getCourseEnrollmentCounts,
+  getPublishedLessonCounts,
 } from "../src/features/courses/service";
 import {
   enrollFree,
   getEnrollment,
   requireEnrollment,
 } from "../src/features/enrollments/service";
+import { hasLearnerAccess } from "../src/features/enrollments/access";
 import {
   getEnrollmentProgress,
   markLessonComplete,
@@ -39,6 +44,11 @@ import {
   isValidYouTubeUrl,
 } from "../src/features/courses/youtube";
 import { getCourseResourceObject } from "../src/lib/course-resources/service";
+import {
+  hasPdfMagicBytes,
+  uploadCourseResource,
+} from "../src/lib/course-resources/service";
+import { getMedia, isPublicMediaKey } from "../src/lib/media/service";
 import { eq } from "drizzle-orm";
 
 import { disposeCloudflareBindings } from "../src/lib/cloudflare/bindings";
@@ -427,4 +437,244 @@ test("M06-R1: resource storage boundary rejects non-course namespaces", async ()
   assert.equal(await getCourseResourceObject("field-notes/abc.png"), null);
   assert.equal(await getCourseResourceObject("course-resources/../../etc/passwd"), null);
   assert.equal(await getCourseResourceObject(""), null);
+});
+
+// ---------------------------------------------------------------- review corrections (A-L)
+
+test("M06-R2: public media serves ONLY allowlisted namespaces (A)", async () => {
+  // Pure allowlist verdicts — no storage touched.
+  assert.equal(isPublicMediaKey("guides/cover.jpg"), true);
+  assert.equal(isPublicMediaKey("field-notes/photo.png"), true);
+  assert.equal(isPublicMediaKey("course-resources/c1/deadbeef.pdf"), false);
+  assert.equal(isPublicMediaKey("course-resources"), false);
+  assert.equal(isPublicMediaKey("../guides/cover.jpg"), false);
+  assert.equal(isPublicMediaKey("/etc/passwd"), false);
+  assert.equal(isPublicMediaKey(""), false);
+
+  // Protected learner PDFs are unreachable through the public route: getMedia
+  // answers null BEFORE touching R2, so UUID secrecy is never load-bearing.
+  assert.equal(await getMedia("course-resources/c1/deadbeef.pdf"), null);
+  assert.equal(await getMedia("../guides/cover.jpg"), null);
+});
+
+test("M06-R3: cancelled enrollments are denied on every boundary (C)", async () => {
+  const { course, req1, slug } = await makeProgressCourse("cancelled");
+  const userId = await makeUser(`m06-r3-${stamp()}@example.com`);
+  const enrollment = await enrollFree(userId, course.id);
+  assert.equal(hasLearnerAccess(enrollment), true);
+
+  const db = await getDb();
+  await db
+    .update(enrollments)
+    .set({ status: "cancelled" })
+    .where(eq(enrollments.id, enrollment.id));
+  const cancelled = await getEnrollment(userId, course.id);
+  assert.equal(hasLearnerAccess(cancelled), false);
+  assert.equal(hasLearnerAccess(null), false);
+
+  await assert.rejects(() => requireEnrollment(userId, course.id), /not enrolled/);
+  await assert.rejects(
+    () => markLessonComplete(userId, enrollment.id, req1.id),
+    /no longer active/
+  );
+
+  await cleanupCourse(slug);
+});
+
+test("M06-R4: archived courses stay visible to entitled learners only (D)", async () => {
+  const slug = `m06-r4-${stamp()}`;
+  const course = await createCourse({ title: "Archive Visibility", slug, accessMode: "FREE" });
+  await publishCourse(course.id);
+  const learner = await makeUser(`m06-r4-l-${stamp()}@example.com`);
+  const stranger = await makeUser(`m06-r4-s-${stamp()}@example.com`);
+  await enrollFree(learner, course.id);
+  await archiveCourse(course.id);
+
+  // Public view 404s; entitled learner keeps access; strangers (and the
+  // anonymous) see nothing.
+  assert.equal(await getPublishedCourseBySlug(slug), null);
+  assert.ok(await getLearnerCourseBySlug(slug, learner));
+  assert.equal(await getLearnerCourseBySlug(slug, stranger), null);
+  assert.equal(await getLearnerCourseBySlug(slug, null), null);
+  assert.equal(await getLearnerCourseBySlug(slug, undefined), null);
+
+  await cleanupCourse(slug);
+});
+
+test("M06-R5: curriculum groups every section in memory, no per-section gaps (E)", async () => {
+  const slug = `m06-r5-${stamp()}`;
+  const course = await createCourse({ title: "Curriculum Grouping", slug, accessMode: "FREE" });
+  const s1 = await createSection({ courseId: course.id, title: "S1" });
+  const s2 = await createSection({ courseId: course.id, title: "S2" });
+  const mk = (sectionId: string, title: string, s: string) =>
+    createLesson({ courseId: course.id, sectionId, title, slug: `${s}-${stamp()}`, required: true });
+  const a = await mk(s1.id, "A", "r5-a");
+  const b = await mk(s2.id, "B", "r5-b");
+  const c = await mk(s1.id, "C", "r5-c");
+
+  const curriculum = await getCourseCurriculum(course.id);
+  assert.equal(curriculum.length, 2);
+  assert.deepEqual(
+    curriculum.find((e) => e.section.id === s1.id)?.lessons.map((l) => l.id),
+    [a.id, c.id]
+  );
+  assert.deepEqual(
+    curriculum.find((e) => e.section.id === s2.id)?.lessons.map((l) => l.id),
+    [b.id]
+  );
+
+  await cleanupCourse(slug);
+});
+
+test("M06-R6: completion reopens when the curriculum grows (H)", async () => {
+  const { course, req1, req2, slug } = await makeProgressCourse("reopen");
+  const userId = await makeUser(`m06-r6-${stamp()}@example.com`);
+  const enrollment = await enrollFree(userId, course.id);
+
+  await markLessonComplete(userId, enrollment.id, req1.id);
+  await markLessonComplete(userId, enrollment.id, req2.id);
+  let progress = await getEnrollmentProgress(enrollment);
+  assert.equal(progress.completed, true);
+  let row = await getEnrollment(userId, course.id);
+  assert.equal(row?.status, "completed");
+
+  // Curriculum grows: a new REQUIRED published lesson reopens the enrollment.
+  const section = (await getCourseCurriculum(course.id))[0].section;
+  const req3 = await createLesson({
+    courseId: course.id,
+    sectionId: section.id,
+    title: "Required Three",
+    slug: `req-three-${stamp()}`,
+    required: true,
+  });
+  await publishLesson(req3.id);
+
+  progress = await getEnrollmentProgress(enrollment);
+  assert.equal(progress.completed, false);
+  assert.equal(progress.totalRequired, 3);
+  row = await getEnrollment(userId, course.id);
+  assert.equal(row?.status, "active");
+  assert.equal(row?.completedAt, null);
+
+  await cleanupCourse(slug);
+});
+
+test("M06-R7: batched stat helpers match per-row truth (G)", async () => {
+  const slug = `m06-r7-${stamp()}`;
+  const course = await createCourse({ title: "Batch Stats", slug, accessMode: "FREE" });
+  await publishCourse(course.id);
+  const u1 = await makeUser(`m06-r7a-${stamp()}@example.com`);
+  const u2 = await makeUser(`m06-r7b-${stamp()}@example.com`);
+  await enrollFree(u1, course.id);
+  await enrollFree(u2, course.id);
+
+  const counts = await getCourseEnrollmentCounts([course.id, "course_missing"]);
+  assert.equal(counts[course.id], 2);
+  assert.equal(counts["course_missing"], 0);
+  assert.deepEqual(await getCourseEnrollmentCounts([]), {});
+
+  const section = await createSection({ courseId: course.id, title: "S1" });
+  const lesson = await createLesson({
+    courseId: course.id,
+    sectionId: section.id,
+    title: "Counted",
+    slug: `counted-${stamp()}`,
+    required: true,
+  });
+  await publishLesson(lesson.id);
+  const lessonCounts = await getPublishedLessonCounts([course.id, "course_missing"]);
+  assert.equal(lessonCounts[course.id], 1);
+  assert.equal(lessonCounts["course_missing"], 0);
+
+  await cleanupCourse(slug);
+});
+
+test("M06-R8: PDF magic bytes gate the resource store (J)", async () => {
+  const pdf = new Uint8Array([0x25, 0x50, 0x44, 0x46, 0x2d, 0x31, 0x2e, 0x34]);
+  assert.equal(hasPdfMagicBytes(pdf), true);
+  assert.equal(hasPdfMagicBytes(pdf.buffer), true);
+  assert.equal(hasPdfMagicBytes(new Uint8Array([0x89, 0x50, 0x4e, 0x47])), false);
+  assert.equal(hasPdfMagicBytes(new Uint8Array([])), false);
+
+  // A renamed executable with a PDF MIME type is rejected BEFORE any R2 write.
+  const slug = `m06-r8-${stamp()}`;
+  const course = await createCourse({ title: "Magic Bytes", slug, accessMode: "FREE" });
+  const section = await createSection({ courseId: course.id, title: "S1" });
+  const lesson = await createLesson({
+    courseId: course.id,
+    sectionId: section.id,
+    title: "L",
+    slug: `magic-${stamp()}`,
+    required: true,
+  });
+  await assert.rejects(
+    () =>
+      uploadCourseResource({
+        buffer: new Uint8Array([0x4d, 0x5a, 0x90, 0x00]).buffer as ArrayBuffer,
+        filename: "evil.pdf",
+        contentType: "application/pdf",
+        courseId: course.id,
+        lessonId: lesson.id,
+        title: "Evil",
+      }),
+    /not a valid PDF/
+  );
+  await assert.rejects(
+    () =>
+      uploadCourseResource({
+        buffer: new Uint8Array(11 * 1024 * 1024).buffer as ArrayBuffer,
+        filename: "big.pdf",
+        contentType: "application/pdf",
+        courseId: course.id,
+        lessonId: lesson.id,
+        title: "Big",
+      }),
+    /exceeds the 10 MB/
+  );
+
+  await cleanupCourse(slug);
+});
+
+test("M06-R10: UNIQUE indexes reject duplicate rows at the DB level (B)", async () => {
+  const slug = `m06-r10-${stamp()}`;
+  const course = await createCourse({ title: "Unique Rows", slug, accessMode: "FREE" });
+  await publishCourse(course.id);
+  const userId = await makeUser(`m06-r10-${stamp()}@example.com`);
+  const enrollment = await enrollFree(userId, course.id);
+
+  const db = await getDb();
+  // Second (userId, courseId) row must fail — enrollFree idempotency is not
+  // the only thing standing between us and duplicates.
+  await assert.rejects(() =>
+    db.insert(enrollments).values({
+      id: `enroll_dup_${stamp()}`,
+      userId,
+      courseId: course.id,
+      status: "active",
+      enrolledAt: new Date(),
+      completedAt: null,
+    })
+  );
+
+  // Second (enrollmentId, lessonId) progress row must fail the same way.
+  const section = await createSection({ courseId: course.id, title: "S1" });
+  const lesson = await createLesson({
+    courseId: course.id,
+    sectionId: section.id,
+    title: "L",
+    slug: `uniq-${stamp()}`,
+    required: true,
+  });
+  await publishLesson(lesson.id);
+  await markLessonComplete(userId, enrollment.id, lesson.id);
+  await assert.rejects(() =>
+    db.insert(lessonProgress).values({
+      id: `prog_dup_${stamp()}`,
+      enrollmentId: enrollment.id,
+      lessonId: lesson.id,
+      completedAt: new Date(),
+    })
+  );
+
+  await cleanupCourse(slug);
 });
