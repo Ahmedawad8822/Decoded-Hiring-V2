@@ -61,11 +61,33 @@ export function SiteHeaderClient({
     closeAllMenus();
   }, [pathname, closeAllMenus]);
 
-  // Handle Escape key and click-outside dismissal
+  // Handle Escape key with focus restoration and click-outside dismissal
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
-      if (e.key === "Escape") {
-        closeAllMenus();
+      if (e.key === "Escape" && navRef.current) {
+        const openMenus = Array.from(
+          navRef.current.querySelectorAll<HTMLDetailsElement>("details.hg-nav-menu[open]")
+        );
+
+        if (openMenus.length === 0) return;
+
+        // If focus is currently inside one of the open menus, prioritize that menu
+        const activeOpenMenu =
+          openMenus.find((menu) => menu.contains(document.activeElement)) ??
+          openMenus[0];
+
+        // Close all open menus
+        openMenus.forEach((menu) => {
+          menu.open = false;
+        });
+
+        // Restore focus to the identified open menu's summary trigger
+        const summary = activeOpenMenu.querySelector<HTMLElement>("summary");
+        if (summary) {
+          summary.focus();
+        }
+
+        e.preventDefault();
       }
     }
 

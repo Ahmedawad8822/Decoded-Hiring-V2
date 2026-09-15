@@ -125,7 +125,7 @@ All 104 route-viewport permutations were verified with automated headless Chromi
 ## 5. Accessibility Checks
 
 1. **Keyboard Navigation & Visible Focus:** Focus indicator ring (`2px solid rgb(30, 33, 31)`) appears on all focused links, summaries, and inputs.
-2. **Escape Dismissal:** Pressing `Escape` while any nav menu is open immediately dismisses all open details popovers and returns focus cleanly.
+2. **Escape Dismissal & Focus Restoration:** Pressing `Escape` while any nav menu is open closes the open `<details>` popover and explicitly restores keyboard focus to that menu's `<summary>` trigger (verified from summary, child links, and account dropdown). Closing via click-outside, route navigation, or opening another dropdown preserves standard focus without unintended focus jumping.
 3. **Semantic Association:** Navigation summary buttons include `aria-controls` pointing directly to popover container IDs.
 4. **Touch Targets:** All mobile header buttons and mobile footer navigation links meet or exceed 44px interactive height.
 5. **Form Semantics:** All form inputs retain explicit `<label>` tags with matching `htmlFor` attributes; checkboxes are fully wrapped inside accessible `<label>` targets.
