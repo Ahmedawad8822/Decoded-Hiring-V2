@@ -2,6 +2,7 @@ import { getDb, lessonResources } from "@/lib/db";
 import { getServerSession } from "@/lib/auth";
 import { getCourseResourceObject } from "@/lib/course-resources/service";
 import { getEnrollment } from "@/features/enrollments/service";
+import { hasLearnerAccess } from "@/features/enrollments/access";
 import { eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
 
@@ -34,7 +35,9 @@ export async function GET(
   const role = (session.user as { role?: string }).role;
   if (role !== "admin") {
     const enrollment = await getEnrollment(session.user.id, resource.courseId);
-    if (!enrollment) {
+    // SECURITY (review correction C): cancelled enrollments download nothing —
+    // same 403 as strangers, so revocation is real on every boundary.
+    if (!hasLearnerAccess(enrollment)) {
       return NextResponse.json(
         { error: "Forbidden: You are not enrolled in this course" },
         { status: 403 }

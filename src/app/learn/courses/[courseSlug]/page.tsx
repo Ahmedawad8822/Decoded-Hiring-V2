@@ -3,9 +3,11 @@ import { notFound } from "next/navigation";
 import { getServerSession } from "@/lib/auth";
 import {
   getCourseCurriculum,
+  getLearnerCourseBySlug,
   getPublishedCourseBySlug,
 } from "@/features/courses/service";
 import { getEnrollment } from "@/features/enrollments/service";
+import { hasLearnerAccess } from "@/features/enrollments/access";
 import { getEnrollmentProgress } from "@/features/progress/service";
 import { EnrollButton } from "@/components/learner/enroll-button";
 
@@ -33,17 +35,21 @@ export default async function CourseOverviewPage(props: {
   params: Promise<{ courseSlug: string }>;
 }) {
   const { courseSlug } = await props.params;
-  const course = await getPublishedCourseBySlug(courseSlug);
+  // Archived courses stay visible to already-entitled learners (correction D).
+  const session = await getServerSession();
+  const course = await getLearnerCourseBySlug(courseSlug, session?.user?.id);
   if (!course) notFound();
 
-  const session = await getServerSession();
   const enrollment = session?.user ? await getEnrollment(session.user.id, course.id) : null;
+  // Cancelled enrollments see the page as strangers: no progress card, no
+  // resume link — just the enroll CTA (re-enroll reactivates, correction C).
+  const activeEnrollment = hasLearnerAccess(enrollment) ? enrollment : null;
   const curriculum = await getCourseCurriculum(course.id);
-  const progress = enrollment ? await getEnrollmentProgress(enrollment) : null;
+  const progress = activeEnrollment ? await getEnrollmentProgress(activeEnrollment) : null;
   const completedSet = new Set(progress?.completedLessonIds ?? []);
 
   const resumeHref =
-    enrollment && progress?.resumeLesson
+    activeEnrollment && progress?.resumeLesson
       ? `/learn/courses/${course.slug}/lessons/${progress.resumeLesson.slug}`
       : null;
 
@@ -58,7 +64,7 @@ export default async function CourseOverviewPage(props: {
           <p className="muted" style={{ marginBottom: 24 }}>{course.description}</p>
         )}
 
-        {enrollment && progress ? (
+        {activeEnrollment && progress ? (
           <div className="continue-card" style={{ marginBottom: 28 }}>
             <div className="cc-top">
               <div>
@@ -131,7 +137,7 @@ export default async function CourseOverviewPage(props: {
                 {entry.publishedLessons.map((lesson) => {
                   const done = completedSet.has(lesson.id);
                   const isCurrent = progress?.resumeLesson?.id === lesson.id;
-                  const href = enrollment
+                  const href = activeEnrollment
                     ? `/learn/courses/${course.slug}/lessons/${lesson.slug}`
                     : `/learn/courses/${course.slug}`;
                   return (

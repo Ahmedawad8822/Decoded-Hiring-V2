@@ -1,4 +1,4 @@
-import { index, integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
+import { index, integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 import type { ContentStatus } from "@/features/publishing/types";
 
 // ============================================================================
@@ -221,7 +221,7 @@ export const lessons = sqliteTable(
   (table) => [
     index("lessons_course_idx").on(table.courseId),
     index("lessons_section_idx").on(table.sectionId),
-    index("lessons_course_slug_unique").on(table.courseId, table.slug),
+    uniqueIndex("lessons_course_slug_unique").on(table.courseId, table.slug),
   ]
 );
 
@@ -262,7 +262,7 @@ export const enrollments = sqliteTable(
     completedAt: integer("completed_at", { mode: "timestamp" }),
   },
   (table) => [
-    index("enrollments_user_course_unique").on(table.userId, table.courseId),
+    uniqueIndex("enrollments_user_course_unique").on(table.userId, table.courseId),
     index("enrollments_course_idx").on(table.courseId),
   ]
 );
@@ -279,7 +279,7 @@ export const lessonProgress = sqliteTable(
       .references(() => lessons.id, { onDelete: "cascade" }),
     completedAt: integer("completed_at", { mode: "timestamp" }).notNull(),
   },
-  (table) => [index("lesson_progress_enrollment_lesson_unique").on(table.enrollmentId, table.lessonId)]
+  (table) => [uniqueIndex("lesson_progress_enrollment_lesson_unique").on(table.enrollmentId, table.lessonId)]
 );
 
 export type Course = typeof courses.$inferSelect;

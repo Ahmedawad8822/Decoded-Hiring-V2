@@ -3,11 +3,13 @@ import { notFound } from "next/navigation";
 import { getServerSession } from "@/lib/auth";
 import {
   getCourseCurriculum,
+  getLearnerCourseBySlug,
   getPublishedCourseBySlug,
   getPublishedLessonBySlug,
   parseLessonBody,
 } from "@/features/courses/service";
 import { getEnrollment } from "@/features/enrollments/service";
+import { hasLearnerAccess } from "@/features/enrollments/access";
 import { getEnrollmentProgress } from "@/features/progress/service";
 import { getLessonResources } from "@/features/courses/service";
 import { ContentBlockRenderer } from "@/components/publishing/ContentBlockRenderer";
@@ -30,15 +32,18 @@ export default async function LessonPlayerPage(props: {
   params: Promise<{ courseSlug: string; lessonSlug: string }>;
 }) {
   const { courseSlug, lessonSlug } = await props.params;
-  const course = await getPublishedCourseBySlug(courseSlug);
+  // Archived courses stay visible to already-entitled learners (correction D);
+  // everyone else 404s here exactly as before.
+  const session = await getServerSession();
+  const course = await getLearnerCourseBySlug(courseSlug, session?.user?.id);
   if (!course) notFound();
   const lesson = await getPublishedLessonBySlug(course.id, lessonSlug);
   if (!lesson) notFound();
 
-  // Server-side enrollment gate: no enrollment → denied panel (never the body).
-  const session = await getServerSession();
+  // Server-side enrollment gate: no (or cancelled) enrollment → denied panel
+  // (never the body). Cancelled learners re-enroll from the course page.
   const enrollment = session?.user ? await getEnrollment(session.user.id, course.id) : null;
-  if (!enrollment) {
+  if (!hasLearnerAccess(enrollment)) {
     return (
       <main className="sec-app" id="main" style={{ padding: "clamp(24px,4vw,48px) 0" }}>
         <div className="wrap" style={{ maxWidth: 880 }}>

@@ -2,6 +2,7 @@ import { getDb } from "@/lib/db";
 import { enrollments, type Enrollment } from "@/lib/db";
 import { and, eq } from "drizzle-orm";
 import { getAdminCourseById } from "@/features/courses/service";
+import { hasLearnerAccess } from "./access";
 
 // ============================================================================
 // ENROLLMENTS SERVICE (Mission 06)
@@ -46,8 +47,20 @@ export async function enrollFree(userId: string, courseId: string): Promise<Enro
   }
 
   // Idempotent: existing enrollment wins (unique userId+courseId).
+  // Cancelled enrollments reactivate on re-enroll: the learner asked for
+  // access again and FREE has no checkout gate, so restore active status
+  // instead of stacking a second row (which the UNIQUE index forbids).
   const existing = await getEnrollment(userId, courseId);
-  if (existing) return existing;
+  if (existing) {
+    if (existing.status === "cancelled") {
+      await db
+        .update(enrollments)
+        .set({ status: "active", completedAt: null })
+        .where(eq(enrollments.id, existing.id));
+      return (await getEnrollment(userId, courseId))!;
+    }
+    return existing;
+  }
 
   const now = new Date();
   const id = `enroll_${crypto.randomUUID().slice(0, 12)}`;
@@ -73,7 +86,7 @@ export async function enrollFree(userId: string, courseId: string): Promise<Enro
 /** Server-side ownership check: does this user have an active enrollment path to this course? */
 export async function requireEnrollment(userId: string, courseId: string): Promise<Enrollment> {
   const enrollment = await getEnrollment(userId, courseId);
-  if (!enrollment) {
+  if (!hasLearnerAccess(enrollment)) {
     throw new Error("Forbidden: You are not enrolled in this course.");
   }
   return enrollment;
