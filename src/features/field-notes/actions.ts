@@ -4,6 +4,7 @@ import { requireAdmin } from "@/lib/auth";
 import { revalidatePath } from "next/cache";
 import * as fieldNoteService from "./service";
 import { createFieldNoteSchema, updateFieldNoteSchema, CreateFieldNoteInput, UpdateFieldNoteInput } from "./types";
+import type { FieldNoteRevision } from "@/lib/db";
 
 export type ActionState<T = unknown> = {
   ok: boolean;
@@ -141,6 +142,21 @@ export async function archiveFieldNoteAction(id: string): Promise<ActionState<{ 
     return {
       ok: false,
       error: (err as Error).message || "Failed to archive field note",
+    };
+  }
+}
+
+export async function getFieldNoteRevisionsAction(
+  id: string
+): Promise<ActionState<FieldNoteRevision[]>> {
+  try {
+    await requireAdmin();
+    const revisions = await fieldNoteService.getFieldNoteRevisions(id);
+    return { ok: true, data: revisions };
+  } catch (err: unknown) {
+    return {
+      ok: false,
+      error: (err as Error).message || "Failed to load revision history",
     };
   }
 }
