@@ -447,6 +447,78 @@ const SECTIONS: ReviewSection[] = [
       },
     ],
   },
+  {
+    id: "group-6-learning",
+    groupLabel: "GROUP 6 — LEARNING PLATFORM · MISSION 06 (REAL ROUTES)",
+    subtitle:
+      "Production learning-platform vertical slice: learner auth, classroom, FREE enrollment, progress, protected resources, and Studio course management.",
+    links: [
+      {
+        href: "/signup",
+        id: "M06-AUTH-01",
+        badge: "Real Route /signup",
+        title: "Create Learner Account (Production)",
+        description:
+          "Real email/password signup via Better Auth. New accounts default to the learner role — never admin. Lands in the classroom.",
+      },
+      {
+        href: "/login",
+        id: "M06-AUTH-02",
+        badge: "Real Route /login",
+        title: "Learner Sign-In (Production)",
+        description:
+          "Real email/password login. Successful sign-in returns to /learn. Resolves the Mission 04.5 dangling /login prefetch.",
+      },
+      {
+        href: "/learn",
+        id: "M06-LEARN-01",
+        badge: "Real Route /learn",
+        title: "Classroom Home (Production)",
+        description:
+          "Authenticated learner home: Continue Learning first, then My Courses, then Completed. Honest empty state before enrollment.",
+      },
+      {
+        href: "/learn/courses",
+        id: "M06-LEARN-02",
+        badge: "Real Route /learn/courses",
+        title: "My Courses + Free Catalog (Production)",
+        description:
+          "Enrolled courses with required-only progress rings, followed by the discoverable published catalog.",
+      },
+      {
+        href: "/learn/courses/mission-01-demo",
+        id: "M06-LEARN-03",
+        badge: "Real Route /learn/courses/[slug]",
+        title: "Demo Course Overview (Seeded)",
+        description:
+          "Local demo course overview: resume action, required/optional curriculum, FREE enroll CTA for visitors.",
+      },
+      {
+        href: "/learn/courses/mission-01-demo/lessons/why-role-clarity-fails",
+        id: "M06-LEARN-04",
+        badge: "Real Route /lessons/[slug]",
+        title: "Demo Lesson Player (Seeded)",
+        description:
+          "Classroom lesson player: sticky curriculum rail, mobile contents drawer, resources, prev/next, server-authoritative completion.",
+      },
+      {
+        href: "/admin/courses",
+        id: "M06-STU-01",
+        badge: "Real Route /admin/courses",
+        title: "Studio Courses (Production)",
+        description:
+          "Admin course management: search, status filter, create draft, edit basics, access mode, publish, unpublish, archive.",
+      },
+      {
+        href: "/admin/login",
+        id: "M06-STU-02",
+        badge: "Real Route /admin/login",
+        title: "Studio Sign-In (Regression)",
+        description:
+          "Existing admin login unchanged — Mission 06 learner auth reuses Better Auth without breaking staff access.",
+      },
+    ],
+  },
 ];
 
 export default function ReviewHubPage() {

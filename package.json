@@ -11,7 +11,7 @@
     "start": "next start",
     "lint": "eslint . --max-warnings=0",
     "typecheck": "tsc --noEmit",
-    "test": "tsx tests/mission-04-publishing.test.ts && tsx tests/mission-05-field-notes.test.ts",
+    "test": "tsx tests/mission-04-publishing.test.ts && tsx tests/mission-05-field-notes.test.ts && tsx tests/mission-06-learning-platform.test.ts",
     "test:e2e": "playwright test",
     "test:e2e:headed": "playwright test --headed",
     "db:generate": "drizzle-kit generate",

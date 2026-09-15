@@ -78,8 +78,8 @@ export const updateLessonSchema = z.object({
   required: z.boolean().optional(),
 });
 
-export type CreateCourseInput = z.infer<typeof createCourseSchema>;
-export type UpdateCourseInput = z.infer<typeof updateCourseSchema>;
-export type CreateSectionInput = z.infer<typeof createSectionSchema>;
-export type CreateLessonInput = z.infer<typeof createLessonSchema>;
-export type UpdateLessonInput = z.infer<typeof updateLessonSchema>;
+export type CreateCourseInput = z.input<typeof createCourseSchema>;
+export type UpdateCourseInput = z.input<typeof updateCourseSchema>;
+export type CreateSectionInput = z.input<typeof createSectionSchema>;
+export type CreateLessonInput = z.input<typeof createLessonSchema>;
+export type UpdateLessonInput = z.input<typeof updateLessonSchema>;
