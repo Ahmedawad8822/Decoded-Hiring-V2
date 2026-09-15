@@ -12,7 +12,9 @@ const ALLOWED_MIME_TYPES: Record<string, string> = {
   // as editorial media. Allowed: JPEG, PNG, WebP, AVIF, GIF.
 };
 
-const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5 MB
+/** Editorial media size limit. Exported so routes can reject oversized
+ * uploads BEFORE buffering the bytes (service still re-checks byteLength). */
+export const MAX_MEDIA_FILE_SIZE = 5 * 1024 * 1024; // 5 MB
 
 // ============================================================================
 // PUBLIC MEDIA NAMESPACE ALLOWLIST (Mission 06 review correction — SECURITY)
@@ -95,9 +97,9 @@ export async function uploadMedia(
     );
   }
 
-  // 2. Validate file size
+  // 2. Validate file size (defense in depth — routes already gate pre-buffer)
   const size = buffer.byteLength;
-  if (size > MAX_FILE_SIZE) {
+  if (size > MAX_MEDIA_FILE_SIZE) {
     throw new Error(`File size (${(size / 1024 / 1024).toFixed(2)} MB) exceeds maximum limit of 5 MB.`);
   }
 

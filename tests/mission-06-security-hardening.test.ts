@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import "./helpers/env"; // MUST be first: fake TEST-ONLY secret before any app module.
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { uploadMedia } from "../src/lib/media/service";

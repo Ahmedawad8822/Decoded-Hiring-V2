@@ -3,8 +3,6 @@ import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { admin } from "better-auth/plugins";
 import { getDb, users, sessions, accounts, verifications } from "../db";
 
-let authInstance: ReturnType<typeof createAuth> | null = null;
-
 /**
  * Resolve the Better Auth secret from environment configuration ONLY.
  *
@@ -55,11 +53,14 @@ function createAuth(db: Parameters<typeof drizzleAdapter>[0]) {
 }
 
 export async function getAuth() {
+  // NO cross-request singleton: auth is always created from the CURRENT
+  // runtime DB/environment context. Caching the first instance would pin
+  // the first request's resolved DB binding and secret for the process
+  // lifetime, which breaks per-request runtime resolution (local dev,
+  // tests, and any future runtime adapter each resolve independently).
+  // Fail-closed BETTER_AUTH_SECRET behavior is unchanged.
   const db = await getDb();
-  if (!authInstance) {
-    authInstance = createAuth(db);
-  }
-  return authInstance;
+  return createAuth(db);
 }
 
 export async function getServerSession() {

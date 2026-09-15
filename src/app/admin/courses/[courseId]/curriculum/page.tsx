@@ -4,8 +4,8 @@ import {
   getAdminCourseById,
   getCourseCurriculum,
   getCourseEnrollmentCount,
-  getLessonCompletionCount,
-  getLessonResources,
+  getLessonCompletionCounts,
+  getLessonResourcesForLessons,
 } from "@/features/courses/service";
 import { CurriculumClient } from "./curriculum-client";
 
@@ -32,18 +32,24 @@ export default async function AdminCurriculumPage(props: {
   const curriculum = await getCourseCurriculum(courseId);
   const enrollmentCount = await getCourseEnrollmentCount(courseId);
 
-  const sectionsWithLessons = await Promise.all(
-    curriculum.map(async (entry) => ({
-      section: entry.section,
-      lessons: await Promise.all(
-        entry.lessons.map(async (lesson) => ({
-          lesson,
-          completions: await getLessonCompletionCount(lesson.id),
-          resources: await getLessonResources(lesson.id),
-        }))
-      ),
-    }))
-  );
+  // PERFORMANCE (Mission 06): bounded query count, independent of lesson
+  // count. The per-lesson getLessonCompletionCount()/getLessonResources()
+  // fan-out (2N queries for N lessons) is replaced by TWO batched GROUP BY /
+  // IN queries over the full lesson list, grouped in memory.
+  const lessonIds = curriculum.flatMap((entry) => entry.lessons.map((lesson) => lesson.id));
+  const [completionCounts, resourcesByLesson] = await Promise.all([
+    getLessonCompletionCounts(lessonIds),
+    getLessonResourcesForLessons(lessonIds),
+  ]);
+
+  const sectionsWithLessons = curriculum.map((entry) => ({
+    section: entry.section,
+    lessons: entry.lessons.map((lesson) => ({
+      lesson,
+      completions: completionCounts[lesson.id] ?? 0,
+      resources: resourcesByLesson.get(lesson.id) ?? [],
+    })),
+  }));
 
   return (
     <CurriculumClient

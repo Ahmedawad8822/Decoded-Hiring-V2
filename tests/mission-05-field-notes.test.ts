@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import "./helpers/env"; // MUST be first: fake TEST-ONLY secret before any app module.
 import { getDb, fieldNotes, fieldNoteRevisions } from "../src/lib/db";
 import { migrateLocalDb } from "../src/lib/db/migrate";
 import {

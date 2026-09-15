@@ -9,6 +9,7 @@ import {
   type Course,
   type CourseSection,
   type Lesson,
+  type LessonResource,
 } from "@/lib/db";
 import { and, asc, desc, eq, inArray, like, ne, or, sql } from "drizzle-orm";
 import {
@@ -28,6 +29,7 @@ import type {
   UpdateLessonInput,
 } from "./types";
 import { hasLearnerAccess } from "@/features/enrollments/access";
+import { isUniqueConstraintError } from "@/lib/db/sqlite-errors";
 
 // ============================================================================
 // COURSES SERVICE (Mission 06)
@@ -98,18 +100,27 @@ export async function createCourse(input: CreateCourseInput): Promise<Course> {
 
   const now = new Date();
   const id = newId("course");
-  await db.insert(courses).values({
-    id,
-    title: input.title,
-    slug,
-    description: input.description || null,
-    status: "draft",
-    accessMode: input.accessMode ?? "FREE",
-    coverImage: input.coverImage || null,
-    createdAt: now,
-    updatedAt: now,
-    publishedAt: null,
-  });
+  try {
+    await db.insert(courses).values({
+      id,
+      title: input.title,
+      slug,
+      description: input.description || null,
+      status: "draft",
+      accessMode: input.accessMode ?? "FREE",
+      coverImage: input.coverImage || null,
+      createdAt: now,
+      updatedAt: now,
+      publishedAt: null,
+    });
+  } catch (error: unknown) {
+    // The courses.slug UNIQUE index is the authoritative concurrency
+    // backstop: the pre-check above cannot see a parallel insert. Only that
+    // condition is converted to the same domain error the pre-check raises;
+    // anything else propagates untouched.
+    if (!isUniqueConstraintError(error)) throw error;
+    throw new Error(`A course with the slug "${slug}" already exists. Please choose a unique slug.`);
+  }
 
   const created = await getAdminCourseById(id);
   if (!created) throw new Error("Failed to retrieve created course");
@@ -244,8 +255,12 @@ export async function moveSection(id: string, direction: "up" | "down"): Promise
   if (idx < 0 || swapIdx < 0 || swapIdx >= siblings.length) return siblings;
   const other = siblings[swapIdx];
   const now = new Date();
-  await db.update(courseSections).set({ position: other.position, updatedAt: now }).where(eq(courseSections.id, current.id));
-  await db.update(courseSections).set({ position: current.position, updatedAt: now }).where(eq(courseSections.id, other.id));
+  // ATOMICITY: D1 batch() executes both writes as one implicit transaction —
+  // a partial failure can never leave duplicate positions on disk.
+  await db.batch([
+    db.update(courseSections).set({ position: other.position, updatedAt: now }).where(eq(courseSections.id, current.id)),
+    db.update(courseSections).set({ position: current.position, updatedAt: now }).where(eq(courseSections.id, other.id)),
+  ]);
   return getCourseSections(current.courseId);
 }
 
@@ -307,21 +322,29 @@ export async function createLesson(input: CreateLessonInput): Promise<Lesson> {
   const position = siblings.length > 0 ? Math.max(...siblings.map((l) => l.position)) + 1 : 0;
   const now = new Date();
   const id = newId("lesson");
-  await db.insert(lessons).values({
-    id,
-    courseId: input.courseId,
-    sectionId: input.sectionId,
-    title: input.title,
-    slug,
-    body: JSON.stringify(input.body ?? []),
-    videoUrl,
-    required: input.required ?? true,
-    position,
-    status: "draft",
-    createdAt: now,
-    updatedAt: now,
-    publishedAt: null,
-  });
+  try {
+    await db.insert(lessons).values({
+      id,
+      courseId: input.courseId,
+      sectionId: input.sectionId,
+      title: input.title,
+      slug,
+      body: JSON.stringify(input.body ?? []),
+      videoUrl,
+      required: input.required ?? true,
+      position,
+      status: "draft",
+      createdAt: now,
+      updatedAt: now,
+      publishedAt: null,
+    });
+  } catch (error: unknown) {
+    // The lessons (course_id, slug) UNIQUE index is the authoritative
+    // concurrency backstop: only that condition is converted to the same
+    // domain error the pre-check raises; anything else propagates untouched.
+    if (!isUniqueConstraintError(error)) throw error;
+    throw new Error(`A lesson with the slug "${slug}" already exists in this course.`);
+  }
   const created = await getAdminLessonById(id);
   if (!created) throw new Error("Failed to retrieve created lesson");
   return created;
@@ -383,8 +406,12 @@ export async function moveLesson(id: string, direction: "up" | "down"): Promise<
   if (idx < 0 || swapIdx < 0 || swapIdx >= siblings.length) return siblings;
   const other = siblings[swapIdx];
   const now = new Date();
-  await db.update(lessons).set({ position: other.position, updatedAt: now }).where(eq(lessons.id, current.id));
-  await db.update(lessons).set({ position: current.position, updatedAt: now }).where(eq(lessons.id, other.id));
+  // ATOMICITY: D1 batch() executes both writes as one implicit transaction —
+  // a partial failure can never leave duplicate positions on disk.
+  await db.batch([
+    db.update(lessons).set({ position: other.position, updatedAt: now }).where(eq(lessons.id, current.id)),
+    db.update(lessons).set({ position: current.position, updatedAt: now }).where(eq(lessons.id, other.id)),
+  ]);
   return getSectionLessons(current.sectionId);
 }
 
@@ -557,6 +584,26 @@ export async function getLessonCompletionCounts(lessonIds: string[]): Promise<Re
     .groupBy(lessonProgress.lessonId);
   for (const id of lessonIds) out[id] = 0;
   for (const row of rows) out[row.lessonId] = row.count;
+  return out;
+}
+
+/** All resources for many lessons in ONE query, grouped by lesson id. */
+export async function getLessonResourcesForLessons(
+  lessonIds: string[]
+): Promise<Map<string, LessonResource[]>> {
+  const out = new Map<string, LessonResource[]>();
+  if (lessonIds.length === 0) return out;
+  const db = await getDb();
+  const rows = await db
+    .select()
+    .from(lessonResources)
+    .where(inArray(lessonResources.lessonId, lessonIds))
+    .orderBy(asc(lessonResources.position));
+  for (const row of rows) {
+    const bucket = out.get(row.lessonId);
+    if (bucket) bucket.push(row);
+    else out.set(row.lessonId, [row]);
+  }
   return out;
 }
 

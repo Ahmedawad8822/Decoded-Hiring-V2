@@ -3,6 +3,7 @@ import { enrollments, type Enrollment } from "@/lib/db";
 import { and, eq } from "drizzle-orm";
 import { getAdminCourseById } from "@/features/courses/service";
 import { hasLearnerAccess } from "./access";
+import { isUniqueConstraintError } from "@/lib/db/sqlite-errors";
 
 // ============================================================================
 // ENROLLMENTS SERVICE (Mission 06)
@@ -86,8 +87,12 @@ export async function enrollFree(userId: string, courseId: string): Promise<Enro
       enrolledAt: now,
       completedAt: null,
     });
-  } catch {
-    // Race: another request inserted first — return the winner.
+  } catch (error: unknown) {
+    // Narrow recovery: ONLY the (user_id, course_id) UNIQUE race is
+    // interpreted as "another request inserted first" — return the winner.
+    // Any unrelated DB failure (locked DB, I/O, schema drift) must propagate
+    // untouched; it is NOT a duplicate race and must never be swallowed.
+    if (!isUniqueConstraintError(error)) throw error;
     const winner = await getEnrollment(userId, courseId);
     if (winner) return winner;
     throw new Error("Enrollment failed. Please try again.");
