@@ -69,3 +69,11 @@ export async function requireAdmin() {
   }
   return session;
 }
+
+export async function requireUser() {
+  const session = await getServerSession();
+  if (!session?.user) {
+    throw new Error("Unauthorized: You must be signed in");
+  }
+  return session;
+}

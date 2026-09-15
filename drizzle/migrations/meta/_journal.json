@@ -22,6 +22,13 @@
       "when": 1789462946404,
       "tag": "0002_medical_blizzard",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1789470000000,
+      "tag": "0003_mission_06_learning_platform",
+      "breakpoints": true
     }
   ]
 }
