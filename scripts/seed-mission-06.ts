@@ -16,7 +16,6 @@
 // ============================================================================
 
 import { getDb, courses, courseSections, lessons } from "../src/lib/db";
-import { migrateLocalDb } from "../src/lib/db/migrate";
 import { eq } from "drizzle-orm";
 import { disposeCloudflareBindings } from "../src/lib/cloudflare/bindings";
 
@@ -26,13 +25,13 @@ const DEMO_COURSE_SLUG = "mission-01-demo";
 const PARAGRAPH = (id: string, text: string) => ({ id, type: "paragraph", text });
 const HEADING = (id: string, text: string) => ({ id, type: "heading", level: 2, text });
 
-async function main() {
-  if (process.env.CF_PAGES || process.env.CLOUDFLARE === "1") {
-    throw new Error("seed-mission-06 is local-only and refuses to run in a hosted environment.");
-  }
-
-  console.log("🌱 Mission 06 demo seed: running local D1 migrations...");
-  await migrateLocalDb();
+// ============================================================================
+// Reusable core (remediation F): idempotent demo-course seed WITHOUT running
+// migrations or exiting the process, so scripts/e2e-bootstrap.ts can call it
+// as part of the deterministic E2E prerequisite setup. The CLI entry below
+// wraps it with migrations + process lifecycle for standalone use.
+// ============================================================================
+export async function seedMission06Demo(): Promise<void> {
   const db = await getDb();
 
   const existingCourse = await db
@@ -176,16 +175,41 @@ async function main() {
   }
 
   console.log("🌱 Mission 06 demo seed complete!");
+}
+
+async function main() {
+  if (process.env.CF_PAGES || process.env.CLOUDFLARE === "1") {
+    throw new Error("seed-mission-06 is local-only and refuses to run in a hosted environment.");
+  }
+
+  console.log("🌱 Mission 06 demo seed: running local D1 migrations...");
+  const { migrateLocalDb } = await import("../src/lib/db/migrate");
+  await migrateLocalDb();
+
+  await seedMission06Demo();
+
   await disposeCloudflareBindings();
   process.exit(0);
 }
 
-main().catch(async (err) => {
-  console.error("❌ Demo seeding failed:", err);
-  try {
-    await disposeCloudflareBindings();
-  } catch {
-    // ignore
-  }
-  process.exit(1);
-});
+// Only execute the CLI flow when this file is run DIRECTLY (tsx
+// scripts/seed-mission-06.ts). Importing seedMission06Demo() from
+// e2e-bootstrap must NOT trigger a second concurrent migration pass — two
+// parallel migrateLocalDb() runs saturate the Miniflare loopback and fail
+// with 'fetch failed' (remediation F root-cause fix).
+import { pathToFileURL } from "node:url";
+import path from "node:path";
+const invokedDirectly =
+  process.argv[1] !== undefined &&
+  import.meta.url === pathToFileURL(path.resolve(process.argv[1])).toString();
+if (invokedDirectly) {
+  main().catch(async (err) => {
+    console.error("❌ Demo seeding failed:", err);
+    try {
+      await disposeCloudflareBindings();
+    } catch {
+      // ignore
+    }
+    process.exit(1);
+  });
+}

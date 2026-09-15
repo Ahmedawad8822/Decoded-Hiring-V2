@@ -7,7 +7,9 @@ import {
   buildEditTouch,
   buildPublishUpdate,
   buildUnpublishUpdate,
+  assertGuideTransition,
 } from "@/features/publishing/lifecycle";
+import { isUniqueConstraintError } from "@/lib/db/sqlite-errors";
 
 export async function getPublishedGuides(): Promise<Guide[]> {
   const db = await getDb();
@@ -66,23 +68,32 @@ export async function createGuide(input: CreateGuideInput): Promise<Guide> {
   const now = new Date();
   const id = `guide_${crypto.randomUUID().slice(0, 12)}`;
 
-  await db.insert(guides).values({
-    id,
-    title: input.title,
-    slug: input.slug,
-    excerpt: input.excerpt || null,
-    body: JSON.stringify(input.body || []),
-    coverImage: input.coverImage || null,
-    author: input.author || "Ahmed Awad",
-    category: input.category || null,
-    tags: input.tags || null,
-    status: "draft",
-    metaTitle: input.metaTitle || input.title,
-    metaDescription: input.metaDescription || input.excerpt || null,
-    createdAt: now,
-    updatedAt: now,
-    publishedAt: null,
-  });
+  try {
+    await db.insert(guides).values({
+      id,
+      title: input.title,
+      slug: input.slug,
+      excerpt: input.excerpt || null,
+      body: JSON.stringify(input.body || []),
+      coverImage: input.coverImage || null,
+      author: input.author || "Ahmed Awad",
+      category: input.category || null,
+      tags: input.tags || null,
+      status: "draft",
+      metaTitle: input.metaTitle || input.title,
+      metaDescription: input.metaDescription || input.excerpt || null,
+      createdAt: now,
+      updatedAt: now,
+      publishedAt: null,
+    });
+  } catch (error: unknown) {
+    // The guides.slug UNIQUE index is the authoritative concurrency
+    // backstop: the pre-check above cannot see a parallel insert. Only that
+    // condition is converted to the same domain error the pre-check raises;
+    // anything else propagates untouched.
+    if (!isUniqueConstraintError(error)) throw error;
+    throw new Error(`A guide with the slug "${input.slug}" already exists. Please choose a unique slug.`);
+  }
 
   const created = await getAdminGuideById(id);
   if (!created) {
@@ -126,7 +137,14 @@ export async function updateGuide(id: string, input: UpdateGuideInput): Promise<
   if (typeof input.metaTitle !== "undefined") updateData.metaTitle = input.metaTitle;
   if (typeof input.metaDescription !== "undefined") updateData.metaDescription = input.metaDescription;
 
-  await db.update(guides).set(updateData).where(eq(guides.id, id));
+  try {
+    await db.update(guides).set(updateData).where(eq(guides.id, id));
+  } catch (error: unknown) {
+    // Same race rule as create: only a lost slug-unique race converts to the
+    // friendly domain error; unrelated DB errors propagate untouched.
+    if (!isUniqueConstraintError(error)) throw error;
+    throw new Error(`A guide with the slug "${input.slug}" already exists.`);
+  }
 
   const updated = await getAdminGuideById(id);
   if (!updated) {
@@ -141,6 +159,8 @@ export async function publishGuide(id: string): Promise<Guide> {
   if (!current) {
     throw new Error(`Guide with id "${id}" not found`);
   }
+
+  assertGuideTransition(current.status, "publish");
 
   const now = new Date();
   await db
@@ -158,6 +178,8 @@ export async function unpublishGuide(id: string): Promise<Guide> {
     throw new Error(`Guide with id "${id}" not found`);
   }
 
+  assertGuideTransition(current.status, "unpublish");
+
   const now = new Date();
   await db
     .update(guides)
@@ -173,6 +195,8 @@ export async function archiveGuide(id: string): Promise<Guide> {
   if (!current) {
     throw new Error(`Guide with id "${id}" not found`);
   }
+
+  assertGuideTransition(current.status, "archive");
 
   const now = new Date();
   await db

@@ -135,9 +135,11 @@ at validation. No Stream, no uploads, no DRM, no private-video claims.
   state), body, optional video, authorized PDF downloads, prev/next,
   server-authoritative completion, enrollment-required denial panel for
   unenrolled visitors (lesson body never leaks).
-- Anonymous → `/login?redirect=/learn`. Styling reuses the approved
-  prototype stylesheets single-sourced via `src/app/learn/classroom.css`
-  (`@import` of `/prototypes/*.css`) — real behavior, approved visuals.
+- Anonymous → `/login?redirect=/learn`. Styling lives in the production-owned
+  `src/app/learn/classroom.css` (foundation remediation A/C: the former
+  runtime `@import` of `/prototypes/*.css` was removed along with the entire
+  `public/prototypes` static tree and the `/review` route; visual language
+  unchanged). Real behavior, approved visuals.
 
 ## 12. Admin / learner separation
 
@@ -158,11 +160,18 @@ thumb-zone bar; curriculum moves to the drawer. Verified with screenshots
 `tests/mission-06-learning-platform.test.ts` — 14 tests: auth-helper
 rejection, course slug uniqueness, section ordering/moves, lesson ordering
 + per-course slug rule, FREE idempotency, deferred-mode rejection, draft +
-  archived enrollment rules, unenrolled denial, required-only math (incl.
-  4/15=27% semantics), optional exclusion, complete idempotency, completion
-  timestamp, cross-user denial, draft invisibility, YouTube accept/reject
-  matrix + service rejection, resource namespace boundary. Full
-  `npm test`: 33/33 (Mission 04: 7, Mission 05: 12, Mission 06: 14).
+archived enrollment rules, unenrolled denial, required-only math (incl.
+4/15=27% semantics), optional exclusion, complete idempotency, completion
+timestamp, cross-user denial, draft invisibility, YouTube accept/reject
+matrix + service rejection, resource namespace boundary.
+`tests/mission-06-security-hardening.test.ts` — 11 tests.
+`tests/foundation-remediation.test.ts` — 10 tests (foundation remediation):
+no `/prototypes` runtime references, no `public/prototypes` tree, guide
+lifecycle transition matrix + archived-terminal service enforcement, guide
+slug UNIQUE-race friendly-error conversion, sitemap published-only content
+(no draft/archive leakage). Full `npm test`: 69/69
+(Mission 04: 7, Mission 05: 12, Mission 06 learning: 29, Mission 06
+security hardening: 11, foundation remediation: 10).
 
 ## 15. Playwright lifecycle (all real, Chromium)
 
@@ -174,14 +183,28 @@ signup → empty state → enroll → dashboard → lesson 1 → PDF download (2
 anon lesson → /login + resource 401; unenrolled learner → denial panel +
 resource 403; normal user → /admin/courses → /admin/login; admin regression
 (login/content render). Temporary e2e courses archived at the end.
-Full `test:e2e`: 8/8.
+Full `test:e2e`: 8/8, 0 skipped, 0 flaky.
+
+DETERMINISTIC PREREQUISITES (foundation remediation F): `npm run test:e2e`
+first runs `scripts/e2e-bootstrap.ts`, which applies local D1 migrations,
+creates/grants the admin account from `ADMIN_INITIAL_EMAIL`/`ADMIN_INITIAL_PASSWORD`
+(failing loudly when absent), and seeds the demo course. The lifecycle spec
+no longer contains a credential-dependent `test.skip`; missing prerequisites
+abort the run instead of silently omitting the central lifecycle test. The
+cold-server sign-in race is absorbed by a single deterministic re-submission
+in the spec; local runs retry nothing (retries: 0 outside CI).
 
 ## 16. Regressions
 
 Guides + Field Notes unit suites pass unmodified; smoke + field-notes e2e
 pass; `/admin/login`, `/admin/content`, public media serving untouched.
-Review hub extended with GROUP 6 (real Mission 06 routes + seeded demo
-links) — prototypes remain reference only.
+Foundation remediation (post-Mission 06): the prototype review hub was
+REMOVED from the deployable app — `public/prototypes` deleted, `/review`
+route and `/index → /review` rewrite removed, repository-root `prototypes/`
+kept as non-exposed reference material. CSS ownership is now split per route
+group (root: globals + universal; (site): master/content + site.css;
+admin: admin.css; learn: classroom.css), with runtime coupling regression
+tests enforcing the boundary.
 
 ## 17. Seed data (local-only)
 
@@ -189,6 +212,8 @@ links) — prototypes remain reference only.
 envs, never auto-runs: demo course `mission-01-demo` (FREE, published),
 2 sections, 2 required published lessons, 1 optional published lesson,
 1 draft lesson, zero enrollments. Run: `tsx scripts/seed-mission-06.ts`.
+The seed core (`seedMission06Demo`) is also invoked by
+`scripts/e2e-bootstrap.ts` before every E2E run.
 
 ## 18. What Mission 06 DOES NOT implement
 
@@ -202,5 +227,35 @@ of fake commerce.
 
 ## 19. Quality gates (all natural, no suppression)
 
-npm test 33/33 · test:e2e 8/8 · typecheck clean · lint zero warnings ·
+npm test 69/69 · test:e2e 8/8 (0 skipped, 0 flaky, 0 retries locally) ·
+typecheck clean · lint zero warnings ·
 build clean (learn/admin session routes force-dynamic; login/signup static).
+
+## 20. Foundation remediation record (post-Mission 06)
+
+- Per-request Better Auth creation: `getAuth()` deliberately does NOT cache a
+  singleton; every call resolves the CURRENT runtime DB binding and re-reads
+  `BETTER_AUTH_SECRET` (which still fails closed when absent). No stale
+  cross-request auth state exists anywhere.
+- Publishing lifecycle: ARCHIVED IS TERMINAL for BOTH Guides and Field Notes
+  via the shared `assertGuideTransition` / `assertFieldNoteTransition` guard
+  in `src/features/publishing/lifecycle.ts` (valid: draft→published,
+  published→draft via unpublish, draft→archived, published→archived; any
+  transition out of archived and repeated no-op transitions are rejected).
+- Publishing unique races: guide/field-note create + slug-update wrap the DB
+  write with the narrow `isUniqueConstraintError` classifier; only real
+  UNIQUE violations convert to the friendly domain slug error, everything
+  else propagates untouched. The DB UNIQUE index remains the concurrency
+  authority; domain prechecks stay friendly-fast.
+- Discoverability: real 1200x630 OG image at `/api/og` (next/og
+  ImageResponse route), dynamic sitemap including /guides, /field-notes and
+  every PUBLISHED guide/field-note canonical URL (drafts/archives can never
+  leak; regression-tested), robots policy disallowing admin/learn/api/auth
+  surfaces, noindex metadata on all auth/private layouts.
+- Measurability: DEFERRED WITH REASON — no analytics is bolted on in this
+  remediation. Future scope: PostHog + GA4 + GSC/Bing + Cloudflare + Zaraz +
+  normalized KPI layer. This gate is intentionally NOT marked PASS.
+- Intentionally deferred (unchanged): payments/checkout, email verification
+  (Brevo flow prerequisite), production D1/R2 provisioning, DNS, OpenNext
+  deploy, Mission 07 scope, ad-hoc rate limiting, Cloudflare binding
+  architecture changes.

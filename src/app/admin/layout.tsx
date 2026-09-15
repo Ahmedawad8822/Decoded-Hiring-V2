@@ -1,9 +1,14 @@
 import React from "react";
 import { AdminStudioShell } from "./studio-shell";
 
+// admin group owns the Studio visual layer (STU components extracted from the
+// former root-level studio-tokens.css). Universal tokens/base come from root.
+import "./admin.css";
+
 export const metadata = {
   title: "Studio · Content | Decoded Hiring",
   description: "Decoded Hiring V2 Content and Guide management.",
+  robots: { index: false, follow: false },
 };
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {

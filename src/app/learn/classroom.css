@@ -1,7 +1,117 @@
-/* Mission 06 classroom skin: approved learner visual language, single-sourced
-   from the prototype stylesheets (served at /prototypes/*.css). Real
-   application behavior lives in React — these styles are the UX reference,
-   not a static-HTML copy. Order matters: tokens -> base -> components. */
-@import url("/prototypes/tokens.css");
-@import url("/prototypes/base.css");
-@import url("/prototypes/components.css");
+/* ==========================================================================
+   Learner classroom components (LRN)
+   Production-owned styles for the learn group route group.
+   Extracted byte-identically from the former root-level studio-tokens.css
+   (itself the inlined, approved prototype component language) as part of the
+   final foundation remediation: CSS route ownership. Visual behavior is
+   unchanged; the /prototypes/* static routes are no longer referenced.
+   ========================================================================== */
+
+/* ===== LRN components ================================================================ */
+
+.lrn-topbar { background: var(--paper-bright); border-bottom: 1px solid var(--line); position: sticky; top: 0; z-index: var(--z-sticky); }
+.lrn-topbar .bar { display: flex; align-items: center; justify-content: space-between; gap: 16px; min-height: 60px; }
+.lrn-topbar .lrn-brand { font-weight: 700; font-size: 14px; display: inline-flex; align-items: baseline; gap: 8px; }
+.lrn-topbar .lrn-brand span { font-size: 10px; color: var(--muted); letter-spacing: .1em; font-weight: 500; }
+.lrn-nav { display: none; gap: 4px; }
+.lrn-nav a { padding: 8px 14px; border-radius: var(--radius-pill); font-size: 13.5px; font-weight: 500; color: var(--muted-strong); }
+.lrn-nav a[aria-current="page"] { background: var(--ink); color: var(--paper); }
+@media (min-width: 760px) { .lrn-nav { display: flex; } }
+
+/* LRN-c08 bottom tab bar (mobile) */
+.lrn-tabs { position: fixed; bottom: 0; left: 0; right: 0; background: var(--paper-bright); border-top: 1px solid var(--line); display: grid; grid-template-columns: repeat(4, 1fr); z-index: var(--z-sticky); }
+.lrn-tabs a { display: grid; place-items: center; gap: 2px; padding: 8px 4px calc(8px + env(safe-area-inset-bottom)); font-size: 10.5px; font-weight: 500; color: var(--muted); min-height: 48px; }
+.lrn-tabs a[aria-current="page"] { color: var(--blue); }
+.lrn-tabs .tab-ico { font-size: 17px; line-height: 1; }
+@media (min-width: 760px) { .lrn-tabs { display: none; } }
+body.env-learner { padding-bottom: 64px; } /* tab-bar clearance */
+
+/* LRN-c01 ContinueLearningCard */
+.continue-card { border: 1px solid var(--line); border-radius: var(--radius-surface); background: var(--paper-bright); padding: 24px; display: grid; gap: 16px; }
+.continue-card .cc-top { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; flex-wrap: wrap; }
+.continue-card h3 { font-family: var(--font-display); font-size: 24px; font-weight: 400; }
+.continue-card .cc-lesson { font-size: 14px; color: var(--muted-strong); margin-top: 6px; }
+.continue-card .cc-bar { height: 6px; border-radius: 3px; background: var(--paper-dim); overflow: hidden; }
+.continue-card .cc-bar i { display: block; height: 100%; background: var(--mint-strong); border-radius: 3px; }
+.continue-card .cc-count { font-family: var(--font-mono); font-size: 12px; color: var(--muted); }
+
+/* LRN-c02 CourseCard */
+.course-cards { display: grid; gap: 16px; }
+@media (min-width: 560px) and (max-width: 1023px) { .course-cards { grid-template-columns: repeat(2, 1fr); } }
+@media (min-width: 1280px) { .course-cards { grid-template-columns: repeat(3, 1fr); } }
+.course-card { border: 1px solid var(--line); border-radius: var(--radius-surface); background: var(--paper-bright); overflow: hidden; display: flex; flex-direction: column; }
+.course-card .cc-cover { height: 120px; background: linear-gradient(150deg, var(--blue-soft), var(--mint-soft)); display: grid; place-items: center; font-family: var(--font-display); font-size: 30px; color: var(--ink); }
+.course-card .cc-cover.coral { background: linear-gradient(150deg, var(--coral-soft), var(--paper-dim)); }
+.course-card .cc-body { padding: 18px 20px 20px; display: grid; gap: 10px; flex: 1; }
+.course-card h3 { font-family: var(--font-display); font-size: 20px; font-weight: 400; line-height: 1.2; }
+.course-card .cc-meta { font-size: 12.5px; color: var(--muted); }
+.course-card .cc-progress { display: flex; align-items: center; gap: 12px; margin-top: auto; }
+.progress-ring { --p: 0; width: 36px; height: 36px; border-radius: 50%; display: grid; place-items: center; background: conic-gradient(var(--mint-strong) calc(var(--p) * 1%), var(--paper-dim) 0); font-family: var(--font-mono); font-size: 9.5px; }
+.progress-ring i { width: 28px; height: 28px; border-radius: 50%; background: var(--paper-bright); display: grid; place-items: center; font-style: normal; }
+.course-card .cc-progress .txt { font-size: 12px; color: var(--muted-strong); }
+.course-card .cc-state { font-size: 12px; font-weight: 500; }
+.course-card .cc-state.done { color: #1f7a52; }
+
+/* LRN-c03 CurriculumNav / classroom layout */
+.classroom { display: grid; gap: 0; }
+@media (min-width: 1024px) {
+  .classroom { grid-template-columns: 280px minmax(0, 1fr); align-items: start; }
+}
+.curriculum {
+  border: 1px solid var(--line); border-radius: var(--radius-card); background: var(--paper-bright);
+  max-height: 80vh; overflow-y: auto;
+}
+@media (min-width: 1024px) {
+  .curriculum { position: sticky; top: 84px; border-radius: var(--radius-surface); }
+}
+.curriculum .cu-head { padding: 16px 18px 12px; border-bottom: 1px solid var(--line); position: sticky; top: 0; background: var(--paper-bright); }
+.curriculum .cu-head .t { font-size: 14px; font-weight: 600; }
+.curriculum .cu-head .s { font-size: 12px; color: var(--muted); margin-top: 3px; }
+.curriculum .cu-sec { padding: 14px 18px 6px; font-size: 11px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+.curriculum .cu-lesson { display: flex; align-items: center; gap: 10px; width: 100%; text-align: left; padding: 10px 18px; font-size: 13.5px; color: var(--muted-strong); border-left: 2px solid transparent; }
+.curriculum .cu-lesson:hover { background: var(--paper); }
+.curriculum .cu-lesson.current { background: var(--blue-soft); color: var(--ink); border-left-color: var(--blue); font-weight: 500; }
+.curriculum .cu-lesson .tick { width: 16px; height: 16px; border-radius: 50%; border: 1.5px solid var(--line-strong); display: grid; place-items: center; font-size: 9px; flex: none; }
+.curriculum .cu-lesson.done .tick { background: var(--mint-strong); border-color: var(--mint-strong); color: var(--ink); }
+.curriculum .cu-lesson .opt { font-family: var(--font-mono); font-size: 9px; letter-spacing: .06em; color: var(--muted); border: 1px solid var(--line); padding: 1px 5px; border-radius: 99px; margin-left: auto; }
+@media (min-width: 1024px) { .curriculum-drawer-toggle { display: none; } }
+.curriculum-drawer { position: fixed; inset: 0; z-index: var(--z-drawer); background: rgba(30,33,31,.32); display: none; }
+.curriculum-drawer[open] { display: block; }
+.curriculum-drawer .panel { position: absolute; left: 0; top: 0; bottom: 0; width: min(360px, 88vw); background: var(--paper-bright); overflow-y: auto; border-right: 1px solid var(--line); padding-bottom: 24px; }
+@media (min-width: 1024px) { .curriculum-drawer { display: none !important; } }
+
+/* LRN-c04 LessonShell */
+.lesson { padding: clamp(20px, 3vw, 40px) 0 0; }
+.lesson .ls-position { font-family: var(--font-mono); font-size: 12px; color: var(--blue); letter-spacing: .04em; }
+.lesson h1 { margin-top: 10px; }
+.lesson .ls-body { margin-top: 24px; max-width: var(--lesson-column); font-size: 16.5px; line-height: 1.7; color: var(--muted-strong); }
+.lesson .ls-body > * + * { margin-top: 1.2em; }
+.lesson .ls-body h2 { font-family: var(--font-display); font-size: 24px; color: var(--ink); font-weight: 400; margin-top: 2em; }
+.lesson .ls-actions { margin-top: 40px; padding-top: 20px; border-top: 1px solid var(--line); display: flex; gap: 12px; justify-content: space-between; flex-wrap: wrap; align-items: center; max-width: var(--lesson-column); }
+/* Sticky mobile action bar (thumb zone) */
+.ls-mobile-bar { position: fixed; left: 0; right: 0; bottom: 0; background: var(--paper-bright); border-top: 1px solid var(--line); display: flex; gap: 10px; padding: 10px 16px calc(10px + env(safe-area-inset-bottom)); z-index: var(--z-sticky); }
+.ls-mobile-bar .btn { flex: 1; }
+@media (min-width: 760px) { .ls-mobile-bar { display: none; } }
+.lesson.has-mobile-bar { padding-bottom: 84px; }
+@media (min-width: 760px) { .lesson.has-mobile-bar { padding-bottom: 0; } }
+
+/* LRN-c05 ProgressIndicator */
+.progress-line { display: flex; align-items: center; gap: 12px; }
+.progress-line .track { flex: 1; height: 6px; border-radius: 3px; background: var(--paper-dim); overflow: hidden; }
+.progress-line .track i { display: block; height: 100%; background: var(--mint-strong); }
+.progress-line .num { font-family: var(--font-mono); font-size: 12px; color: var(--muted); white-space: nowrap; }
+
+/* LRN-c06 ResourceList */
+.resource-list { display: grid; gap: 10px; }
+.resource-row { display: flex; align-items: center; gap: 14px; border: 1px solid var(--line); border-radius: var(--radius-card); padding: 13px 16px; background: var(--paper-bright); font-size: 13.5px; }
+.resource-row .rr-ico { width: 34px; height: 34px; border-radius: 7px; background: var(--blue-soft); display: grid; place-items: center; flex: none; font-size: 13px; }
+.resource-row .rr-main b { display: block; font-weight: 600; font-size: 13.5px; }
+.resource-row .rr-main span { font-size: 11.5px; color: var(--muted); font-family: var(--font-mono); }
+.resource-row .rr-dl { margin-left: auto; font-size: 12px; font-weight: 500; color: var(--blue); white-space: nowrap; }
+.resource-row.gated { border-style: dashed; }
+.resource-row.gated .rr-dl { color: var(--muted); }
+
+/* LRN-c07 CompletionState */
+.completion-hero { text-align: center; padding-block: 40px 16px; }
+.completion-hero .cc-check { width: 64px; height: 64px; margin: 0 auto 20px; border-radius: 50%; background: var(--mint); display: grid; place-items: center; font-size: 28px; color: var(--ink); }
+.completion-hero h2 { font-family: var(--font-display); font-size: clamp(30px, 4vw, 44px); font-weight: 400; }

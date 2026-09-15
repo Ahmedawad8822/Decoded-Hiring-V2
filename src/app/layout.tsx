@@ -2,10 +2,13 @@ import type { Metadata } from "next";
 
 import { getSiteUrl, JsonLd, siteDescription, siteName } from "@/lib/seo";
 
+// ROOT owns only the truly universal layer: V1 public reset/tokens
+// (globals.css) and the shared token/base/primitive layer extracted from the
+// former studio-tokens.css. Route-group styles load in their own layouts:
+// (site) -> master-design + content-design + site.css; learn -> classroom.css;
+// admin -> admin.css.
 import "./globals.css";
-import "./master-design.css";
-import "./content-design.css";
-import "./studio-tokens.css";
+import "./universal.css";
 
 export async function generateMetadata(): Promise<Metadata> {
   const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000";

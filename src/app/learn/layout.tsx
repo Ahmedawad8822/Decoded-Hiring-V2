@@ -9,6 +9,7 @@ export const dynamic = "force-dynamic";
 export const metadata = {
   title: "Classroom | Decoded Hiring",
   description: "Your Decoded Hiring courses — continue learning where you left off.",
+  robots: { index: false, follow: false },
 };
 
 export default async function LearnLayout({ children }: { children: React.ReactNode }) {
