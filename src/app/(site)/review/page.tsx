@@ -126,6 +126,14 @@ const SECTIONS: ReviewSection[] = [
           "Live database-driven guides index listing published guides with category tagging and responsive editorial grid.",
       },
       {
+        href: "/field-notes",
+        id: "PUB-05-IDX",
+        badge: "Real Route /field-notes",
+        title: "Field Notes Index (Production)",
+        description:
+          "Live database-driven field notes index listing published notes newest-first with reading time and deliberate empty state.",
+      },
+      {
         href: "/guides/talent-acquisition-strategy",
         id: "PUB-04-REAL",
         badge: "Real Route /guides/[slug]",
@@ -259,7 +267,7 @@ const SECTIONS: ReviewSection[] = [
         badge: "Real Route /admin/content",
         title: "Content & Guide Management (Production)",
         description:
-          "Real working application flow: list existing guides, create new, edit, save draft, live preview, publish, unpublish, and archive with D1 persistence.",
+          "Real working application flow with Guides and Field Notes tabs: list, create, edit, save draft, live preview (?preview=true), publish, unpublish, republish, archive with D1 persistence; Field Notes add revision history and auto reading time.",
       },
       {
         href: "/admin/login",

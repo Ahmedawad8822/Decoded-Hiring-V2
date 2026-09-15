@@ -1,0 +1,1 @@
+CREATE INDEX `field_note_revisions_note_idx` ON `field_note_revisions` (`field_note_id`);

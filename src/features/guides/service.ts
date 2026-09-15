@@ -1,6 +1,13 @@
 import { getDb, guides, Guide } from "@/lib/db";
 import { and, desc, eq, ne } from "drizzle-orm";
 import { CreateGuideInput, UpdateGuideInput } from "./types";
+import { resolvePreviewAccess } from "@/features/publishing/preview";
+import {
+  buildArchiveUpdate,
+  buildEditTouch,
+  buildPublishUpdate,
+  buildUnpublishUpdate,
+} from "@/features/publishing/lifecycle";
 
 export async function getPublishedGuides(): Promise<Guide[]> {
   const db = await getDb();
@@ -28,11 +35,8 @@ export async function getPublicGuideBySlug(
   }
 
   // 2. Draft / Archived guides are only visible if preview is requested AND requester is an authenticated admin
-  if (options?.preview) {
-    const userRole = options.session?.user?.role;
-    if (userRole === "admin") {
-      return guide;
-    }
+  if (resolvePreviewAccess({ preview: options?.preview, session: options?.session })) {
+    return guide;
   }
 
   // 3. Otherwise, return null (404 behavior per Correction 10 & 11)
@@ -108,7 +112,7 @@ export async function updateGuide(id: string, input: UpdateGuideInput): Promise<
 
   const now = new Date();
   const updateData: Partial<typeof guides.$inferInsert> = {
-    updatedAt: now,
+    ...buildEditTouch(now),
   };
 
   if (typeof input.title !== "undefined") updateData.title = input.title;
@@ -141,12 +145,7 @@ export async function publishGuide(id: string): Promise<Guide> {
   const now = new Date();
   await db
     .update(guides)
-    .set({
-      status: "published",
-      updatedAt: now,
-      // Only set publishedAt if not already established
-      publishedAt: current.publishedAt || now,
-    })
+    .set(buildPublishUpdate({ publishedAt: current.publishedAt }, now))
     .where(eq(guides.id, id));
 
   return (await getAdminGuideById(id))!;
@@ -162,10 +161,7 @@ export async function unpublishGuide(id: string): Promise<Guide> {
   const now = new Date();
   await db
     .update(guides)
-    .set({
-      status: "draft",
-      updatedAt: now,
-    })
+    .set(buildUnpublishUpdate(now))
     .where(eq(guides.id, id));
 
   return (await getAdminGuideById(id))!;
@@ -181,10 +177,7 @@ export async function archiveGuide(id: string): Promise<Guide> {
   const now = new Date();
   await db
     .update(guides)
-    .set({
-      status: "archived",
-      updatedAt: now,
-    })
+    .set(buildArchiveUpdate(now))
     .where(eq(guides.id, id));
 
   return (await getAdminGuideById(id))!;

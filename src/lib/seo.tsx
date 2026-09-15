@@ -68,3 +68,54 @@ export function breadcrumbSchema(items: Array<{ name: string; path: string }>) {
     })),
   };
 }
+
+// ============================================================================
+// Shared structured-data builder (Mission 05 extraction)
+// ----------------------------------------------------------------------------
+// Guides use schema type "Article"; Field Notes use "BlogPosting".
+// Both share title/description/canonical/author/dates. Guides deliberately
+// retain their existing inline Article payload (no refactor risk); new
+// Field Notes pages build through this helper.
+// ============================================================================
+
+export function buildContentJsonLd({
+  schemaType,
+  title,
+  description,
+  path,
+  author,
+  datePublished,
+  dateModified,
+}: {
+  schemaType: "Article" | "BlogPosting";
+  title: string;
+  description: string;
+  path: string;
+  author: string;
+  datePublished?: string;
+  dateModified: string;
+}): Record<string, unknown> {
+  const base = getSiteUrl().toString().replace(/\/$/, "");
+  return {
+    "@context": "https://schema.org",
+    "@type": schemaType,
+    headline: title,
+    description,
+    datePublished,
+    dateModified,
+    author: {
+      "@type": "Person",
+      name: author,
+      url: `${base}/about`,
+    },
+    publisher: {
+      "@type": "Organization",
+      name: siteName,
+      url: `${base}/`,
+    },
+    mainEntityOfPage: {
+      "@type": "WebPage",
+      "@id": `${base}${path}`,
+    },
+  };
+}

@@ -17,11 +17,17 @@ export async function POST(request: Request) {
     const contentType = file.type || "application/octet-stream";
     const arrayBuffer = await file.arrayBuffer();
 
+    // Mission 05: Field Notes reuse the same endpoint/bucket/rules — only
+    // the storage key prefix differs. Defaults to "guides" (unchanged).
+    const rawNamespace = formData.get("namespace");
+    const namespace = rawNamespace === "field-notes" ? "field-notes" : "guides";
+
     const result = await uploadMedia({
       buffer: arrayBuffer,
       filename,
       contentType,
       uploadedBy: session.user.id,
+      namespace,
     });
 
     return NextResponse.json(result, { status: 201 });

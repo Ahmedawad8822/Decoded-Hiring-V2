@@ -6,6 +6,10 @@ import { useRouter } from "next/navigation";
 import { Guide } from "@/lib/db";
 import { GuideBlock } from "@/features/guides/types";
 import {
+  StructuredBlockEditor,
+  type StructuredBlockType,
+} from "@/components/publishing/StructuredBlockEditor";
+import {
   createGuideAction,
   updateGuideAction,
   publishGuideAction,
@@ -111,8 +115,8 @@ export function GuideManagerClient({ initialGuides }: GuideManagerClientProps) {
     }
   };
 
-  // Block manipulation
-  const handleAddBlock = (type: GuideBlock["type"]) => {
+  // Block factory (Guide defaults: evidence callouts, resource CTA support)
+  const createGuideBlock = (type: StructuredBlockType): GuideBlock => {
     const id = `b-${Date.now()}`;
     let newBlock: GuideBlock;
 
@@ -144,24 +148,7 @@ export function GuideManagerClient({ initialGuides }: GuideManagerClientProps) {
         break;
     }
 
-    setBlocks([...blocks, newBlock]);
-  };
-
-  const handleUpdateBlockText = (id: string, text: string) => {
-    setBlocks(blocks.map((b) => (b.id === id ? { ...b, text } : b)));
-  };
-
-  const handleMoveBlock = (index: number, direction: "up" | "down") => {
-    const targetIndex = direction === "up" ? index - 1 : index + 1;
-    if (targetIndex < 0 || targetIndex >= blocks.length) return;
-    const newBlocks = [...blocks];
-    const [moved] = newBlocks.splice(index, 1);
-    newBlocks.splice(targetIndex, 0, moved);
-    setBlocks(newBlocks);
-  };
-
-  const handleDeleteBlock = (id: string) => {
-    setBlocks(blocks.filter((b) => b.id !== id));
+    return newBlock;
   };
 
   // Media upload handler
@@ -730,99 +717,15 @@ export function GuideManagerClient({ initialGuides }: GuideManagerClientProps) {
                 </div>
               </div>
 
-              {/* Block Editor */}
+              {/* Block Editor (shared structured mechanics; Guide block types retained) */}
               <div style={{ marginTop: "24px" }}>
-                <p className="a-micro" style={{ marginBottom: "12px", fontWeight: 600, fontSize: "11px", letterSpacing: "0.08em" }}>
-                  BODY · {blocks.length} BLOCKS · TYPED, NO EXEC ARBITRARY HTML
-                </p>
-
-                <div className="block-list">
-                  {blocks.map((block, idx) => (
-                    <div className="block-item" key={block.id}>
-                      <div className="bi-bar">
-                        <span className="bi-kind">
-                          {block.type} {block.type === "heading" ? `(H${block.level})` : ""}
-                        </span>
-                        <div className="bi-tools">
-                          <button
-                            type="button"
-                            title="Move up"
-                            disabled={idx === 0}
-                            onClick={() => handleMoveBlock(idx, "up")}
-                          >
-                            ↑
-                          </button>
-                          <button
-                            type="button"
-                            title="Move down"
-                            disabled={idx === blocks.length - 1}
-                            onClick={() => handleMoveBlock(idx, "down")}
-                          >
-                            ↓
-                          </button>
-                          <button
-                            type="button"
-                            title="Delete"
-                            onClick={() => handleDeleteBlock(block.id)}
-                            style={{ color: "var(--coral)" }}
-                          >
-                            ✕
-                          </button>
-                        </div>
-                      </div>
-                      <div className="bi-body">
-                        {block.type === "heading" ? (
-                          <input
-                            type="text"
-                            value={block.text}
-                            onChange={(e) => handleUpdateBlockText(block.id, e.target.value)}
-                            style={{ width: "100%", padding: "8px 10px", fontSize: "18px", fontWeight: 600 }}
-                          />
-                        ) : block.type === "list" ? (
-                          <textarea
-                            rows={3}
-                            value={block.items.join("\n")}
-                            onChange={(e) => {
-                              const lines = e.target.value.split("\n");
-                              setBlocks(
-                                blocks.map((b) => (b.id === block.id ? { ...b, items: lines } : b))
-                              );
-                            }}
-                            placeholder="One item per line"
-                          />
-                        ) : (
-                          <textarea
-                            rows={3}
-                            value={"text" in block ? block.text : ""}
-                            onChange={(e) => handleUpdateBlockText(block.id, e.target.value)}
-                          />
-                        )}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-
-                {/* Add block toolbar */}
-                <div className="block-add" style={{ marginTop: "16px" }}>
-                  <button type="button" onClick={() => handleAddBlock("heading")}>
-                    ＋ Heading
-                  </button>
-                  <button type="button" onClick={() => handleAddBlock("paragraph")}>
-                    ＋ Paragraph
-                  </button>
-                  <button type="button" onClick={() => handleAddBlock("blockquote")}>
-                    ＋ Pull-quote
-                  </button>
-                  <button type="button" onClick={() => handleAddBlock("callout")}>
-                    ＋ Callout
-                  </button>
-                  <button type="button" onClick={() => handleAddBlock("list")}>
-                    ＋ List
-                  </button>
-                  <button type="button" onClick={() => handleAddBlock("resource")}>
-                    ＋ Resource
-                  </button>
-                </div>
+                <StructuredBlockEditor
+                  blocks={blocks}
+                  onChange={setBlocks}
+                  allowedBlockTypes={["heading", "paragraph", "blockquote", "callout", "list", "resource"]}
+                  createBlock={createGuideBlock}
+                  eyebrowHint="TYPED, NO EXEC ARBITRARY HTML"
+                />
               </div>
             </div>
 

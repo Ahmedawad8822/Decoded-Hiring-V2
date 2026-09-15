@@ -1,11 +1,12 @@
 import { redirect } from "next/navigation";
 import { getServerSession } from "@/lib/auth";
 import { getAllAdminGuides } from "@/features/guides/service";
-import { GuideManagerClient } from "./guide-manager-client";
+import { getAllAdminFieldNotes } from "@/features/field-notes/service";
+import { ContentWorkspaceClient } from "./content-workspace-client";
 
 export const metadata = {
   title: "Content · Studio | Decoded Hiring",
-  description: "Real Guide publishing management.",
+  description: "Real Guide and Field Notes publishing management.",
 };
 
 export default async function AdminContentPage() {
@@ -21,7 +22,16 @@ export default async function AdminContentPage() {
     redirect("/admin/login?error=forbidden");
   }
 
-  const guides = await getAllAdminGuides();
+  const [guides, fieldNotes] = await Promise.all([
+    getAllAdminGuides(),
+    getAllAdminFieldNotes(),
+  ]);
 
-  return <GuideManagerClient initialGuides={guides} currentUser={session.user} />;
+  return (
+    <ContentWorkspaceClient
+      initialGuides={guides}
+      initialFieldNotes={fieldNotes}
+      currentUser={session.user}
+    />
+  );
 }

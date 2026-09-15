@@ -25,8 +25,14 @@ export async function uploadMedia(params: {
   filename: string;
   contentType: string;
   uploadedBy?: string;
+  /**
+   * Storage namespace prefix (Mission 05: Field Notes reuse the same bucket,
+   * endpoint, MIME rules, and size limits — only the key prefix differs).
+   * Defaults to "guides" so all existing Guide behavior is unchanged.
+   */
+  namespace?: "guides" | "field-notes";
 }): Promise<UploadMediaResult> {
-  const { buffer, filename, contentType, uploadedBy } = params;
+  const { buffer, filename, contentType, uploadedBy, namespace = "guides" } = params;
 
   // 1. Validate content type
   const normalizedType = contentType.toLowerCase().trim();
@@ -45,7 +51,7 @@ export async function uploadMedia(params: {
 
   // 3. Generate safe canonical storage key (Never trust client filename as storage path)
   const safeId = crypto.randomUUID();
-  const key = `guides/${safeId}.${ext}`;
+  const key = `${namespace}/${safeId}.${ext}`;
 
   // 4. Store in R2 bucket
   const bucket = await getR2Bucket();
