@@ -5,7 +5,7 @@ import { getEnrollmentProgress } from "@/features/progress/service";
 import {
   getAdminCourseById,
   getPublishedCourses,
-  getPublishedCourseLessons,
+  getPublishedLessonCounts,
 } from "@/features/courses/service";
 
 export const metadata = {
@@ -32,7 +32,9 @@ export default async function LearnCoursesPage() {
   ).filter((r) => r !== null);
 
   const catalog = (await getPublishedCourses()).filter((c) => !enrolledIds.has(c.id));
-  const catalogCounts = await Promise.all(catalog.map((c) => getPublishedCourseLessons(c.id)));
+  // PERFORMANCE (review correction G): ONE grouped COUNT instead of N
+  // full-lesson-row fetches — the page only renders the lesson total.
+  const catalogCounts = await getPublishedLessonCounts(catalog.map((c) => c.id));
 
   return (
     <main className="sec-app" id="main" style={{ padding: "clamp(24px,4vw,48px) 0" }}>
@@ -81,7 +83,7 @@ export default async function LearnCoursesPage() {
             {catalog.length === 0 && (
               <p className="muted" style={{ fontSize: 13.5 }}>Nothing new right now — you hold every published course.</p>
             )}
-            {catalog.map((course, i) => (
+            {catalog.map((course) => (
               <Link
                 key={course.id}
                 className="course-card"
@@ -92,7 +94,7 @@ export default async function LearnCoursesPage() {
                 <div className="cc-body">
                   <h3>{course.title}</h3>
                   <p className="cc-meta">
-                    {catalogCounts[i].length} lessons · <span className="lifecycle published" style={{ fontSize: 10 }}>{course.accessMode}</span>
+                    {(catalogCounts[course.id] ?? 0)} lessons · <span className="lifecycle published" style={{ fontSize: 10 }}>{course.accessMode}</span>
                   </p>
                   {course.description && (
                     <p className="txt" style={{ fontSize: 13 }}>{course.description.slice(0, 140)}</p>

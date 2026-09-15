@@ -5,6 +5,7 @@ import {
   getAdminLessonById,
   getPublishedCourseLessons,
 } from "@/features/courses/service";
+import { hasLearnerAccess } from "@/features/enrollments/access";
 
 // ============================================================================
 // PROGRESS SERVICE (Mission 06)
@@ -27,9 +28,11 @@ export interface CourseProgress {
 
 export async function getEnrollmentProgress(enrollment: Enrollment): Promise<CourseProgress> {
   const db = await getDb();
-  const requiredPublished = (await getPublishedCourseLessons(enrollment.courseId)).filter(
-    (l) => l.required
-  );
+  // PERFORMANCE (review correction F): ONE published-lessons fetch. The
+  // previous code called getPublishedCourseLessons twice (required set +
+  // next-map) — 2x the curriculum queries per progress read.
+  const publishedAll = await getPublishedCourseLessons(enrollment.courseId);
+  const requiredPublished = publishedAll.filter((l) => l.required);
 
   const rows = await db
     .select()
@@ -50,11 +53,18 @@ export async function getEnrollmentProgress(enrollment: Enrollment): Promise<Cou
   const resumeLesson =
     requiredPublished.find((l) => !completedSet.has(l.id)) ?? null;
 
-  const publishedAll = await getPublishedCourseLessons(enrollment.courseId);
   const nextAfterLessonId: Record<string, Lesson | null> = {};
   for (let i = 0; i < publishedAll.length; i++) {
     nextAfterLessonId[publishedAll[i].id] = publishedAll[i + 1] ?? null;
   }
+
+  // CONSISTENCY (review correction H): reconcile the enrollment row with the
+  // recomputed verdict. Curriculum edits (new required lesson, lesson
+  // unpublished) change the verdict after the fact — a stale
+  // status="completed" must reopen to active, and a newly-satisfied set must
+  // close to completed, on the next read OR write. Reads and writes share
+  // this one helper so the two paths can never disagree.
+  await reconcileEnrollmentCompletion(enrollment, completed);
 
   return {
     totalRequired,
@@ -65,6 +75,40 @@ export async function getEnrollmentProgress(enrollment: Enrollment): Promise<Cou
     resumeLesson,
     nextAfterLessonId,
   };
+}
+
+/**
+ * Bring enrollment.status/completedAt in line with the recomputed completion
+ * verdict. No-op when already consistent. Exported for tests.
+ *
+ * Reads the CURRENT row (never the caller-passed snapshot): progress callers
+ * routinely hold objects fetched before earlier completions, and a stale
+ * status="active" snapshot must not suppress the reopen write.
+ */
+export async function reconcileEnrollmentCompletion(
+  enrollment: Enrollment,
+  completed: boolean
+): Promise<void> {
+  const db = await getDb();
+  const current = await db
+    .select()
+    .from(enrollments)
+    .where(eq(enrollments.id, enrollment.id))
+    .get();
+  if (!current) return;
+  if (completed && current.status !== "completed") {
+    await db
+      .update(enrollments)
+      .set({ completedAt: new Date(), status: "completed" })
+      .where(eq(enrollments.id, enrollment.id));
+  } else if (!completed && current.status === "completed") {
+    // Curriculum grew (or a lesson unpublished): reopen the enrollment so
+    // progress bars, resume logic, and status agree again.
+    await db
+      .update(enrollments)
+      .set({ completedAt: null, status: "active" })
+      .where(eq(enrollments.id, enrollment.id));
+  }
 }
 
 /**
@@ -88,6 +132,10 @@ export async function markLessonComplete(
   if (enrollment.userId !== userId) {
     throw new Error("Forbidden: This enrollment belongs to another learner.");
   }
+  // SECURITY (review correction C): cancelled enrollments write nothing.
+  if (!hasLearnerAccess(enrollment)) {
+    throw new Error("Forbidden: This enrollment is no longer active.");
+  }
 
   const lesson = await getAdminLessonById(lessonId);
   if (!lesson) throw new Error("Lesson not found.");
@@ -108,23 +156,23 @@ export async function markLessonComplete(
   if (existing) {
     alreadyComplete = true;
   } else {
-    await db.insert(lessonProgress).values({
-      id: `prog_${crypto.randomUUID().slice(0, 12)}`,
-      enrollmentId: enrollment.id,
-      lessonId: lesson.id,
-      completedAt: new Date(),
-    });
+    try {
+      await db.insert(lessonProgress).values({
+        id: `prog_${crypto.randomUUID().slice(0, 12)}`,
+        enrollmentId: enrollment.id,
+        lessonId: lesson.id,
+        completedAt: new Date(),
+      });
+    } catch {
+      // Race: another request completed it first (UNIQUE index) — treat as
+      // idempotent success instead of a 500.
+      alreadyComplete = true;
+    }
   }
 
+  // getEnrollmentProgress reconciles completion (correction H) — no separate
+  // ad-hoc status write here, so read and write paths share one verdict.
   const progress = await getEnrollmentProgress(enrollment);
-
-  // Course completion: all required published lessons complete.
-  if (progress.completed && !enrollment.completedAt) {
-    await db
-      .update(enrollments)
-      .set({ completedAt: new Date(), status: "completed" })
-      .where(eq(enrollments.id, enrollment.id));
-  }
 
   const updated = await db
     .select()

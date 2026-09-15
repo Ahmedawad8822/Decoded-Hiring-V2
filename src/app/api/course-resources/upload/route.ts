@@ -1,5 +1,5 @@
 import { requireAdmin } from "@/lib/auth";
-import { uploadCourseResource } from "@/lib/course-resources/service";
+import { MAX_COURSE_RESOURCE_SIZE, uploadCourseResource } from "@/lib/course-resources/service";
 import { getAdminCourseById, getAdminLessonById } from "@/features/courses/service";
 import { NextResponse } from "next/server";
 
@@ -34,6 +34,18 @@ export async function POST(request: Request) {
 
     const filename = (file as File).name || "resource.pdf";
     const contentType = file.type || "application/octet-stream";
+    // PERFORMANCE/SECURITY (review correction I): reject oversized uploads
+    // BEFORE file.arrayBuffer() materializes the bytes in memory — a hostile
+    // multi-GB body must never be buffered server-side.
+    const declaredSize = typeof (file as File).size === "number" ? (file as File).size : NaN;
+    if (Number.isFinite(declaredSize) && declaredSize > MAX_COURSE_RESOURCE_SIZE) {
+      return NextResponse.json(
+        {
+          error: `File size (${(declaredSize / 1024 / 1024).toFixed(2)} MB) exceeds the 10 MB course-resource limit.`,
+        },
+        { status: 413 }
+      );
+    }
     const arrayBuffer = await file.arrayBuffer();
 
     const result = await uploadCourseResource({

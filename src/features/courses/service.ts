@@ -10,7 +10,7 @@ import {
   type CourseSection,
   type Lesson,
 } from "@/lib/db";
-import { and, asc, desc, eq, like, ne, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, like, ne, or, sql } from "drizzle-orm";
 import {
   buildArchiveUpdate,
   buildEditTouch,
@@ -27,6 +27,7 @@ import type {
   UpdateCourseInput,
   UpdateLessonInput,
 } from "./types";
+import { hasLearnerAccess } from "@/features/enrollments/access";
 
 // ============================================================================
 // COURSES SERVICE (Mission 06)
@@ -387,6 +388,32 @@ export async function getPublishedCourseBySlug(slug: string): Promise<Course | n
   return course;
 }
 
+/**
+ * Learner-visible course by slug (review correction D — archived access).
+ * Published courses are visible to everyone. Archived courses 404 for the
+ * public but remain fully visible to already-entitled learners
+ * (hasLearnerAccess on their enrollment): no new enrollments (enrollFree
+ * rejects archived), no revocation of earned access. Cancelled enrollments
+ * see the archived course as 404 — same as strangers.
+ */
+export async function getLearnerCourseBySlug(
+  slug: string,
+  userId: string | null | undefined
+): Promise<Course | null> {
+  const db = await getDb();
+  const course = await db.select().from(courses).where(eq(courses.slug, slug)).get();
+  if (!course) return null;
+  if (course.status === "published") return course;
+  if (course.status !== "archived" || !userId) return null;
+  const enrollment = await db
+    .select()
+    .from(enrollments)
+    .where(and(eq(enrollments.userId, userId), eq(enrollments.courseId, course.id)))
+    .get();
+  if (hasLearnerAccess(enrollment || null)) return course;
+  return null;
+}
+
 export async function getPublishedCourses(): Promise<Course[]> {
   const db = await getDb();
   return db
@@ -398,22 +425,32 @@ export async function getPublishedCourses(): Promise<Course[]> {
 
 /** Full curriculum ordered by section.position then lesson.position. */
 export async function getCourseCurriculum(courseId: string): Promise<CurriculumSection[]> {
-  const sections = await getCourseSections(courseId);
   const db = await getDb();
-  const out: CurriculumSection[] = [];
-  for (const section of sections) {
-    const sectionLessons = await db
+  // PERFORMANCE (review correction): exactly 2 queries — one for sections,
+  // one for ALL lessons of the course grouped in memory. The previous
+  // per-section loop was an N+1 (1 + #sections lesson queries).
+  const [sections, allLessons] = await Promise.all([
+    getCourseSections(courseId),
+    db
       .select()
       .from(lessons)
-      .where(eq(lessons.sectionId, section.id))
-      .orderBy(asc(lessons.position), asc(lessons.createdAt));
-    out.push({
+      .where(eq(lessons.courseId, courseId))
+      .orderBy(asc(lessons.position), asc(lessons.createdAt)),
+  ]);
+  const bySection = new Map<string, Lesson[]>();
+  for (const lesson of allLessons) {
+    const bucket = bySection.get(lesson.sectionId);
+    if (bucket) bucket.push(lesson);
+    else bySection.set(lesson.sectionId, [lesson]);
+  }
+  return sections.map((section) => {
+    const sectionLessons = bySection.get(section.id) ?? [];
+    return {
       section,
       lessons: sectionLessons,
       publishedLessons: sectionLessons.filter((l) => l.status === "published"),
-    });
-  }
-  return out;
+    };
+  });
 }
 
 /** Ordered flat list of PUBLISHED lessons across the course (learner-visible). */
@@ -472,4 +509,52 @@ export async function getLessonResources(lessonId: string) {
     .from(lessonResources)
     .where(eq(lessonResources.lessonId, lessonId))
     .orderBy(asc(lessonResources.position));
+}
+
+// ---------------------------------------------------------------- Batched stats (review correction G)
+// Single GROUP BY query per call site instead of one COUNT per row.
+
+/** Enrollment counts for many courses in ONE query. Missing ids map to 0. */
+export async function getCourseEnrollmentCounts(courseIds: string[]): Promise<Record<string, number>> {
+  const out: Record<string, number> = {};
+  if (courseIds.length === 0) return out;
+  const db = await getDb();
+  const rows = await db
+    .select({ courseId: enrollments.courseId, count: sql<number>`count(*)` })
+    .from(enrollments)
+    .where(inArray(enrollments.courseId, courseIds))
+    .groupBy(enrollments.courseId);
+  for (const id of courseIds) out[id] = 0;
+  for (const row of rows) out[row.courseId] = row.count;
+  return out;
+}
+
+/** Completion counts for many lessons in ONE query. Missing ids map to 0. */
+export async function getLessonCompletionCounts(lessonIds: string[]): Promise<Record<string, number>> {
+  const out: Record<string, number> = {};
+  if (lessonIds.length === 0) return out;
+  const db = await getDb();
+  const rows = await db
+    .select({ lessonId: lessonProgress.lessonId, count: sql<number>`count(*)` })
+    .from(lessonProgress)
+    .where(inArray(lessonProgress.lessonId, lessonIds))
+    .groupBy(lessonProgress.lessonId);
+  for (const id of lessonIds) out[id] = 0;
+  for (const row of rows) out[row.lessonId] = row.count;
+  return out;
+}
+
+/** Published-lesson counts for many courses in ONE query. Missing ids map to 0. */
+export async function getPublishedLessonCounts(courseIds: string[]): Promise<Record<string, number>> {
+  const out: Record<string, number> = {};
+  if (courseIds.length === 0) return out;
+  const db = await getDb();
+  const rows = await db
+    .select({ courseId: lessons.courseId, count: sql<number>`count(*)` })
+    .from(lessons)
+    .where(and(inArray(lessons.courseId, courseIds), eq(lessons.status, "published")))
+    .groupBy(lessons.courseId);
+  for (const id of courseIds) out[id] = 0;
+  for (const row of rows) out[row.courseId] = row.count;
+  return out;
 }

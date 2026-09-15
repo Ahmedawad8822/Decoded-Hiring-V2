@@ -21,6 +21,19 @@ const ALLOWED_COURSE_RESOURCE_TYPES: Record<string, string> = {
 
 const MAX_RESOURCE_SIZE = 10 * 1024 * 1024; // 10 MB
 
+/** Shared size cap so the upload route can reject BEFORE file.arrayBuffer(). */
+export const MAX_COURSE_RESOURCE_SIZE = MAX_RESOURCE_SIZE;
+
+/** First bytes every valid PDF starts with ("%PDF-"). Checked before storage. */
+const PDF_MAGIC = [0x25, 0x50, 0x44, 0x46, 0x2d] as const; // % P D F -
+
+/** True only when the leading bytes are the PDF magic header. */
+export function hasPdfMagicBytes(buffer: ArrayBuffer | Uint8Array): boolean {
+  const bytes = buffer instanceof Uint8Array ? buffer : new Uint8Array(buffer);
+  if (bytes.length < PDF_MAGIC.length) return false;
+  return PDF_MAGIC.every((b, i) => bytes[i] === b);
+}
+
 export interface CourseResourceUploadResult {
   id: string;
   storageKey: string;
@@ -54,6 +67,12 @@ export async function uploadCourseResource(params: {
       `File size (${(size / 1024 / 1024).toFixed(2)} MB) exceeds the 10 MB course-resource limit.`
     );
   }
+  // RELIABILITY (review correction J): MIME headers are client-controlled —
+  // verify the PDF magic bytes (%PDF-) so a renamed executable can't be
+  // stored as a trusted "PDF" download.
+  if (!hasPdfMagicBytes(buffer)) {
+    throw new Error("Uploaded file is not a valid PDF (missing %PDF- header).");
+  }
 
   const safeCourseId = courseId.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 64);
   const resourceId = `res_${crypto.randomUUID().slice(0, 12)}`;
@@ -71,18 +90,26 @@ export async function uploadCourseResource(params: {
     .where(eq(lessonResources.lessonId, lessonId));
   const position = existing.length;
 
-  await db.insert(lessonResources).values({
-    id: resourceId,
-    courseId,
-    lessonId,
-    title: title.trim().slice(0, 160) || filename.replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 100),
-    storageKey,
-    filename: filename.replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 100),
-    contentType: normalizedType,
-    size,
-    position,
-    createdAt: new Date(),
-  });
+  // RELIABILITY (review correction K): the R2 object is orphaned if the DB
+  // metadata insert fails — delete it before surfacing the error so storage
+  // and the lesson_resources table can never disagree.
+  try {
+    await db.insert(lessonResources).values({
+      id: resourceId,
+      courseId,
+      lessonId,
+      title: title.trim().slice(0, 160) || filename.replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 100),
+      storageKey,
+      filename: filename.replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 100),
+      contentType: normalizedType,
+      size,
+      position,
+      createdAt: new Date(),
+    });
+  } catch (err) {
+    await bucket.delete(storageKey).catch(() => undefined);
+    throw err;
+  }
 
   return { id: resourceId, storageKey, filename, contentType: normalizedType, size };
 }

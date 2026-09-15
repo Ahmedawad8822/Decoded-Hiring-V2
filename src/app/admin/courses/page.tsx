@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { getServerSession } from "@/lib/auth";
-import { getAllAdminCourses, getCourseEnrollmentCount } from "@/features/courses/service";
+import { getAllAdminCourses, getCourseEnrollmentCounts } from "@/features/courses/service";
 import { CoursesClient } from "./courses-client";
 
 // Session-gated Studio route: render per request.
@@ -27,8 +27,10 @@ export default async function AdminCoursesPage(props: {
       : "all";
 
   const courseList = await getAllAdminCourses({ search: q, status });
-  const counts = await Promise.all(courseList.map((c) => getCourseEnrollmentCount(c.id)));
-  const initialCourses = courseList.map((c, i) => ({ ...c, enrollmentCount: counts[i] }));
+  // PERFORMANCE (review correction G): ONE grouped COUNT query for the whole
+  // list — the previous per-course Promise.all was N round-trips per page view.
+  const countsByCourse = await getCourseEnrollmentCounts(courseList.map((c) => c.id));
+  const initialCourses = courseList.map((c) => ({ ...c, enrollmentCount: countsByCourse[c.id] ?? 0 }));
 
   return <CoursesClient initialCourses={initialCourses} initialQ={q} initialStatus={status} />;
 }
