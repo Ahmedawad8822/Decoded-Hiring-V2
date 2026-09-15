@@ -5,6 +5,25 @@ import { getDb, users, sessions, accounts, verifications } from "../db";
 
 let authInstance: ReturnType<typeof createAuth> | null = null;
 
+/**
+ * Resolve the Better Auth secret from environment configuration ONLY.
+ *
+ * SECURITY (Mission 06 hardening): there is intentionally NO committed
+ * fallback secret. Authentication fails closed — when BETTER_AUTH_SECRET
+ * is absent this throws, in every environment including production.
+ * Local development provides it via environment configuration
+ * (.env.local, never committed).
+ */
+export function resolveAuthSecret(): string {
+  const secret = process.env.BETTER_AUTH_SECRET;
+  if (!secret) {
+    throw new Error(
+      "Missing BETTER_AUTH_SECRET environment variable. Authentication is disabled until it is configured."
+    );
+  }
+  return secret;
+}
+
 function createAuth(db: Parameters<typeof drizzleAdapter>[0]) {
   return betterAuth({
     database: drizzleAdapter(db, {
@@ -27,9 +46,7 @@ function createAuth(db: Parameters<typeof drizzleAdapter>[0]) {
         adminRole: "admin",
       }),
     ],
-    secret:
-      process.env.BETTER_AUTH_SECRET ||
-      "f1bed6a0d2752258d32844c5994846d3979df731f35f7339c2b5e5bb33c4d6cc",
+    secret: resolveAuthSecret(),
     baseURL:
       process.env.BETTER_AUTH_URL ||
       process.env.NEXT_PUBLIC_SITE_URL ||

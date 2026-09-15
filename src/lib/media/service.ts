@@ -7,7 +7,9 @@ const ALLOWED_MIME_TYPES: Record<string, string> = {
   "image/webp": "webp",
   "image/avif": "avif",
   "image/gif": "gif",
-  "image/svg+xml": "svg",
+  // NOTE (Mission 06 hardening): image/svg+xml is intentionally NOT allowed.
+  // SVG is active scriptable content (XSS vector) and must never be accepted
+  // as editorial media. Allowed: JPEG, PNG, WebP, AVIF, GIF.
 };
 
 const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5 MB
@@ -42,18 +44,46 @@ export interface UploadMediaResult {
   size: number;
 }
 
-export async function uploadMedia(params: {
-  buffer: ArrayBuffer | Uint8Array;
-  filename: string;
-  contentType: string;
-  uploadedBy?: string;
-  /**
-   * Storage namespace prefix (Mission 05: Field Notes reuse the same bucket,
-   * endpoint, MIME rules, and size limits — only the key prefix differs).
-   * Defaults to "guides" so all existing Guide behavior is unchanged.
-   */
-  namespace?: "guides" | "field-notes";
-}): Promise<UploadMediaResult> {
+/**
+ * Minimal storage seam for uploadMedia().
+ *
+ * Production always uses the real R2 bucket / D1 insert (default path).
+ * The seam exists ONLY so regression tests can simulate a DB failure
+ * after a successful put() without touching the Cloudflare binding
+ * architecture.
+ */
+export interface UploadMediaDeps {
+  bucket?: {
+    put: (key: string, body: ArrayBuffer | Uint8Array, options?: unknown) => Promise<unknown>;
+    delete: (key: string) => Promise<unknown>;
+  };
+  /** Persist the media metadata row; defaults to the real D1 insert. */
+  record?: (row: {
+    id: string;
+    key: string;
+    filename: string;
+    contentType: string;
+    size: number;
+    uploadedBy: string | null;
+    createdAt: Date;
+  }) => Promise<void>;
+}
+
+export async function uploadMedia(
+  params: {
+    buffer: ArrayBuffer | Uint8Array;
+    filename: string;
+    contentType: string;
+    uploadedBy?: string;
+    /**
+     * Storage namespace prefix (Mission 05: Field Notes reuse the same bucket,
+     * endpoint, MIME rules, and size limits — only the key prefix differs).
+     * Defaults to "guides" so all existing Guide behavior is unchanged.
+     */
+    namespace?: "guides" | "field-notes";
+  },
+  deps?: UploadMediaDeps
+): Promise<UploadMediaResult> {
   const { buffer, filename, contentType, uploadedBy, namespace = "guides" } = params;
 
   // 1. Validate content type
@@ -75,17 +105,32 @@ export async function uploadMedia(params: {
   const safeId = crypto.randomUUID();
   const key = `${namespace}/${safeId}.${ext}`;
 
-  // 4. Store in R2 bucket
-  const bucket = await getR2Bucket();
+  // 4. Store in R2 bucket (object is written BEFORE DB metadata)
+  const bucket = deps?.bucket ?? (await getR2Bucket());
   await bucket.put(key, buffer, {
     httpMetadata: {
       contentType: normalizedType,
     },
   });
 
-  // 5. Persist metadata in database
-  const db = await getDb();
-  await db.insert(media).values({
+  // 5. Persist metadata in database. If the insert fails AFTER a successful
+  // put(), best-effort delete the orphaned R2 object before rethrowing the
+  // ORIGINAL error. A cleanup failure must never mask the DB failure.
+  const record =
+    deps?.record ??
+    (async (row: {
+      id: string;
+      key: string;
+      filename: string;
+      contentType: string;
+      size: number;
+      uploadedBy: string | null;
+      createdAt: Date;
+    }) => {
+      const db = await getDb();
+      await db.insert(media).values(row);
+    });
+  const row = {
     id: safeId,
     key,
     filename: filename.replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 100),
@@ -93,7 +138,18 @@ export async function uploadMedia(params: {
     size,
     uploadedBy: uploadedBy || null,
     createdAt: new Date(),
-  });
+  };
+  try {
+    await record(row);
+  } catch (dbError) {
+    try {
+      await bucket.delete(key);
+    } catch {
+      // Intentionally swallowed: the original DB failure below is the error
+      // the caller must see. Cleanup is best-effort only.
+    }
+    throw dbError;
+  }
 
   return {
     key,
