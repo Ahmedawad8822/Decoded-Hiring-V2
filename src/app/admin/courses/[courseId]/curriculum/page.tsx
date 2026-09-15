@@ -9,6 +9,9 @@ import {
 } from "@/features/courses/service";
 import { CurriculumClient } from "./curriculum-client";
 
+// Session-gated Studio route: render per request.
+export const dynamic = "force-dynamic";
+
 export const metadata = {
   title: "Curriculum · Studio | Decoded Hiring",
   description: "Course curriculum editor — sections, lessons, resources.",

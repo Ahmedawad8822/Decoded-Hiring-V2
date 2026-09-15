@@ -4,16 +4,19 @@ import React, { useState } from "react";
 import { useRouter } from "next/navigation";
 import { markLessonCompleteAction } from "@/features/progress/actions";
 
+/**
+ * Learner mark-complete control. Prev/next navigation lives in the lesson
+ * shell (.ls-actions / .ls-mobile-bar) — this button only flips its own
+ * state so there is exactly one Next per action row.
+ */
 export function CompleteButton({
   enrollmentId,
   lessonId,
   alreadyDone,
-  nextHref,
 }: {
   enrollmentId: string;
   lessonId: string;
   alreadyDone: boolean;
-  nextHref: string | null;
 }) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
@@ -38,36 +41,22 @@ export function CompleteButton({
 
   if (done) {
     return (
-      <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
-        <span className="btn primary" style={{ pointerEvents: "none", opacity: 0.85 }}>
-          ✓ Completed
-        </span>
-        {nextHref && (
-          <button type="button" className="btn secondary" onClick={() => router.push(nextHref)}>
-            Next →
-          </button>
-        )}
-      </div>
+      <span className="btn primary" style={{ pointerEvents: "none", opacity: 0.85 }}>
+        ✓ Completed
+      </span>
     );
   }
 
   return (
-    <div>
-      <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-        <button type="button" className="btn primary" onClick={handleComplete} disabled={busy}>
-          {busy ? "Saving…" : "Mark lesson complete"}
-        </button>
-        {nextHref && (
-          <button type="button" className="btn secondary" onClick={() => router.push(nextHref)}>
-            Next →
-          </button>
-        )}
-      </div>
+    <span style={{ display: "inline-flex", flexDirection: "column", gap: 8 }}>
+      <button type="button" className="btn primary" onClick={handleComplete} disabled={busy}>
+        {busy ? "Saving…" : "Mark lesson complete"}
+      </button>
       {error && (
-        <p role="alert" style={{ marginTop: 10, fontSize: 13, color: "#7c2d12" }}>
+        <span role="alert" style={{ fontSize: 13, color: "#7c2d12" }}>
           {error}
-        </p>
+        </span>
       )}
-    </div>
+    </span>
   );
 }

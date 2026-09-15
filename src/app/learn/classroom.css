@@ -1,0 +1,7 @@
+/* Mission 06 classroom skin: approved learner visual language, single-sourced
+   from the prototype stylesheets (served at /prototypes/*.css). Real
+   application behavior lives in React — these styles are the UX reference,
+   not a static-HTML copy. Order matters: tokens -> base -> components. */
+@import url("/prototypes/tokens.css");
+@import url("/prototypes/base.css");
+@import url("/prototypes/components.css");

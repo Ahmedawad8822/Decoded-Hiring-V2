@@ -1,5 +1,5 @@
 import { getDb } from "@/lib/db";
-import { enrollments, lessonProgress, lessons, type Enrollment, type Lesson } from "@/lib/db";
+import { enrollments, lessonProgress, type Enrollment, type Lesson } from "@/lib/db";
 import { and, eq } from "drizzle-orm";
 import {
   getAdminLessonById,

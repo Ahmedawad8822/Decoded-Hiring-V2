@@ -3,6 +3,9 @@ import { getServerSession } from "@/lib/auth";
 import { getAllAdminCourses, getCourseEnrollmentCount } from "@/features/courses/service";
 import { CoursesClient } from "./courses-client";
 
+// Session-gated Studio route: render per request.
+export const dynamic = "force-dynamic";
+
 export const metadata = {
   title: "Courses · Studio | Decoded Hiring",
   description: "Real course management for the Decoded Hiring learning platform.",

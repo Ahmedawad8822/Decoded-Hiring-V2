@@ -73,7 +73,6 @@ export default async function LessonPlayerPage(props: {
   const idx = flat.findIndex((l) => l.id === lesson.id);
   const prev = idx > 0 ? flat[idx - 1] : null;
   const next = idx >= 0 && idx < flat.length - 1 ? flat[idx + 1] : null;
-  const nextHref = next ? `/learn/courses/${course.slug}/lessons/${next.slug}` : null;
 
   const positionLabel = `LESSON ${idx + 1} OF ${flat.length}`;
 
@@ -163,7 +162,6 @@ export default async function LessonPlayerPage(props: {
             enrollmentId={enrollment.id}
             lessonId={lesson.id}
             alreadyDone={completedSet.has(lesson.id)}
-            nextHref={nextHref}
           />
           {next ? (
             <Link className="btn secondary" href={`/learn/courses/${course.slug}/lessons/${next.slug}`} style={{ textDecoration: "none" }}>
@@ -190,7 +188,6 @@ export default async function LessonPlayerPage(props: {
             enrollmentId={enrollment.id}
             lessonId={lesson.id}
             alreadyDone={completedSet.has(lesson.id)}
-            nextHref={nextHref}
           />
           {next ? (
             <Link className="btn secondary" href={`/learn/courses/${course.slug}/lessons/${next.slug}`} aria-label="Next lesson" style={{ textDecoration: "none" }}>

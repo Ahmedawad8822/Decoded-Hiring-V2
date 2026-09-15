@@ -196,7 +196,7 @@ export function CoursesClient({
           <p className="muted" style={{ fontSize: 13.5 }}>No courses match. Create the first draft to begin the curriculum.</p>
         )}
         {initialCourses.map((course) => (
-          <div key={course.id} style={{ border: "1px solid var(--line)", borderRadius: "var(--radius-surface)", background: "var(--paper-bright)", padding: "22px 24px", display: "grid", gap: 14 }}>
+          <div key={course.id} data-course-slug={course.slug} style={{ border: "1px solid var(--line)", borderRadius: "var(--radius-surface)", background: "var(--paper-bright)", padding: "22px 24px", display: "grid", gap: 14 }}>
             <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap", alignItems: "flex-start" }}>
               <div>
                 <b style={{ fontSize: 16 }}>{course.title}</b>

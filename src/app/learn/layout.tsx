@@ -1,6 +1,10 @@
 import { redirect } from "next/navigation";
 import { getServerSession } from "@/lib/auth";
 import { LearnerShell } from "@/components/learner/learner-shell";
+import "./classroom.css";
+
+// Authenticated classroom: always render per request, never prerender statically.
+export const dynamic = "force-dynamic";
 
 export const metadata = {
   title: "Classroom | Decoded Hiring",
@@ -15,9 +19,6 @@ export default async function LearnLayout({ children }: { children: React.ReactN
 
   return (
     <>
-      <link rel="stylesheet" href="/prototypes/tokens.css" />
-      <link rel="stylesheet" href="/prototypes/base.css" />
-      <link rel="stylesheet" href="/prototypes/components.css" />
       <LearnerShell userName={session.user.name || "Learner"}>{children}</LearnerShell>
     </>
   );

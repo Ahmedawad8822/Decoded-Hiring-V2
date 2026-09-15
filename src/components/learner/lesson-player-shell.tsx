@@ -28,10 +28,14 @@ export function LessonPlayerShell({
 
       {drawerOpen && (
         <div
-          className="curriculum-drawer open"
+          className="curriculum-drawer"
+          style={{ display: "block" }}
           id="curriculum-drawer"
           role="dialog"
           aria-label="Course contents"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setDrawerOpen(false);
+          }}
         >
           <div className="panel">
             <div
