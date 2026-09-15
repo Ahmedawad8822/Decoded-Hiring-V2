@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Account — Decoded Hiring</title>
+<link rel="stylesheet" href="../tokens.css">
+<link rel="stylesheet" href="../base.css">
+<link rel="stylesheet" href="../components.css">
+<script>window.DH_PACK_ROOT = '..';</script>
+<script src="../_review-chrome.js" defer></script>
+<script src="../app.js" defer></script>
+</head>
+<body class="env-learner" data-screen="LEARN-08" data-screen-title="Learner account / settings">
+
+<header class="lrn-topbar">
+  <div class="wrap bar">
+    <a class="lrn-brand" href="home.html"><strong>HIRING, DECODED</strong><span>CLASSROOM</span></a>
+    <nav class="lrn-nav" aria-label="Learner">
+      <a href="home.html">Home</a>
+      <a href="courses.html">Courses</a>
+      <a href="bookings.html">Bookings</a>
+      <a href="account.html" aria-current="page">Account</a>
+    </nav>
+  </div>
+</header>
+
+<main class="sec-app" id="main" style="padding:clamp(24px,4vw,48px) 0">
+  <div class="wrap" style="max-width:760px">
+
+    <h1 class="a-h1" style="margin-bottom:28px">Account</h1>
+
+    <div class="settings-section">
+      <h3>Profile</h3>
+      <p class="ss-hint">How the classroom addresses you. Visible only to you and Ahmed.</p>
+      <form class="form-grid" data-demo-validate novalidate>
+        <div class="row-2">
+          <div class="field"><label for="a-name">Name <span class="req">*</span></label><input id="a-name" value="Salma El-Tayeb" data-required><span class="err">Name can't be empty.</span></div>
+          <div class="field"><label for="a-email">Email <span class="req">*</span></label><input id="a-email" type="email" value="salma@eltayeb.example" data-required><span class="err">A valid email is required.</span></div>
+        </div>
+        <div><button class="btn primary small" type="submit">Save changes</button> <span class="mono" style="font-size:11px;color:#1f7a52;margin-left:10px">SAVED ✓ (autosave)</span></div>
+      </form>
+    </div>
+
+    <div class="settings-section">
+      <h3>Sign-in method</h3>
+      <p class="ss-hint">Magic-link by email is your default. Google is connected.</p>
+      <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+        <span class="chip"><b>EMAIL</b> one-time code · default</span>
+        <span class="chip"><b>GOOGLE</b> connected · salma@…</span>
+      </div>
+    </div>
+
+    <div class="settings-section">
+      <h3>My enrollments</h3>
+      <p class="ss-hint">Every grant, with its source — free signup, payment, or manual grant. Honesty over mystery.</p>
+      <div class="table-scroll" style="border:0">
+        <table class="data">
+          <thead><tr><th>Course</th><th>Granted</th><th>Source</th><th>Status</th></tr></thead>
+          <tbody>
+            <tr><td><span class="cell-main">Mission 01 · Super Recruiter</span></td><td class="num">Sep 8, 2026</td><td>FREE — signup</td><td><span class="lifecycle published">ACTIVE</span></td></tr>
+            <tr><td><span class="cell-main">Hiring Situation Map primer</span></td><td class="num">Aug 30, 2026</td><td>FREE — signup</td><td><span class="lifecycle confirmed">COMPLETED</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="settings-section">
+      <h3>Consent &amp; communication</h3>
+      <p class="ss-hint">Optional channels stay optional. Changing these never affects your account or enrollments.</p>
+      <div class="consent-group" style="border-style:solid">
+        <span class="cg-title">CHANNELS</span>
+        <label class="consent-item"><input type="checkbox" checked><span>Email me useful hiring notes and relevant programme updates.</span></label>
+        <label class="consent-item"><input type="checkbox"><span>Ahmed may follow up on WhatsApp.</span></label>
+        <label class="consent-item"><input type="checkbox"><span>Ahmed may follow up by phone.</span></label>
+      </div>
+    </div>
+
+    <div class="settings-section">
+      <h3>Data</h3>
+      <p class="ss-hint">Your account works for you — including leaving it.</p>
+      <div style="display:flex;gap:10px;flex-wrap:wrap">
+        <button class="btn secondary small" type="button" data-toast="Export prepared|Your data export link arrives by email within the hour.">Export my data</button>
+        <button class="btn secondary small" type="button" data-toast="Download history|Opening your resource download history.">Download history</button>
+      </div>
+    </div>
+
+  </div>
+</main>
+
+<nav class="lrn-tabs" aria-label="Learner">
+  <a href="home.html"><span class="tab-ico" aria-hidden="true">◈</span>Home</a>
+  <a href="courses.html"><span class="tab-ico" aria-hidden="true">▤</span>Courses</a>
+  <a href="bookings.html"><span class="tab-ico" aria-hidden="true">◷</span>Bookings</a>
+  <a href="account.html" aria-current="page"><span class="tab-ico" aria-hidden="true">◍</span>Account</a>
+</nav>
+
+</body>
+</html>

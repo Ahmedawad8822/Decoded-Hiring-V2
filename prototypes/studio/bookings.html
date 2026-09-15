@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Bookings — Studio</title>
+<link rel="stylesheet" href="../tokens.css">
+<link rel="stylesheet" href="../base.css">
+<link rel="stylesheet" href="../components.css">
+<script>window.DH_PACK_ROOT = '..';</script>
+<script src="../_review-chrome.js" defer></script>
+<script src="../app.js" defer></script>
+</head>
+<body class="env-studio" data-screen="STU-18 / SCH-07" data-screen-title="Bookings — approval + holds + trail">
+
+<div class="studio">
+  <aside class="studio-rail" aria-label="Studio navigation">
+    <div class="sr-brand"><b>STUDIO</b><span>DECODED HIRING</span></div>
+    <div class="sr-section">Today</div>
+    <a class="sr-link" href="command.html">◧ Command Center</a>
+    <a class="sr-link" href="approvals.html">✓ Approvals <span class="badge">3</span></a>
+    <a class="sr-link" href="enquiries.html">✉ Enquiries</a>
+    <div class="sr-section">Product</div>
+    <a class="sr-link" href="content.html">▤ Content</a>
+    <a class="sr-link" href="courses.html">◈ Courses</a>
+    <a class="sr-link" href="products.html">◉ Products</a>
+    <a class="sr-link" href="bookings.html" aria-current="page">◷ Bookings</a>
+    <a class="sr-link" href="students.html">◍ Students</a>
+    <div class="sr-section">Intelligence</div>
+    <a class="sr-link" href="intelligence.html">◒ Intelligence</a>
+    <a class="sr-link" href="editorial.html">✎ AI Content Studio</a>
+    <div class="sr-section">System</div>
+    <a class="sr-link" href="reliability.html">⚑ Reliability</a>
+    <a class="sr-link" href="settings.html">⚙ Settings</a>
+  </aside>
+
+  <div class="studio-main">
+    <header class="studio-topbar">
+      <button class="st-burger btn secondary small" type="button" data-studio-drawer-open aria-label="Open navigation">☰</button>
+      <span class="st-crumb">Studio · <b>Bookings</b></span>
+      <span class="st-spacer"></span>
+      <a href="approvals.html" class="btn secondary small" style="text-decoration:none">Approvals <span class="badge">3</span></a>
+      <span class="st-avatar" title="Ahmed Awad — Owner">AA</span>
+    </header>
+
+    <main class="studio-page" id="main">
+      <div style="display:flex;justify-content:space-between;align-items:baseline;gap:12px;flex-wrap:wrap">
+        <h1 class="a-h1" style="margin-bottom:4px">Bookings</h1>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <span class="chip"><b>SUN–THU</b> 10:00–18:00 windows</span>
+          <span class="chip"><b>TZ</b> Africa/Cairo</span>
+          <a class="btn ghost small" href="#">Availability →</a>
+        </div>
+      </div>
+
+      <div class="filter-bar" style="margin-top:18px">
+        <select aria-label="Filter type"><option>All types</option><option>Coaching Session (4)</option><option>Workshop Discovery (2)</option></select>
+        <select aria-label="Filter status"><option>All statuses</option><option>Approval pending (1)</option><option>Confirmed (2)</option><option>Completed (3)</option><option>No-show (0)</option></select>
+        <div class="search"><input type="search" placeholder="Search person or reference…" aria-label="Search bookings"></div>
+      </div>
+
+      <div class="table-wrap">
+        <div class="table-scroll">
+          <table class="data">
+            <thead><tr><th><button type="button">When</button></th><th>Person</th><th>Type</th><th>Status</th><th>Policy</th><th>Actions</th></tr></thead>
+            <tbody>
+              <tr>
+                <td class="num">THU SEP 24 · 11:00</td>
+                <td><span class="cell-main">Salma El-Tayeb</span><span class="cell-sub">salma@eltayeb.example · first session</span></td>
+                <td>Coaching 60m</td>
+                <td><span class="lifecycle pending">AHMED APPROVAL</span></td>
+                <td>Hold <span class="mono" data-hold-countdown="754">12:34</span></td>
+                <td><a class="btn primary small" href="approvals.html">Decide</a></td>
+              </tr>
+              <tr>
+                <td class="num">SUN SEP 28 · 16:00</td>
+                <td><span class="cell-main">Omar Rashad</span><span class="cell-sub">TA lead · 8-person team · private workshop route</span></td>
+                <td>Discovery 30m</td>
+                <td><span class="lifecycle confirmed">CONFIRMED</span></td>
+                <td>Cancel ≤12h before</td>
+                <td><button class="btn ghost small" type="button">Details</button> <button class="btn ghost small" type="button">Reschedule…</button></td>
+              </tr>
+              <tr>
+                <td class="num">TUE SEP 30 · 11:30</td>
+                <td><span class="cell-main">Layla Hassan</span><span class="cell-sub">layla@dmm.example · repeat client</span></td>
+                <td>Coaching 60m</td>
+                <td><span class="lifecycle confirmed">CONFIRMED · PAID ✓</span></td>
+                <td>Cancel ≤24h before</td>
+                <td><button class="btn ghost small" type="button">Details</button> <button class="btn ghost small" type="button">Reschedule…</button></td>
+              </tr>
+              <tr>
+                <td class="num">AUG 27 · 11:00</td>
+                <td><span class="cell-main">Karim Nabil</span><span class="cell-sub">role brief review · decision map sent</span></td>
+                <td>Coaching 60m</td>
+                <td><span class="lifecycle confirmed">COMPLETED</span></td>
+                <td>—</td>
+                <td><button class="btn ghost small" type="button">Timeline</button> <button class="btn ghost small" type="button">Mark no-show</button></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="data-card-list">
+          <div class="data-card"><div class="dc-head"><span class="dc-title">Salma El-Tayeb · Thu 11:00</span><span class="lifecycle pending">APPROVAL</span></div><p class="dc-meta"><span>Coaching 60m · hold running 12:34</span></p><div class="dc-actions"><a class="btn primary small" href="approvals.html">Decide</a></div></div>
+          <div class="data-card"><div class="dc-head"><span class="dc-title">Omar Rashad · Sun 16:00</span><span class="lifecycle confirmed">CONFIRMED</span></div><p class="dc-meta"><span>Discovery 30m · private workshop route</span></p><div class="dc-actions"><button class="btn secondary small" type="button">Details</button></div></div>
+          <div class="data-card"><div class="dc-head"><span class="dc-title">Layla Hassan · Tue 11:30</span><span class="lifecycle confirmed">PAID ✓</span></div><p class="dc-meta"><span>Coaching 60m · repeat client</span></p><div class="dc-actions"><button class="btn secondary small" type="button">Details</button></div></div>
+        </div>
+      </div>
+
+      <!-- Audit trail emphasis (S-6) -->
+      <div class="settings-section" style="margin-top:16px;padding:16px 18px">
+        <h3 style="font-size:13.5px">Every booking keeps its full trail</h3>
+        <p class="ss-hint" style="margin-top:6px">Requested → held → approved → confirmed → completed, with timestamps, timezone labels and who did what. Manual moves of events the system didn't create are high-risk and ask for your explicit approval — never silent.</p>
+        <a class="btn ghost small" href="../learner/bookings.html" style="margin-top:8px">See the learner-side timeline (same data, read-only) →</a>
+      </div>
+    </main>
+  </div>
+</div>
+
+<div class="studio-drawer" id="studio-drawer" role="dialog" aria-label="Studio navigation">
+  <div class="panel">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px"><b>STUDIO</b><button class="btn secondary small" type="button" data-studio-drawer-close>Close</button></div>
+    <div class="sr-section" style="padding-top:0">Today</div>
+    <a class="sr-link" href="command.html">◧ Command Center</a>
+    <a class="sr-link" href="approvals.html">✓ Approvals <span class="badge">3</span></a>
+    <a class="sr-link" href="enquiries.html">✉ Enquiries</a>
+    <div class="sr-section">Product</div>
+    <a class="sr-link" href="content.html">▤ Content</a>
+    <a class="sr-link" href="courses.html">◈ Courses</a>
+    <a class="sr-link" href="products.html">◉ Products</a>
+    <a class="sr-link" href="bookings.html" aria-current="page">◷ Bookings</a>
+    <a class="sr-link" href="students.html">◍ Students</a>
+    <div class="sr-section">Intelligence</div>
+    <a class="sr-link" href="intelligence.html">◒ Intelligence</a>
+    <a class="sr-link" href="editorial.html">✎ AI Content Studio</a>
+    <div class="sr-section">System</div>
+    <a class="sr-link" href="reliability.html">⚑ Reliability</a>
+    <a class="sr-link" href="settings.html">⚙ Settings</a>
+  </div>
+</div>
+
+</body>
+</html>

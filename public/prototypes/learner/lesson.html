@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Designing a scorecard — Mission 01 · Super Recruiter</title>
+<link rel="stylesheet" href="../tokens.css">
+<link rel="stylesheet" href="../base.css">
+<link rel="stylesheet" href="../components.css">
+<script>window.DH_PACK_ROOT = '..';</script>
+<script src="../_review-chrome.js" defer></script>
+<script src="../app.js" defer></script>
+</head>
+<body class="env-learner" data-screen="LEARN-04" data-screen-title="Lesson player — classroom">
+
+<header class="lrn-topbar">
+  <div class="wrap bar">
+    <a class="lrn-brand" href="home.html"><strong>HIRING, DECODED</strong><span>CLASSROOM</span></a>
+    <nav class="lrn-nav" aria-label="Learner">
+      <a href="home.html">Home</a>
+      <a href="courses.html" aria-current="page">Courses</a>
+      <a href="bookings.html">Bookings</a>
+      <a href="account.html">Account</a>
+    </nav>
+  </div>
+</header>
+
+<button class="btn secondary small curriculum-drawer-toggle" type="button" data-curriculum-open style="position:fixed;bottom:88px;right:16px;z-index:30">☰ Course contents</button>
+
+<div class="curriculum-drawer" id="curriculum-drawer" role="dialog" aria-label="Course contents">
+  <div class="panel">
+    <div style="display:flex;justify-content:space-between;align-items:center;padding:16px 18px;border-bottom:1px solid var(--line);position:sticky;top:0;background:var(--paper-bright)">
+      <b style="font-size:14px">Course contents</b>
+      <button class="btn secondary small" type="button" data-curriculum-close>Close</button>
+    </div>
+    <div class="curriculum" style="border:0;border-radius:0;max-height:none" id="curriculum-clone"></div>
+  </div>
+</div>
+
+<main class="wrap classroom" id="main" style="padding-top:32px;padding-bottom:64px;gap:32px">
+
+  <!-- LRN-c03 CurriculumNav (sticky rail on desktop) -->
+  <aside aria-label="Curriculum">
+    <nav class="curriculum" id="curriculum-source">
+      <div class="cu-head">
+        <p class="t">Mission 01 · Super Recruiter</p>
+        <p class="s mono">4 / 15 LESSONS · 27%</p>
+      </div>
+      <p class="cu-sec">MISSION 01 · DECODE THE ROLE</p>
+      <a class="cu-lesson done" href="#"><span class="tick">✓</span>Why role clarity fails</a>
+      <a class="cu-lesson done" href="#"><span class="tick">✓</span>The role brief, piece by piece</a>
+      <a class="cu-lesson done" href="#"><span class="tick">✓</span>Impact and success measures</a>
+      <p class="cu-sec">MISSION 02 · READ THE MARKET</p>
+      <a class="cu-lesson done" href="#"><span class="tick">✓</span>Target universes, not pipelines</a>
+      <a class="cu-lesson done" href="#"><span class="tick">✓</span>Market signal vs. assumption</a>
+      <p class="cu-sec">MISSION 03 · BUILD EVIDENCE</p>
+      <a class="cu-lesson done" href="#"><span class="tick">✓</span>What evidence survives challenge</a>
+      <a class="cu-lesson current" href="#" aria-current="lesson"><span class="tick"></span>Designing a scorecard that survives challenge</a>
+      <a class="cu-lesson" href="#"><span class="tick"></span>Evidence synthesis practice</a>
+      <a class="cu-lesson" href="#"><span class="tick"></span>Quality checks before you recommend <span class="opt">OPTIONAL</span></a>
+      <p class="cu-sec">MISSION 04 · RUN THE CONVERSATION</p>
+      <a class="cu-lesson" href="#"><span class="tick"></span>ROCKET: structure with intent</a>
+      <a class="cu-lesson" href="#"><span class="tick"></span>Conversation plan workshop</a>
+      <p class="cu-sec">MISSION 05 · RECOMMEND WITH JUDGMENT</p>
+      <a class="cu-lesson" href="#"><span class="tick"></span>The recommendation as a decision artifact</a>
+      <a class="cu-lesson" href="#"><span class="tick"></span>Course capstone: one real recommendation</a>
+    </nav>
+  </aside>
+
+  <!-- LRN-c04 LessonShell -->
+  <article class="lesson has-mobile-bar">
+    <p class="ls-position">MISSION 03 · LESSON 2 OF 15 — BUILD EVIDENCE</p>
+    <h1 class="a-h1" style="margin-top:8px">Designing a scorecard that survives challenge</h1>
+
+    <div class="ls-body">
+      <p>A scorecard is not a list of adjectives. "Strong communicator", "self-starter", "team player" — these are opinions wearing a spreadsheet. A scorecard that survives challenge converts each into <strong>observable evidence</strong>: what the candidate did, said, or produced — and what it means for this role.</p>
+
+      <h2>Three tests every line must pass</h2>
+      <p>Before any line goes on the scorecard, it passes three tests:</p>
+      <ul>
+        <li><strong>The two-observers test</strong> — could two interviewers watching the same conversation agree on what they saw? If not, the line measures taste, not evidence.</li>
+        <li><strong>The role-impact test</strong> — does this evidence predict anything about performance in <em>this</em> role, or is it generic virtue?</li>
+        <li><strong>The challenge test</strong> — if a skeptical stakeholder asks "how do you know?", the answer is in the line itself, not in your intuition.</li>
+      </ul>
+
+      <div class="callout evidence"><span class="c-label">PUT IT INTO PRACTICE</span>Pick your last rejected candidate. Write down, from memory, the evidence behind the rejection. If you can't state it as an observation a colleague could verify, that's the line your scorecard is missing.</div>
+
+      <h2>From adjective to evidence: one rewrite</h2>
+      <p>Take "strong communicator". In the role brief, communication has a purpose — say, presenting search strategy to a skeptical CFO. The evidence line becomes: <em>"Explains a complex search decision to a non-recruiting audience: structures the argument, anticipates the objection, lands the recommendation."</em> Two observers can watch for that. A CFO can challenge it. A hire can be coached against it.</p>
+
+      <blockquote class="pull-quote" style="font-size:22px">The scorecard is the argument you'll make on Thursday, written on Monday.</blockquote>
+    </div>
+
+    <!-- LRN-c06 resources in context -->
+    <section style="margin-top:36px">
+      <p class="a-micro" style="margin-bottom:10px">THIS LESSON'S RESOURCES</p>
+      <div class="resource-list">
+        <a class="resource-row" href="#" download>
+          <span class="rr-ico" aria-hidden="true">▼</span>
+          <span class="rr-main"><b>Evidence line rewriter — worksheet</b><span>PDF · 2 PAGES · INCLUDED WITH COURSE</span></span>
+          <span class="rr-dl">Download</span>
+        </a>
+        <a class="resource-row" href="#" download>
+          <span class="rr-ico" aria-hidden="true">▼</span>
+          <span class="rr-main"><b>Scorecard template (Mission 03 edition)</b><span>PDF · 1 PAGE</span></span>
+          <span class="rr-dl">Download</span>
+        </a>
+        <div class="resource-row gated" title="Enrollment-gated resource example — this one belongs to Mission 05">
+          <span class="rr-ico" aria-hidden="true">⊘</span>
+          <span class="rr-main"><b>Capstone recommendation canvas</b><span>UNLOCKS WITH MISSION 05</span></span>
+          <span class="rr-dl">Why locked?</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- Desktop prev/next + complete -->
+    <div class="ls-actions">
+      <a class="btn secondary" href="#">← Previous</a>
+      <button class="btn primary" type="button" data-toast="Lesson complete|Evidence synthesis practice is next.|">Mark lesson complete</button>
+      <a class="btn secondary" href="#">Next →</a>
+    </div>
+  </article>
+</main>
+
+<!-- Sticky mobile action bar (thumb zone, RESPONSIVE-RULES §2.2) -->
+<div class="ls-mobile-bar" role="region" aria-label="Lesson actions">
+  <a class="btn secondary" href="#">←</a>
+  <button class="btn primary" type="button" data-toast="Lesson complete|Nice — 5 of 15 now.|">Complete</button>
+  <a class="btn secondary" href="#">Next →</a>
+</div>
+
+<!-- LRN-c08 bottom tabs (mobile) -->
+<nav class="lrn-tabs" aria-label="Learner">
+  <a href="home.html"><span class="tab-ico" aria-hidden="true">◈</span>Home</a>
+  <a href="courses.html"><span class="tab-ico" aria-hidden="true">▤</span>Courses</a>
+  <a href="bookings.html"><span class="tab-ico" aria-hidden="true">◷</span>Bookings</a>
+  <a href="account.html"><span class="tab-ico" aria-hidden="true">◍</span>Account</a>
+</nav>
+
+<script>
+// clone curriculum into the mobile drawer (demo convenience)
+document.addEventListener('DOMContentLoaded', function () {
+  var src = document.getElementById('curriculum-source');
+  var dst = document.getElementById('curriculum-clone');
+  if (src && dst) dst.innerHTML = src.innerHTML;
+});
+</script>
+
+</body>
+</html>

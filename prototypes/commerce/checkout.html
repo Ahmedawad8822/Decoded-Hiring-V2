@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Checkout — Decoded Hiring</title>
+<link rel="stylesheet" href="../tokens.css">
+<link rel="stylesheet" href="../base.css">
+<link rel="stylesheet" href="../components.css">
+<script>window.DH_PACK_ROOT = '..';</script>
+<script src="../_review-chrome.js" defer></script>
+<script src="../app.js" defer></script>
+</head>
+<body data-screen="COM-06/07/08 + SCH-04" data-screen-title="Checkout — pending · success · failure">
+
+<header class="site-header">
+  <div class="wrap bar">
+    <a class="wordmark" href="../public/home.html"><strong>Ahmed Awad</strong><span>HIRING, DECODED</span></a>
+    <nav class="primary-nav" aria-label="Primary">
+      <a href="../public/home.html">Home</a>
+      <details class="nav-details"><summary>Learn</summary><div class="menu"><a href="#">Programmes</a><a href="../public/course.html">Mission 01</a><a href="../public/workshop.html">The Workshop</a><a href="../public/coaching.html">Coaching</a></div></details>
+      <a href="../public/login.html">Log in</a>
+    </nav>
+    <button class="menu-toggle" type="button" data-sheet-open>Menu</button>
+  </div>
+</header>
+
+
+<div class="mobile-sheet" id="mobile-sheet" role="dialog" aria-modal="true" aria-label="Site menu">
+  <div class="sheet-head">
+    <span class="wordmark"><strong>Ahmed Awad</strong><span>HIRING, DECODED</span></span>
+    <button class="btn secondary small" type="button" data-sheet-close>Close</button>
+  </div>
+  <nav aria-label="Mobile">
+    <a href="../public/home.html">Home</a>
+    <details>
+      <summary>Learn</summary>
+      <div>
+        <a href="#">Programmes</a>
+        <a href="../public/course.html">Mission 01 — free course</a>
+        <a href="../public/workshop.html">The Workshop</a>
+        <a href="../public/coaching.html">Coaching</a>
+      </div>
+    </details>
+    <details>
+      <summary>Explore</summary>
+      <div>
+        <a href="#">About</a>
+        <a href="#">Field Notes</a>
+        <a href="#">Guides</a>
+        <a href="../public/contact.html">Contact</a>
+      </div>
+    </details>
+    <a href="../public/login.html">Log in</a>
+  </nav>
+  <div class="sheet-foot">
+    <span>Better recruitment thinking, made visible.</span>
+  </div>
+</div>
+
+<main id="main" class="sec" style="padding-block:clamp(40px,6vw,72px)">
+  <div class="wrap-reading" style="max-width:640px">
+
+    <p class="muted mono" style="font-size:11px;margin-bottom:18px">PROTOTYPE: ALL FOUR CHECKOUT STATES ON ONE SCREEN — MOVE BETWEEN THEM WITH THE BUTTONS INSIDE EACH STATE (AND THE OUTCOME SIMULATIONS ON "PROCESSING"). PROVIDER-NEUTRAL: NO PROVIDER IS SELECTED, NO BRANDING INVENTED.</p>
+
+    <!-- STATE: checkout available (COM-06) -->
+    <div data-state-panel="checkout">
+      <span class="t-eyebrow">CHECKOUT · ORDER DH-2026-0184</span>
+      <h1 class="display-h1" style="font-size:clamp(1.9rem,1.3rem+2.6vw,3rem);margin-top:12px">Complete your purchase.</h1>
+
+      <dl class="booking-summary" style="margin-top:24px;background:var(--paper-bright)">
+        <div class="bs-row"><dt>Product</dt><dd>Mission 02 · The ROCKET Interview System</dd></div>
+        <div class="bs-row"><dt>Price</dt><dd class="mono">$96.00 USD</dd></div>
+        <div class="bs-row"><dt>Snapshot</dt><dd class="mono">PRICE LOCKED AT ORDER — CHANGES LATER DON'T TOUCH THIS</dd></div>
+        <div class="bs-row"><dt>You pay</dt><dd class="mono"><b>$96.00 USD</b></dd></div>
+      </dl>
+
+      <div style="margin-top:20px" class="callout"><span class="c-label">PROVIDER HANDOFF</span>Payment completes at the gateway's hosted checkout — Decoded Hiring never sees or stores card data (BR-7a). No provider is configured today, so this state renders only for prototype review.</div>
+
+      <div style="margin-top:24px;display:grid;gap:10px">
+        <button class="btn primary wide" type="button" data-state-p="pending">Continue to payment →</button>
+        <button class="btn ghost" type="button" data-state-p="manual">Request an invoice instead</button>
+        <a class="btn ghost" href="../public/course.html" style="text-align:center">← Back to the course page</a>
+      </div>
+    </div>
+
+    <!-- STATE: payment pending (COM-07 + hold) -->
+    <div data-state-panel="pending" hidden>
+      <span class="t-eyebrow" style="color:var(--blue)">PROCESSING · SERVER TRUTH, NOT HOPE</span>
+      <h1 class="display-h1" style="font-size:clamp(1.9rem,1.3rem+2.6vw,3rem);margin-top:12px">Payment processing…</h1>
+      <p class="muted-strong" style="margin-top:14px;font-size:14.5px;line-height:1.65">This page polls the order's real state — no premature "success", no invented confirmation. If you close the tab, nothing breaks: the grant happens exactly once when the provider confirms (idempotent by design).</p>
+
+      <div class="hold-banner" style="margin-top:22px" data-hold-countdown="620">
+        <span class="timer" aria-hidden="true">10:20</span>
+        <span class="hb-txt"><b>Booking-linked hold running.</b><br>Your coaching slot (Tue 11:30) stays yours while payment completes — 15 minutes, honestly counted.</span>
+        <span class="sr-only" role="status" aria-live="polite">Booking-linked hold running: your slot stays yours while payment completes, 15 minutes honestly counted.</span>
+      </div>
+
+      <div style="margin-top:22px;display:grid;gap:10px">
+        <button class="btn secondary wide" type="button" data-state-p="success">⟲ Simulate provider confirmed →</button>
+        <button class="btn ghost" type="button" data-state-p="failure">Simulate provider decline →</button>
+      </div>
+      <p class="help" style="margin-top:14px">PROTOTYPE: both outcomes are one click away — the real flow follows the verified webhook, and the UI reflects only its mapped internal state.</p>
+    </div>
+
+    <!-- STATE: success (COM-08) -->
+    <div data-state-panel="success" hidden>
+      <div class="completion-hero" style="padding-block:16px 0;text-align:left">
+        <div class="cc-check" style="margin:0 0 18px">✓</div>
+        <span class="t-eyebrow tone-mint" style="color:#1f7a52">ORDER DH-2026-0184 · PAID</span>
+        <h1 class="display-h1" style="font-size:clamp(1.9rem,1.3rem+2.6vw,3rem);margin-top:10px">You're in.</h1>
+      </div>
+      <div style="margin-top:18px;display:grid;gap:14px">
+        <p class="muted-strong" style="font-size:14.5px;line-height:1.65">Enrollment granted — Mission 02 is in your classroom the moment this page loads. The grant happened exactly once; a replayed webhook could never double-charge or double-grant.</p>
+        <div class="callout evidence"><span class="c-label">WHAT HAPPENS NEXT</span>1. Receipt emailed (this address) · 2. Start with Mission 03 — you skipped nothing · 3. Your slot: Tue, Sep 30 · 11:30 (Africa/Cairo), confirmed &amp; in your calendar.</div>
+        <div style="display:flex;gap:10px;flex-wrap:wrap">
+          <a class="btn primary" href="../learner/home.html">Enter the classroom →</a>
+          <a class="btn secondary" href="../learner/bookings.html">My bookings</a>
+        </div>
+      </div>
+    </div>
+
+    <!-- STATE: failure (COM-09) — reason class + retry + contact, no dead end -->
+    <div data-state-panel="failure" hidden>
+      <span class="t-eyebrow tone-coral" style="color:var(--coral-deep)">ORDER DH-2026-0184 · PAYMENT FAILED</span>
+      <h1 class="display-h1" style="font-size:clamp(1.9rem,1.3rem+2.6vw,3rem);margin-top:12px">The card was declined.</h1>
+      <div style="margin-top:18px;display:grid;gap:14px">
+        <div class="error-state">
+          <h4>What happened</h4>
+          <p>The provider declined the charge — reason class: <b>card_declined</b>. Nothing was charged, and your enrollment was NOT granted (it never happens on a client claim).</p>
+          <h4>What to do next</h4>
+          <div class="es-retry">
+            <button class="btn secondary small" type="button" data-state-p="pending">⟲ Try another card</button>
+            <a class="btn ghost small" href="../public/contact.html">Tell Ahmed instead →</a>
+          </div>
+        </div>
+        <div class="policy-notice"><span class="pn-ico">ⓘ</span><span>Your coaching slot (Tue 11:30) is held for the remaining window — if it lapses, the closest alternatives appear automatically. Manual / invoice is also available on request.</span></div>
+        <div style="display:flex;gap:10px"><a class="btn ghost small" href="../public/contact.html">Request invoice instead</a></div>
+      </div>
+    </div>
+
+    <!-- STATE: manual / invoice (COM-03) -->
+    <div data-state-panel="manual" hidden>
+      <span class="t-eyebrow">MANUAL / INVOICE · ORDER REQUESTED</span>
+      <h1 class="display-h1" style="font-size:clamp(1.9rem,1.3rem+2.6vw,3rem);margin-top:12px">Request received.</h1>
+      <div style="margin-top:18px;display:grid;gap:14px">
+        <p class="muted-strong" style="font-size:14.5px;line-height:1.65">Ahmed reviews requests personally — usually within one business day — then records completion and your enrollment opens. No instant promises: this state says exactly what it is.</p>
+        <ol class="timeline" style="list-style:none;margin:0;padding:0">
+          <li class="tl-item done"><span class="tl-dot">✓</span><div><div class="tl-head"><span class="tl-title">Requested</span><span class="tl-time">JUST NOW</span></div><p class="tl-note">Order DH-2026-0185 · Mission 02 · team of 6 (DMM).</p></div></li>
+          <li class="tl-item current"><span class="tl-dot">◷</span><div><div class="tl-head"><span class="tl-title">Ahmed reviews &amp; sends invoice</span><span class="tl-time">≤ 1 BUSINESS DAY</span></div></div></li>
+          <li class="tl-item pending"><span class="tl-dot"></span><div><div class="tl-head"><span class="tl-title">Completion recorded → enrollment granted</span><span class="tl-time">—</span></div></div></li>
+        </ol>
+        <button class="btn secondary small" type="button" data-state-p="checkout">← See the checkout state again</button>
+      </div>
+    </div>
+  </div>
+</main>
+
+<script>
+// State switching on this page is handled by the shared app.js delegation:
+// [data-state] (review strip) and [data-state-p] (in-page buttons) both route
+// through one handler that toggles [data-state-panel] visibility and syncs
+// aria-pressed everywhere. No page-local switcher is needed anymore.
+// Deep links: checkout.html?state=failure opens this page in the failure state.
+</script>
+
+</body>
+</html>
