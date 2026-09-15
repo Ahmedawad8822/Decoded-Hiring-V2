@@ -118,12 +118,28 @@ const SECTIONS: ReviewSection[] = [
           "Categorized cookie audit, consent management rules, and tracking definitions.",
       },
       {
+        href: "/guides",
+        id: "PUB-04-IDX",
+        badge: "Real Route /guides",
+        title: "Guides Index (Production)",
+        description:
+          "Live database-driven guides index listing published guides with category tagging and responsive editorial grid.",
+      },
+      {
+        href: "/guides/talent-acquisition-strategy",
+        id: "PUB-04-REAL",
+        badge: "Real Route /guides/[slug]",
+        title: "Guide: Talent Acquisition Strategy (Production)",
+        description:
+          "Real published guide served from D1 SQLite via Drizzle. Includes 2-column sticky TOC rail, semantic list bullet hardening, and Article SEO schema.",
+      },
+      {
         href: "/prototypes/public/guide.html",
         id: "PUB-04g",
-        badge: "Guide Detail",
-        title: "Guide: Talent Acquisition Strategy",
+        badge: "Guide Prototype",
+        title: "Guide: Talent Acquisition Strategy (Prototype)",
         description:
-          "Full editorial guide with responsive 2-column sticky TOC layout, stabilized lists, pull-quotes, evidence tables, and cluster strip.",
+          "Full editorial guide prototype with responsive 2-column sticky TOC layout, stabilized lists, pull-quotes, evidence tables, and cluster strip.",
       },
     ],
   },
@@ -238,10 +254,26 @@ const SECTIONS: ReviewSection[] = [
           "J9 incident post-mortem trail, agent autonomy guardrail policies, and continuous improvement backlog.",
       },
       {
+        href: "/admin/content",
+        id: "STU-03-REAL",
+        badge: "Real Route /admin/content",
+        title: "Content & Guide Management (Production)",
+        description:
+          "Real working application flow: list existing guides, create new, edit, save draft, live preview, publish, unpublish, and archive with D1 persistence.",
+      },
+      {
+        href: "/admin/login",
+        id: "STU-30-REAL",
+        badge: "Real Route /admin/login",
+        title: "Studio Sign-In (Production Better Auth)",
+        description:
+          "Real staff authentication using Better Auth with persistent sessions, secure cookies, and admin role authorization.",
+      },
+      {
         href: "/prototypes/studio/login.html",
         id: "STU-30",
-        badge: "Admin",
-        title: "Studio Sign-In",
+        badge: "Admin Prototype",
+        title: "Studio Sign-In (Prototype)",
         description:
           "Passkey and 2FA authentication door separate from the public learner gateway.",
       },

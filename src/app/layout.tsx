@@ -1,12 +1,11 @@
 import type { Metadata } from "next";
 
-import { SiteFooter } from "@/components/site/site-footer";
-import { SiteHeader } from "@/components/site/site-header";
 import { getSiteUrl, JsonLd, siteDescription, siteName } from "@/lib/seo";
 
 import "./globals.css";
 import "./master-design.css";
 import "./content-design.css";
+import "./studio-tokens.css";
 
 export async function generateMetadata(): Promise<Metadata> {
   const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000";
@@ -48,14 +47,7 @@ export default function RootLayout({
             },
           }}
         />
-        <div id="hg-master-draft" className="hg-shell" data-lang="en">
-          <a className="skip-link" href="#main-content">
-            Skip to content
-          </a>
-          <SiteHeader />
-          <main id="main-content">{children}</main>
-          <SiteFooter />
-        </div>
+        {children}
       </body>
     </html>
   );

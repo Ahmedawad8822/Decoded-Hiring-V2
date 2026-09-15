@@ -20,6 +20,7 @@ const securityHeaders = [
 const nextConfig: NextConfig = {
   poweredByHeader: false,
   reactStrictMode: true,
+  serverExternalPackages: ["wrangler", "miniflare", "esbuild"],
   async headers() {
     return [
       {
