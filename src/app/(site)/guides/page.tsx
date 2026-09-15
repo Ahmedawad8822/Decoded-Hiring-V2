@@ -114,7 +114,7 @@ export default async function GuidesIndexPage() {
             style={{
               display: "grid",
               gap: "24px",
-              gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))",
+              gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 300px), 1fr))",
             }}
           >
             {guides.map((guide) => {

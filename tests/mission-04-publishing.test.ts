@@ -15,8 +15,14 @@ import { isSafeUrl } from "../src/features/guides/types";
 import { uploadMedia } from "../src/lib/media/service";
 import { eq } from "drizzle-orm";
 
+import { disposeCloudflareBindings } from "../src/lib/cloudflare/bindings";
+
 test.before(async () => {
   await migrateLocalDb();
+});
+
+test.after(async () => {
+  await disposeCloudflareBindings();
 });
 
 test("Security 1 & 2: Unauthorized and non-admin users cannot access admin mutations", async () => {
