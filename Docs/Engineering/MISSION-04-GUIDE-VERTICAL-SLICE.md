@@ -143,6 +143,27 @@ The test suite validates all 9 mission security scenarios:
 6. **Security 8**: Media upload enforces MIME types, 5MB limit, and non-guessable storage keys (`PASS`).
 7. **Security 9**: Newly registered normal users default strictly to `role = "user"` (`PASS`).
 
+### Full Browser Walkthrough Verification (Google Chrome via Playwright)
+All 15 lifecycle steps and visual layout constraints were verified in Google Chrome:
+- **Admin Sign-in & Content Access**: `PASS` (Login via `/admin/login`, redirect to `/admin/content`).
+- **Guide Draft Creation & Storage**: `PASS` (Created draft, added blocks, persisted in D1).
+- **Anonymous Access Guard**: `PASS` (Draft returns HTTP 404 for anonymous users; `?preview=true` without admin auth returns 404).
+- **Authenticated Preview**: `PASS` (Admin sees draft with yellow `PREVIEW MODE` banner).
+- **Publish Pipeline**: `PASS` (Lifecycle status updates to `PUBLISHED`, appears immediately on `/guides`).
+- **Public Guide Rendering**: `PASS` (Rendered at `/guides/[slug]` without preview banner, article metadata and JSON-LD schema verified).
+- **Edit Published Guide**: `PASS` (Editing published guide updates content and revalidates public page).
+- **Unpublish**: `PASS` (Unpublishing guide removes it from `/guides` and returns HTTP 404 on anonymous request).
+- **Archive**: `PASS` (Archived guide remains unavailable on public routes with HTTP 404).
+- **Desktop Layout & Sticky TOC**: `PASS` (240px TOC rail sticks at `top: 32px` on scroll; `#hg-master-draft:has(.article-layout)` overflow unclipped).
+- **Mobile Viewport (375x812)**: `PASS` (Desktop rail hidden, collapsible `<details class="toc-collapsible">` rendered, responsive admin card list).
+- **Semantic Bullets**: `PASS` (Static semantic bullets verified).
+- **Review Hub**: `PASS` (All links verified on `/review`).
+
+### Development Admin Safety
+- **Zero Committed Credentials**: No passwords or auth secrets committed in repository.
+- **Dynamic Quick-Fill**: Guarded strictly by `NODE_ENV === "development"` via `/api/dev/quick-fill`, returning 404 in production builds.
+- **Default Role**: Newly registered accounts strictly default to `role = "user"`. Admin role is granted explicitly only.
+
 ### Build & Compilation
 - **TypeScript**: `npx tsc --noEmit` → **0 errors**.
 - **ESLint**: `npx eslint . --max-warnings=0` → **0 warnings**.
