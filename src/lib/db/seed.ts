@@ -4,6 +4,14 @@ import { migrateLocalDb } from "./migrate";
 import { eq } from "drizzle-orm";
 
 export async function seedDatabase() {
+  if (typeof process.loadEnvFile === "function") {
+    try {
+      process.loadEnvFile(".env.local");
+    } catch {
+      // Ignored if file doesn't exist
+    }
+  }
+
   console.log("🌱 Running local D1 migrations...");
   await migrateLocalDb();
 

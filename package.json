@@ -11,6 +11,7 @@
     "start": "next start",
     "lint": "eslint . --max-warnings=0",
     "typecheck": "tsc --noEmit",
+    "test": "tsx tests/mission-04-publishing.test.ts",
     "db:generate": "drizzle-kit generate",
     "db:seed": "tsx scripts/seed.ts"
   },
