@@ -1,4 +1,5 @@
-import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
+import { index, integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
+import type { ContentStatus } from "@/features/publishing/types";
 
 // ============================================================================
 // IDENTITY DOMAIN (Better Auth + Admin Plugin)
@@ -65,7 +66,7 @@ export const verifications = sqliteTable("verification", {
 // CONTENT / PUBLISHING DOMAIN (Guides)
 // ============================================================================
 
-export type GuideStatus = "draft" | "published" | "archived";
+export type GuideStatus = ContentStatus;
 
 export const guides = sqliteTable("guides", {
   id: text("id").primaryKey(),
@@ -87,6 +88,52 @@ export const guides = sqliteTable("guides", {
 });
 
 // ============================================================================
+// CONTENT / PUBLISHING DOMAIN (Field Notes — Mission 05)
+// ----------------------------------------------------------------------------
+// Dedicated table (not polymorphic with guides): Field Notes are shorter,
+// timely, observation-led notes with no category taxonomy. They share the
+// ContentStatus lifecycle, ContentBlock storage model, media boundary,
+// preview rule, and cache strategy with Guides — but persist separately.
+// Revision history preserves meaningful edit snapshots, especially for
+// published content (publish + every update while published).
+// ============================================================================
+
+export type FieldNoteStatus = ContentStatus;
+
+export const fieldNotes = sqliteTable("field_notes", {
+  id: text("id").primaryKey(),
+  title: text("title").notNull(),
+  slug: text("slug").notNull().unique(),
+  excerpt: text("excerpt"),
+  body: text("body").notNull(), // JSON-stringified ContentBlock[]
+  coverImage: text("cover_image"),
+  author: text("author").notNull().default("Ahmed Awad"),
+  status: text("status").$type<FieldNoteStatus>().notNull().default("draft"),
+  metaTitle: text("meta_title"),
+  metaDescription: text("meta_description"),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+  publishedAt: integer("published_at", { mode: "timestamp" }),
+});
+
+export type FieldNoteRevisionTrigger = "publish" | "update" | "unpublish" | "archive";
+
+export const fieldNoteRevisions = sqliteTable("field_note_revisions", {
+  id: text("id").primaryKey(),
+  fieldNoteId: text("field_note_id")
+    .notNull()
+    .references(() => fieldNotes.id, { onDelete: "cascade" }),
+  title: text("title").notNull(),
+  body: text("body").notNull(), // JSON-stringified ContentBlock[] snapshot
+  status: text("status").$type<FieldNoteStatus>().notNull(),
+  trigger: text("trigger").$type<FieldNoteRevisionTrigger>().notNull(),
+  createdBy: text("created_by"),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+}, (table) => [
+  index("field_note_revisions_note_idx").on(table.fieldNoteId),
+]);
+
+// ============================================================================
 // MEDIA DOMAIN (Cloudflare R2 Metadata)
 // ============================================================================
 
@@ -103,4 +150,6 @@ export const media = sqliteTable("media", {
 export type User = typeof users.$inferSelect;
 export type Session = typeof sessions.$inferSelect;
 export type Guide = typeof guides.$inferSelect;
+export type FieldNote = typeof fieldNotes.$inferSelect;
+export type FieldNoteRevision = typeof fieldNoteRevisions.$inferSelect;
 export type Media = typeof media.$inferSelect;
