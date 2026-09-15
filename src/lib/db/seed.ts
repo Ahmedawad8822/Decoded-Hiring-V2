@@ -11,9 +11,14 @@ export async function seedDatabase() {
   const auth = await getAuth();
 
   // 1. Seed initial admin from environment
-  const adminEmail = process.env.ADMIN_INITIAL_EMAIL || "ahmed@decodedhiring.local";
-  const adminPassword = process.env.ADMIN_INITIAL_PASSWORD || "Ahmed-Decoded-Dev-2026!";
+  const adminEmail = process.env.ADMIN_INITIAL_EMAIL;
+  const adminPassword = process.env.ADMIN_INITIAL_PASSWORD;
   const adminName = process.env.ADMIN_INITIAL_NAME || "Ahmed Awad";
+
+  if (!adminEmail || !adminPassword) {
+    console.log("ℹ️ ADMIN_INITIAL_EMAIL or ADMIN_INITIAL_PASSWORD not configured. Skipping admin creation.");
+    return;
+  }
 
   const existingUser = await db.select().from(users).where(eq(users.email, adminEmail)).get();
 

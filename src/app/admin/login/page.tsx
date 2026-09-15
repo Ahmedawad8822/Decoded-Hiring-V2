@@ -41,10 +41,21 @@ export default function AdminLoginPage() {
     }
   };
 
-  const handleDevQuickFill = () => {
-    setEmail("ahmed@decodedhiring.local");
-    setPassword("Ahmed-Decoded-Dev-2026!");
-    setError(null);
+  const handleDevQuickFill = async () => {
+    if (process.env.NODE_ENV !== "development") return;
+    try {
+      const res = await fetch("/api/dev/quick-fill");
+      if (res.ok) {
+        const data = (await res.json()) as { email?: string; password?: string };
+        if (data.email && data.password) {
+          setEmail(data.email);
+          setPassword(data.password);
+          setError(null);
+        }
+      }
+    } catch {
+      // Ignored
+    }
   };
 
   return (

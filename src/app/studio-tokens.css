@@ -528,6 +528,10 @@ nav[aria-label="The five questions"] a.chip[aria-current="true"] b { color: var(
 
 /* ===== PUB-c09 TableOfContents & Article Layout ================================= */
 
+#hg-master-draft:has(.article-layout) {
+  overflow: visible;
+}
+
 .article-layout {
   display: grid;
   grid-template-columns: minmax(0, 1fr);

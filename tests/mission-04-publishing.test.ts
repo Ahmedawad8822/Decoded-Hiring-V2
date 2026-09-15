@@ -5,7 +5,6 @@ import { getAuth } from "../src/lib/auth";
 import { migrateLocalDb } from "../src/lib/db/migrate";
 import {
   createGuide,
-  updateGuide,
   publishGuide,
   unpublishGuide,
   archiveGuide,
