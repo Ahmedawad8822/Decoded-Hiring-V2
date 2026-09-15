@@ -48,7 +48,11 @@ export function AdminStudioShell({ children }: { children: React.ReactNode }) {
         >
           ▤ Content
         </Link>
-        <Link className="sr-link" href="/prototypes/studio/courses.html">
+        <Link
+          className="sr-link"
+          href="/admin/courses"
+          aria-current={pathname.startsWith("/admin/courses") ? "page" : undefined}
+        >
           ◈ Courses
         </Link>
         <Link className="sr-link" href="/prototypes/studio/products.html">
