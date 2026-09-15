@@ -12,6 +12,8 @@
     "lint": "eslint . --max-warnings=0",
     "typecheck": "tsc --noEmit",
     "test": "tsx tests/mission-04-publishing.test.ts",
+    "test:e2e": "playwright test",
+    "test:e2e:headed": "playwright test --headed",
     "db:generate": "drizzle-kit generate",
     "db:seed": "tsx scripts/seed.ts"
   },
@@ -30,6 +32,7 @@
   "devDependencies": {
     "@better-auth/cli": "^1.4.22",
     "@cloudflare/workers-types": "^5.20260915.1",
+    "@playwright/test": "^1.63.0",
     "@tailwindcss/postcss": "4.3.3",
     "@types/node": "26.2.0",
     "@types/react": "19.2.18",
