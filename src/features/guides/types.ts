@@ -2,6 +2,7 @@ import { z } from "zod";
 import {
   contentBlockSchema,
   contentBlocksArraySchema,
+  coverImageSchema,
   slugRegex,
   slugSchema,
   isSafeUrl,
@@ -40,7 +41,7 @@ export const createGuideSchema = z.object({
   author: z.string().min(2).max(100).optional().default("Ahmed Awad"),
   category: z.string().max(50).optional(),
   tags: z.string().max(200).optional(),
-  coverImage: z.string().url().or(z.string().startsWith("/")).optional().nullable(),
+  coverImage: coverImageSchema,
   metaTitle: z.string().max(100).optional(),
   metaDescription: z.string().max(300).optional(),
   body: z.array(contentBlockSchema).default([]),

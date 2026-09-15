@@ -7,6 +7,7 @@ import {
   buildEditTouch,
   buildPublishUpdate,
   buildUnpublishUpdate,
+  assertFieldNoteTransition,
 } from "@/features/publishing/lifecycle";
 import type { FieldNoteRevisionTrigger } from "@/lib/db";
 
@@ -191,6 +192,8 @@ export async function publishFieldNote(
     throw new Error(`Field note with id "${id}" not found`);
   }
 
+  assertFieldNoteTransition(current.status, "publish");
+
   const now = new Date();
   await db
     .update(fieldNotes)
@@ -212,6 +215,8 @@ export async function unpublishFieldNote(
     throw new Error(`Field note with id "${id}" not found`);
   }
 
+  assertFieldNoteTransition(current.status, "unpublish");
+
   const now = new Date();
   await db
     .update(fieldNotes)
@@ -232,6 +237,8 @@ export async function archiveFieldNote(
   if (!current) {
     throw new Error(`Field note with id "${id}" not found`);
   }
+
+  assertFieldNoteTransition(current.status, "archive");
 
   const now = new Date();
   await db

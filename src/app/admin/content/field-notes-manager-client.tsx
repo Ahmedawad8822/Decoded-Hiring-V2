@@ -7,6 +7,10 @@ import { FieldNote, FieldNoteRevision } from "@/lib/db";
 import { FieldNoteBlock, FieldNoteStatus } from "@/features/field-notes/types";
 import { slugifyTitle } from "@/features/publishing/types";
 import {
+  StructuredBlockEditor,
+  type StructuredBlockType,
+} from "@/components/publishing/StructuredBlockEditor";
+import {
   createFieldNoteAction,
   updateFieldNoteAction,
   publishFieldNoteAction,
@@ -19,9 +23,7 @@ interface FieldNotesManagerClientProps {
   initialNotes: FieldNote[];
 }
 
-type BlockKind = FieldNoteBlock["type"];
-
-function newBlock(type: BlockKind): FieldNoteBlock {
+function createFieldNoteBlock(type: StructuredBlockType): FieldNoteBlock {
   const id = `b-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
   switch (type) {
     case "heading":
@@ -123,22 +125,8 @@ export function FieldNotesManagerClient({ initialNotes }: FieldNotesManagerClien
     if (!editingNoteId) setSlug(slugifyTitle(newTitle));
   };
 
-  const handleAddBlock = (type: BlockKind) => setBlocks([...blocks, newBlock(type)]);
-
-  const handleUpdateBlockText = (id: string, text: string) => {
-    setBlocks(blocks.map((b) => (b.id === id ? { ...b, text } : b)));
-  };
-
-  const handleMoveBlock = (index: number, direction: "up" | "down") => {
-    const targetIndex = direction === "up" ? index - 1 : index + 1;
-    if (targetIndex < 0 || targetIndex >= blocks.length) return;
-    const newBlocks = [...blocks];
-    const [moved] = newBlocks.splice(index, 1);
-    newBlocks.splice(targetIndex, 0, moved);
-    setBlocks(newBlocks);
-  };
-
-  const handleDeleteBlock = (id: string) => setBlocks(blocks.filter((b) => b.id !== id));
+  // Block mechanics live in the shared StructuredBlockEditor; Field Notes
+  // expose only the lightweight subset (no resource blocks).
 
   const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -501,9 +489,9 @@ export function FieldNotesManagerClient({ initialNotes }: FieldNotesManagerClien
               </Link>
             )}
             <button className="btn primary small" type="button" disabled={isPending} onClick={() => handleSave(false)}>
-              {isPending ? "Saving..." : "Save Draft"}
+              {isPending ? "Saving..." : currentStatus === "draft" ? "Save Draft" : "Save Changes"}
             </button>
-            {currentStatus !== "published" ? (
+            {currentStatus === "draft" ? (
               <button
                 className="btn secondary small"
                 type="button"
@@ -513,7 +501,7 @@ export function FieldNotesManagerClient({ initialNotes }: FieldNotesManagerClien
               >
                 Publish Now
               </button>
-            ) : (
+            ) : currentStatus === "published" ? (
               <button
                 className="btn ghost small"
                 type="button"
@@ -526,7 +514,7 @@ export function FieldNotesManagerClient({ initialNotes }: FieldNotesManagerClien
               >
                 Unpublish
               </button>
-            )}
+            ) : null}
           </div>
 
           <div style={{ display: "grid", gap: "24px" }} className="settings-layout">
@@ -589,71 +577,13 @@ export function FieldNotesManagerClient({ initialNotes }: FieldNotesManagerClien
               </div>
 
               <div style={{ marginTop: "24px" }}>
-                <p className="a-micro" style={{ marginBottom: "12px", fontWeight: 600, fontSize: "11px", letterSpacing: "0.08em" }}>
-                  BODY · {blocks.length} BLOCKS · KEEP IT SHORT
-                </p>
-                <div className="block-list">
-                  {blocks.map((block, idx) => (
-                    <div className="block-item" key={block.id}>
-                      <div className="bi-bar">
-                        <span className="bi-kind">
-                          {block.type} {block.type === "heading" ? `(H${block.level})` : ""}
-                        </span>
-                        <div className="bi-tools">
-                          <button type="button" title="Move up" disabled={idx === 0} onClick={() => handleMoveBlock(idx, "up")}>
-                            ↑
-                          </button>
-                          <button type="button" title="Move down" disabled={idx === blocks.length - 1} onClick={() => handleMoveBlock(idx, "down")}>
-                            ↓
-                          </button>
-                          <button type="button" title="Delete" onClick={() => handleDeleteBlock(block.id)} style={{ color: "var(--coral)" }}>
-                            ✕
-                          </button>
-                        </div>
-                      </div>
-                      <div className="bi-body">
-                        {block.type === "heading" ? (
-                          <input
-                            type="text"
-                            value={block.text}
-                            onChange={(e) => handleUpdateBlockText(block.id, e.target.value)}
-                            style={{ width: "100%", padding: "8px 10px", fontSize: "18px", fontWeight: 600 }}
-                          />
-                        ) : block.type === "list" ? (
-                          <textarea
-                            rows={3}
-                            value={block.items.join("\n")}
-                            onChange={(e) => {
-                              const lines = e.target.value.split("\n");
-                              setBlocks(blocks.map((b) => (b.id === block.id ? { ...b, items: lines } : b)));
-                            }}
-                            placeholder="One item per line"
-                          />
-                        ) : (
-                          <textarea rows={3} value={"text" in block ? block.text : ""} onChange={(e) => handleUpdateBlockText(block.id, e.target.value)} />
-                        )}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-
-                <div className="block-add" style={{ marginTop: "16px" }}>
-                  <button type="button" onClick={() => handleAddBlock("paragraph")}>
-                    ＋ Paragraph
-                  </button>
-                  <button type="button" onClick={() => handleAddBlock("heading")}>
-                    ＋ Heading
-                  </button>
-                  <button type="button" onClick={() => handleAddBlock("blockquote")}>
-                    ＋ Pull-quote
-                  </button>
-                  <button type="button" onClick={() => handleAddBlock("callout")}>
-                    ＋ Callout
-                  </button>
-                  <button type="button" onClick={() => handleAddBlock("list")}>
-                    ＋ List
-                  </button>
-                </div>
+                <StructuredBlockEditor
+                  blocks={blocks}
+                  onChange={setBlocks}
+                  allowedBlockTypes={["paragraph", "heading", "blockquote", "callout", "list"]}
+                  createBlock={createFieldNoteBlock}
+                  eyebrowHint="KEEP IT SHORT"
+                />
               </div>
             </div>
 
@@ -664,11 +594,11 @@ export function FieldNotesManagerClient({ initialNotes }: FieldNotesManagerClien
                   Status: <strong style={{ textTransform: "capitalize" }}>{currentStatus}</strong>
                 </p>
                 <div style={{ display: "grid", gap: "8px" }}>
-                  {currentStatus !== "published" ? (
+                  {currentStatus === "draft" ? (
                     <button type="button" className="btn primary small" onClick={() => handleSave(true)} style={{ width: "100%" }}>
                       Publish to Live Site
                     </button>
-                  ) : (
+                  ) : currentStatus === "published" ? (
                     <button
                       type="button"
                       className="btn secondary small"
@@ -679,7 +609,7 @@ export function FieldNotesManagerClient({ initialNotes }: FieldNotesManagerClien
                     >
                       Unpublish (Return to Draft)
                     </button>
-                  )}
+                  ) : null}
                   {editingNoteId && currentStatus !== "archived" && (
                     <button
                       type="button"

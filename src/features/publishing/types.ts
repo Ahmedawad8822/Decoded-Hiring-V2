@@ -141,6 +141,63 @@ export function isSafeUrl(url?: string | null): boolean {
 }
 
 // ============================================================================
+// Narrow cover-image (media) URL validation (Mission 05 review correction)
+// ----------------------------------------------------------------------------
+// Tighter than isSafeUrl (which governs in-content links where mailto:, tel:,
+// hash and same-site relative links are legitimate). Cover images render in
+// <img src> and SEO meta tags, so the boundary is:
+//   ACCEPT: /api/media/... local paths (the only approved local namespace —
+//           the upload service in src/lib/media/service.ts returns exactly
+//           these) and absolute https:// URLs (external images stay supported).
+//   REJECT: javascript:, data:, vbscript:, file:, mailto:, tel:, any other
+//           scheme, protocol-relative URLs (//host/...), plain http://
+//           (not required — local dev serves covers same-origin relative),
+//           malformed URLs, and relative paths outside /api/media/.
+// ============================================================================
+
+export const MEDIA_PATH_PREFIX = "/api/media/";
+
+export function isSafeMediaUrl(value?: string | null): boolean {
+  if (typeof value !== "string") return false;
+  const url = value.trim();
+  if (!url) return false;
+
+  // 1. Approved local media namespace (same-origin, served by /api/media/*).
+  if (url.startsWith(MEDIA_PATH_PREFIX)) {
+    const rest = url.slice(MEDIA_PATH_PREFIX.length);
+    if (rest.length === 0 || rest.includes(" ") || rest.includes("\\")) return false;
+    return true;
+  }
+
+  // 2. Reject every other relative form, including protocol-relative URLs.
+  if (url.startsWith("/")) return false;
+
+  // 3. Absolute URLs: https only with a real hostname.
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol !== "https:") return false;
+    return parsed.hostname.length > 0;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Shared coverImage field schema for Guides and Field Notes. Optional +
+ * nullable at the field level (covers are not required); non-empty strings
+ * must pass the narrow media boundary.
+ */
+export const coverImageSchema = z
+  .string()
+  .trim()
+  .min(1, "Cover image URL must not be empty")
+  .refine((v) => isSafeMediaUrl(v), {
+    message: "Cover image must be an /api/media/... path or an https:// URL",
+  })
+  .optional()
+  .nullable();
+
+// ============================================================================
 // Shared reading-time helper (Field Notes show auto-calculated reading time;
 // Guides deliberately retain their curated value — see MISSION-05 doc)
 // ============================================================================

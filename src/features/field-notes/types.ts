@@ -1,6 +1,7 @@
 import { z } from "zod";
 import {
   contentBlockSchema,
+  coverImageSchema,
   slugSchema,
   type ContentBlock,
   type ContentStatus,
@@ -24,7 +25,7 @@ export const createFieldNoteSchema = z.object({
   slug: slugSchema,
   excerpt: z.string().max(500).optional(),
   author: z.string().min(2).max(100).optional().default("Ahmed Awad"),
-  coverImage: z.string().url().or(z.string().startsWith("/")).optional().nullable(),
+  coverImage: coverImageSchema,
   metaTitle: z.string().max(100).optional(),
   metaDescription: z.string().max(300).optional(),
   body: z.array(contentBlockSchema).default([]),
