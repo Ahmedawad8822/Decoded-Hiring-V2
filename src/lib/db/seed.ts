@@ -164,14 +164,6 @@ export async function seedDatabase() {
         type: "blockquote",
         text: "Good talent acquisition strategy is not about recruiting more efficiently. It is about making better talent decisions before the search even begins.",
       },
-      {
-        id: "b-res-1",
-        type: "resource",
-        title: "The Hiring Situation Map — working canvas",
-        meta: "PDF · 1 PAGE · A3 PRINTABLE",
-        note: "The one-page canvas from this guide: classify any vacancy portfolio across the three dimensions, then match the system emphasis. Free with your email — we'll send the download link and nothing else.",
-        buttonLabel: "Email me the canvas",
-      },
     ];
 
     await db.insert(guides).values({

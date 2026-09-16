@@ -41,23 +41,6 @@ export default function AdminLoginPage() {
     }
   };
 
-  const handleDevQuickFill = async () => {
-    if (process.env.NODE_ENV !== "development") return;
-    try {
-      const res = await fetch("/api/dev/quick-fill");
-      if (res.ok) {
-        const data = (await res.json()) as { email?: string; password?: string };
-        if (data.email && data.password) {
-          setEmail(data.email);
-          setPassword(data.password);
-          setError(null);
-        }
-      }
-    } catch {
-      // Ignored
-    }
-  };
-
   return (
     <main
       id="main"
@@ -186,34 +169,6 @@ export default function AdminLoginPage() {
               {loading ? "Signing in..." : "Sign in to Studio"}
             </button>
           </form>
-
-          {/* Development quick-fill (guarded strictly by environment check per Correction 7) */}
-          {process.env.NODE_ENV === "development" && (
-            <div
-              style={{
-                marginTop: "20px",
-                paddingTop: "16px",
-                borderTop: "1px dashed var(--line)",
-                textAlign: "center",
-              }}
-            >
-              <button
-                type="button"
-                onClick={handleDevQuickFill}
-                style={{
-                  background: "transparent",
-                  border: "none",
-                  color: "var(--blue)",
-                  fontSize: "12px",
-                  cursor: "pointer",
-                  textDecoration: "underline",
-                  textUnderlineOffset: "3px",
-                }}
-              >
-                ⚡ Dev: Fill Local Admin Credentials
-              </button>
-            </div>
-          )}
 
           <p style={{ fontSize: "12px", color: "var(--muted)", marginTop: "18px", textAlign: "center" }}>
             Learner?{" "}

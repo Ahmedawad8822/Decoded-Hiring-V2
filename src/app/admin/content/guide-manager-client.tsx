@@ -136,16 +136,6 @@ export function GuideManagerClient({ initialGuides }: GuideManagerClientProps) {
       case "list":
         newBlock = { id, type: "list", style: "bullet", items: ["First point", "Second point"] };
         break;
-      case "resource":
-        newBlock = {
-          id,
-          type: "resource",
-          title: "Resource title",
-          meta: "PDF · 1 PAGE",
-          note: "Download description...",
-          buttonLabel: "Download resource",
-        };
-        break;
     }
 
     return newBlock;
@@ -373,7 +363,7 @@ export function GuideManagerClient({ initialGuides }: GuideManagerClientProps) {
               Content
             </h1>
             <span style={{ fontSize: "12.5px", color: "var(--muted)" }}>
-              Guides publishing slice — Admin creates, drafts, publishes &amp; archives.
+              Guides publishing slice — Admin creates, drafts, publishes & archives.
             </span>
           </div>
 
@@ -417,7 +407,7 @@ export function GuideManagerClient({ initialGuides }: GuideManagerClientProps) {
               <table className="data">
                 <thead>
                   <tr>
-                    <th>Title &amp; Slug</th>
+                    <th>Title & Slug</th>
                     <th>Kind</th>
                     <th>Status</th>
                     <th>Updated</th>
@@ -601,7 +591,7 @@ export function GuideManagerClient({ initialGuides }: GuideManagerClientProps) {
               {isPending ? "Saving..." : "Save Draft"}
             </button>
 
-            {currentStatus !== "published" ? (
+            {currentStatus === "draft" ? (
               <button
                 className="btn secondary small"
                 type="button"
@@ -611,24 +601,20 @@ export function GuideManagerClient({ initialGuides }: GuideManagerClientProps) {
               >
                 Publish Now
               </button>
-            ) : (
+            ) : currentStatus === "published" ? (
               <button
                 className="btn ghost small"
                 type="button"
                 disabled={isPending}
                 onClick={() => {
                   if (editingGuideId) {
-                    setConfirmModal({
-                      action: "unpublish",
-                      guideId: editingGuideId,
-                      guideTitle: title,
-                    });
+                    setConfirmModal({ action: "unpublish", guideId: editingGuideId, guideTitle: title });
                   }
                 }}
               >
                 Unpublish
               </button>
-            )}
+            ) : null}
           </div>
 
           {/* Form and Block Editor Grid */}
@@ -722,7 +708,7 @@ export function GuideManagerClient({ initialGuides }: GuideManagerClientProps) {
                 <StructuredBlockEditor
                   blocks={blocks}
                   onChange={setBlocks}
-                  allowedBlockTypes={["heading", "paragraph", "blockquote", "callout", "list", "resource"]}
+                  allowedBlockTypes={["heading", "paragraph", "blockquote", "callout", "list"]}
                   createBlock={createGuideBlock}
                   eyebrowHint="TYPED, NO EXEC ARBITRARY HTML"
                 />
@@ -737,7 +723,7 @@ export function GuideManagerClient({ initialGuides }: GuideManagerClientProps) {
                   Status: <strong style={{ textTransform: "capitalize" }}>{currentStatus}</strong>
                 </p>
                 <div style={{ display: "grid", gap: "8px" }}>
-                  {currentStatus !== "published" ? (
+                  {currentStatus === "draft" ? (
                     <button
                       type="button"
                       className="btn primary small"
@@ -746,24 +732,20 @@ export function GuideManagerClient({ initialGuides }: GuideManagerClientProps) {
                     >
                       Publish to Live Site
                     </button>
-                  ) : (
+                  ) : currentStatus === "published" ? (
                     <button
                       type="button"
                       className="btn secondary small"
                       onClick={() => {
                         if (editingGuideId) {
-                          setConfirmModal({
-                            action: "unpublish",
-                            guideId: editingGuideId,
-                            guideTitle: title,
-                          });
+                          setConfirmModal({ action: "unpublish", guideId: editingGuideId, guideTitle: title });
                         }
                       }}
                       style={{ width: "100%" }}
                     >
                       Unpublish (Return to Draft)
                     </button>
-                  )}
+                  ) : null}
 
                   {editingGuideId && currentStatus !== "archived" && (
                     <button

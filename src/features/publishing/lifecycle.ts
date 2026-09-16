@@ -1,9 +1,9 @@
 import type { ContentStatus } from "./types";
 
 // ============================================================================
-// SHARED PUBLISHING LIFECYCLE (Mission 05 extraction)
+// SHARED PUBLISHING LIFECYCLE (Mission 05 extraction; remediation D)
 // ----------------------------------------------------------------------------
-// Centralizes only the small common rules shared by Guides and Field Notes:
+// Centralizes the common rules shared by Guides and Field Notes:
 //   draft -> published -> archived, with unpublish returning to draft.
 // Timestamp rules:
 // - publish: status=published, publishedAt set once (first publish wins),
@@ -47,35 +47,47 @@ export function buildEditTouch(now: Date = new Date()): { updatedAt: Date } {
 }
 
 // ----------------------------------------------------------------------------
-// Field Note lifecycle enforcement (Mission 05 review correction)
+// Content lifecycle enforcement (Mission 06 final foundation remediation)
 // ----------------------------------------------------------------------------
-// Archived is TERMINAL — there is no restore-from-archive in Mission 05.
-// Valid transitions:
+// Archived is TERMINAL — for BOTH Guides and Field Notes. There is no
+// restore-from-archive. Valid transitions:
 //   draft -> published (publish, incl. republish after unpublish)
 //   published -> draft (unpublish)
 //   published -> archived (archive)
 //   draft -> archived (archive)
 // Rejected: any transition from archived, plus meaningless repeats
 // (published -> published, draft -> draft via unpublish).
-// Guide services intentionally keep their previous behavior; only the
-// Field Note service calls this guard.
+// Both domain services call the same shared transition table; the per-domain
+// wrappers only supply the domain name used in error messages.
 
-export type FieldNoteTransition = "publish" | "unpublish" | "archive";
+export type ContentTransition = "publish" | "unpublish" | "archive";
 
-const FIELD_NOTE_ALLOWED_TRANSITIONS: Record<ContentStatus, FieldNoteTransition[]> = {
+const ALLOWED_TRANSITIONS: Record<ContentStatus, ContentTransition[]> = {
   draft: ["publish", "archive"],
   published: ["unpublish", "archive"],
   archived: [],
 };
 
-export function assertFieldNoteTransition(from: ContentStatus, action: FieldNoteTransition): void {
-  const allowed = FIELD_NOTE_ALLOWED_TRANSITIONS[from] ?? [];
+function assertContentTransition(
+  domain: "guide" | "field note",
+  from: ContentStatus,
+  action: ContentTransition
+): void {
+  const allowed = ALLOWED_TRANSITIONS[from] ?? [];
   if (!allowed.includes(action)) {
     if (from === "archived") {
       throw new Error(
-        `Cannot ${action} an archived field note. Archived notes are terminal and cannot be republished, edited back to draft, or re-archived.`
+        `Cannot ${action} an archived ${domain}. Archived content is terminal and cannot be republished, edited back to draft, or re-archived.`
       );
     }
-    throw new Error(`Cannot ${action} a field note with status "${from}".`);
+    throw new Error(`Cannot ${action} a ${domain} with status "${from}".`);
   }
+}
+
+export function assertFieldNoteTransition(from: ContentStatus, action: ContentTransition): void {
+  assertContentTransition("field note", from, action);
+}
+
+export function assertGuideTransition(from: ContentStatus, action: ContentTransition): void {
+  assertContentTransition("guide", from, action);
 }

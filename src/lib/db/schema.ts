@@ -1,4 +1,4 @@
-import { index, integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
+import { index, integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 import type { ContentStatus } from "@/features/publishing/types";
 
 // ============================================================================
@@ -153,3 +153,138 @@ export type Guide = typeof guides.$inferSelect;
 export type FieldNote = typeof fieldNotes.$inferSelect;
 export type FieldNoteRevision = typeof fieldNoteRevisions.$inferSelect;
 export type Media = typeof media.$inferSelect;
+
+// ============================================================================
+// LEARNING PLATFORM DOMAIN (Mission 06 — vertical slice)
+// ----------------------------------------------------------------------------
+// Dedicated course tables. Archived courses: no NEW enrollments, but existing
+// enrolled learners retain access (explicit decision, documented in
+// Docs/Engineering/MISSION-06-LEARNING-PLATFORM.md).
+// Access modes are provider-neutral from day one; only FREE auto-enrolls.
+// No permanent delete exposed in Mission 06.
+// ============================================================================
+
+export type CourseStatus = "draft" | "published" | "archived";
+export type CourseAccessMode = "FREE" | "PAID_ONE_TIME" | "MANUAL_INVOICE" | "PAYMENT_DISABLED";
+export type LessonStatus = "draft" | "published" | "archived";
+export type EnrollmentStatus = "active" | "completed" | "cancelled";
+
+export const courses = sqliteTable("courses", {
+  id: text("id").primaryKey(),
+  title: text("title").notNull(),
+  slug: text("slug").notNull().unique(),
+  description: text("description"),
+  status: text("status").$type<CourseStatus>().notNull().default("draft"),
+  accessMode: text("access_mode").$type<CourseAccessMode>().notNull().default("FREE"),
+  coverImage: text("cover_image"),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+  publishedAt: integer("published_at", { mode: "timestamp" }),
+});
+
+export const courseSections = sqliteTable(
+  "course_sections",
+  {
+    id: text("id").primaryKey(),
+    courseId: text("course_id")
+      .notNull()
+      .references(() => courses.id, { onDelete: "cascade" }),
+    title: text("title").notNull(),
+    position: integer("position").notNull().default(0),
+    createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+    updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+  },
+  (table) => [index("course_sections_course_idx").on(table.courseId)]
+);
+
+export const lessons = sqliteTable(
+  "lessons",
+  {
+    id: text("id").primaryKey(),
+    courseId: text("course_id")
+      .notNull()
+      .references(() => courses.id, { onDelete: "cascade" }),
+    sectionId: text("section_id")
+      .notNull()
+      .references(() => courseSections.id, { onDelete: "cascade" }),
+    title: text("title").notNull(),
+    slug: text("slug").notNull(),
+    body: text("body").notNull().default("[]"), // JSON-stringified ContentBlock[]
+    videoUrl: text("video_url"),
+    required: integer("required", { mode: "boolean" }).notNull().default(true),
+    position: integer("position").notNull().default(0),
+    status: text("status").$type<LessonStatus>().notNull().default("draft"),
+    createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+    updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+    publishedAt: integer("published_at", { mode: "timestamp" }),
+  },
+  (table) => [
+    index("lessons_course_idx").on(table.courseId),
+    index("lessons_section_idx").on(table.sectionId),
+    uniqueIndex("lessons_course_slug_unique").on(table.courseId, table.slug),
+  ]
+);
+
+export const lessonResources = sqliteTable(
+  "lesson_resources",
+  {
+    id: text("id").primaryKey(),
+    courseId: text("course_id")
+      .notNull()
+      .references(() => courses.id, { onDelete: "cascade" }),
+    lessonId: text("lesson_id")
+      .notNull()
+      .references(() => lessons.id, { onDelete: "cascade" }),
+    title: text("title").notNull(),
+    storageKey: text("storage_key").notNull().unique(),
+    filename: text("filename").notNull(),
+    contentType: text("content_type").notNull(),
+    size: integer("size").notNull(),
+    position: integer("position").notNull().default(0),
+    createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+  },
+  (table) => [index("lesson_resources_lesson_idx").on(table.lessonId)]
+);
+
+export const enrollments = sqliteTable(
+  "enrollments",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    courseId: text("course_id")
+      .notNull()
+      .references(() => courses.id, { onDelete: "cascade" }),
+    status: text("status").$type<EnrollmentStatus>().notNull().default("active"),
+    accessSource: text("access_source").notNull().default("free"),
+    enrolledAt: integer("enrolled_at", { mode: "timestamp" }).notNull(),
+    completedAt: integer("completed_at", { mode: "timestamp" }),
+  },
+  (table) => [
+    uniqueIndex("enrollments_user_course_unique").on(table.userId, table.courseId),
+    index("enrollments_course_idx").on(table.courseId),
+  ]
+);
+
+export const lessonProgress = sqliteTable(
+  "lesson_progress",
+  {
+    id: text("id").primaryKey(),
+    enrollmentId: text("enrollment_id")
+      .notNull()
+      .references(() => enrollments.id, { onDelete: "cascade" }),
+    lessonId: text("lesson_id")
+      .notNull()
+      .references(() => lessons.id, { onDelete: "cascade" }),
+    completedAt: integer("completed_at", { mode: "timestamp" }).notNull(),
+  },
+  (table) => [uniqueIndex("lesson_progress_enrollment_lesson_unique").on(table.enrollmentId, table.lessonId)]
+);
+
+export type Course = typeof courses.$inferSelect;
+export type CourseSection = typeof courseSections.$inferSelect;
+export type Lesson = typeof lessons.$inferSelect;
+export type LessonResource = typeof lessonResources.$inferSelect;
+export type Enrollment = typeof enrollments.$inferSelect;
+export type LessonProgress = typeof lessonProgress.$inferSelect;

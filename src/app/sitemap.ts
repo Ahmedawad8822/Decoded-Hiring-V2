@@ -1,21 +1,15 @@
 import type { MetadataRoute } from "next";
-import { getSiteUrl } from "@/lib/seo";
+import { buildSitemapEntries } from "@/lib/sitemap-entries";
 
-const routes = [
-  "/",
-  "/about",
-  "/programmes",
-  "/mission-01",
-  "/workshop",
-  "/coaching",
-  "/ai-recruiter-os",
-  "/contact",
-  "/privacy",
-  "/terms",
-  "/cookies",
-];
+// ============================================================================
+// SITEMAP ROUTE — remediation B.2
+// ----------------------------------------------------------------------------
+// Thin route wrapper over the shared builder in src/lib/sitemap-entries.ts
+// (which the regression suite exercises directly).
+// ============================================================================
 
-export default function sitemap(): MetadataRoute.Sitemap {
-  const base = getSiteUrl().toString().replace(/\/$/, "");
-  return routes.map((route) => ({ url: `${base}${route}` }));
+export const dynamic = "force-dynamic";
+
+export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
+  return buildSitemapEntries();
 }

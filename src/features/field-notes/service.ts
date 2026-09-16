@@ -9,6 +9,7 @@ import {
   buildUnpublishUpdate,
   assertFieldNoteTransition,
 } from "@/features/publishing/lifecycle";
+import { isUniqueConstraintError } from "@/lib/db/sqlite-errors";
 import type { FieldNoteRevisionTrigger } from "@/lib/db";
 
 // ============================================================================
@@ -107,21 +108,34 @@ export async function createFieldNote(input: CreateFieldNoteInput): Promise<Fiel
   const now = new Date();
   const id = `fn_${crypto.randomUUID().slice(0, 12)}`;
 
-  await db.insert(fieldNotes).values({
-    id,
-    title: input.title,
-    slug: input.slug,
-    excerpt: input.excerpt || null,
-    body: JSON.stringify(input.body || []),
-    coverImage: input.coverImage || null,
-    author: input.author || "Ahmed Awad",
-    status: "draft",
-    metaTitle: input.metaTitle || input.title,
-    metaDescription: input.metaDescription || input.excerpt || null,
-    createdAt: now,
-    updatedAt: now,
-    publishedAt: null,
-  });
+  try {
+    await db.insert(fieldNotes).values({
+      id,
+      title: input.title,
+      slug: input.slug,
+      excerpt: input.excerpt || null,
+      body: JSON.stringify(input.body || []),
+      coverImage: input.coverImage || null,
+      author: input.author || "Ahmed Awad",
+      status: "draft",
+      metaTitle: input.metaTitle || input.title,
+      metaDescription: input.metaDescription || input.excerpt || null,
+      createdAt: now,
+      updatedAt: now,
+      publishedAt: null,
+    });
+  } catch (error: unknown) {
+    // The field_notes.slug UNIQUE index is the authoritative concurrency
+    // backstop: the pre-check above cannot see a parallel insert. Only that
+    // condition is converted to the same domain error the pre-check raises;
+    // anything else propagates untouched.
+    if (!isUniqueConstraintError(error)) throw error;
+    // Verify the EXPECTED business-key conflict exists (a field note with
+    // this slug) before converting; otherwise rethrow the original.
+    const conflict = await db.select().from(fieldNotes).where(eq(fieldNotes.slug, input.slug)).get();
+    if (!conflict) throw error;
+    throw new Error(`A field note with the slug "${input.slug}" already exists. Please choose a unique slug.`);
+  }
 
   const created = await getAdminFieldNoteById(id);
   if (!created) {
@@ -167,7 +181,22 @@ export async function updateFieldNote(
   if (typeof input.metaTitle !== "undefined") updateData.metaTitle = input.metaTitle;
   if (typeof input.metaDescription !== "undefined") updateData.metaDescription = input.metaDescription;
 
-  await db.update(fieldNotes).set(updateData).where(eq(fieldNotes.id, id));
+  try {
+    await db.update(fieldNotes).set(updateData).where(eq(fieldNotes.id, id));
+  } catch (error: unknown) {
+    // Same race rule as create: only a lost slug-unique race converts to the
+    // friendly domain error; unrelated DB errors propagate untouched.
+    if (!isUniqueConstraintError(error)) throw error;
+    // Verify the EXPECTED business-key conflict exists (a DIFFERENT field
+    // note with this slug) before converting; otherwise rethrow the original.
+    const conflict = await db
+      .select()
+      .from(fieldNotes)
+      .where(and(eq(fieldNotes.slug, updateData.slug ?? input.slug ?? current.slug), ne(fieldNotes.id, id)))
+      .get();
+    if (!conflict) throw error;
+    throw new Error(`A field note with the slug "${input.slug}" already exists.`);
+  }
 
   const updated = await getAdminFieldNoteById(id);
   if (!updated) {

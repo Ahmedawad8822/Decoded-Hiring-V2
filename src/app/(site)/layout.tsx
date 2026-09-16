@@ -1,6 +1,13 @@
 import { SiteFooter } from "@/components/site/site-footer";
 import { SiteHeader } from "@/components/site/site-header";
 
+// (site) group owns the public editorial visual language: the V1-restored
+// master/content styles plus the PUB component layer (extracted from the
+// former root-level studio-tokens.css). Other route groups load their own.
+import "../master-design.css";
+import "../content-design.css";
+import "./site.css";
+
 export default function SiteLayout({
   children,
 }: {

@@ -30,17 +30,6 @@ export function AdminStudioShell({ children }: { children: React.ReactNode }) {
         </div>
 
         <div className="sr-section">Today</div>
-        <Link className="sr-link" href="/prototypes/studio/command.html">
-          ◧ Command Center
-        </Link>
-        <Link className="sr-link" href="/prototypes/studio/approvals.html">
-          ✓ Approvals <span className="badge">3</span>
-        </Link>
-        <Link className="sr-link" href="/prototypes/studio/enquiries.html">
-          ✉ Enquiries
-        </Link>
-
-        <div className="sr-section">Product</div>
         <Link
           className="sr-link"
           href="/admin/content"
@@ -48,33 +37,12 @@ export function AdminStudioShell({ children }: { children: React.ReactNode }) {
         >
           ▤ Content
         </Link>
-        <Link className="sr-link" href="/prototypes/studio/courses.html">
+        <Link
+          className="sr-link"
+          href="/admin/courses"
+          aria-current={pathname.startsWith("/admin/courses") ? "page" : undefined}
+        >
           ◈ Courses
-        </Link>
-        <Link className="sr-link" href="/prototypes/studio/products.html">
-          ◉ Products
-        </Link>
-        <Link className="sr-link" href="/prototypes/studio/bookings.html">
-          ◷ Bookings
-        </Link>
-        <Link className="sr-link" href="/prototypes/studio/students.html">
-          ◍ Students
-        </Link>
-
-        <div className="sr-section">Intelligence</div>
-        <Link className="sr-link" href="/prototypes/studio/intelligence.html">
-          ◒ Intelligence
-        </Link>
-        <Link className="sr-link" href="/prototypes/studio/editorial.html">
-          ✎ AI Content Studio
-        </Link>
-
-        <div className="sr-section">System</div>
-        <Link className="sr-link" href="/prototypes/studio/reliability.html">
-          ⚑ Reliability
-        </Link>
-        <Link className="sr-link" href="/prototypes/studio/settings.html">
-          ⚙ Settings
         </Link>
       </aside>
 

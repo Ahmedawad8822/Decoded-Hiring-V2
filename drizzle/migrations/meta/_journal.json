@@ -22,6 +22,27 @@
       "when": 1789462946404,
       "tag": "0002_medical_blizzard",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1789470000000,
+      "tag": "0003_mission_06_learning_platform",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1789477500000,
+      "tag": "0004_mission_06_unique_constraints",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1789572276764,
+      "tag": "0005_moaning_gressill",
+      "breakpoints": true
     }
   ]
 }
