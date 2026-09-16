@@ -27,6 +27,19 @@ export function publicMetadata({
     title,
     description,
     alternates: { canonical },
+    // Robots META directive (not robots.txt): public pages are indexable
+    // and followable, and signal large image previews to Google. Private
+    // surfaces (admin/learn/login/signup layouts) override with
+    // robots: { index: false, follow: false } — noindex behavior preserved.
+    robots: {
+      index: true,
+      follow: true,
+      googleBot: {
+        index: true,
+        follow: true,
+        "max-image-preview": "large",
+      },
+    },
     openGraph: {
       title,
       description,

@@ -93,9 +93,13 @@ export async function enrollFree(userId: string, courseId: string): Promise<Enro
     // Any unrelated DB failure (locked DB, I/O, schema drift) must propagate
     // untouched; it is NOT a duplicate race and must never be swallowed.
     if (!isUniqueConstraintError(error)) throw error;
+    // Verify the EXPECTED winner (same userId + courseId) actually exists
+    // before treating the unique failure as a lost race. If no such
+    // enrollment exists, rethrow the original DB error — it was not the
+    // duplicate race this recovery handles.
     const winner = await getEnrollment(userId, courseId);
     if (winner) return winner;
-    throw new Error("Enrollment failed. Please try again.");
+    throw error;
   }
   return (await getEnrollment(userId, courseId))!;
 }

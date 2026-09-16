@@ -18,6 +18,7 @@ import path from "node:path";
 import "./helpers/env"; // MUST be first: fake TEST-ONLY secret before any app module.
 
 import { getDb, guides, fieldNotes } from "../src/lib/db";
+import { disposeCloudflareBindings } from "../src/lib/cloudflare/bindings";
 import { eq } from "drizzle-orm";
 import {
   createGuide,
@@ -36,6 +37,12 @@ import {
   assertGuideTransition,
 } from "../src/features/publishing/lifecycle";
 import { buildSitemapEntries } from "../src/lib/sitemap-entries";
+
+test.after(async () => {
+  // Same convention as every other D1-backed suite: releasing the Wrangler
+  // platform proxy lets the process exit instead of hanging on workerd pipes.
+  await disposeCloudflareBindings();
+});
 
 const SRC_DIR = path.resolve(import.meta.dirname, "../src");
 

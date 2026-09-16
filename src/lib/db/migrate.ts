@@ -47,11 +47,23 @@ export async function migrateLocalDb() {
   for (const file of files) {
     const fullPath = path.join(migrationsDir, file);
     const sqlContent = fs.readFileSync(fullPath, "utf-8");
-    // Split on statement-breakpoint
+    // Split on statement-breakpoint. A pure-comment chunk (SQL comment lines
+    // only, e.g. the "custom SQL migration" template drizzle-kit writes for
+    // an intentionally empty checkpoint migration) carries no statement, so
+    // it is dropped instead of being sent to D1 (D1 rejects a statement-less
+    // batch with "SQL code did not contain a statement"). Real statements —
+    // including a custom migration that pairs comments with real SQL — are
+    // unaffected.
+    const isCommentOnly = (chunk: string) =>
+      chunk
+        .split("\n")
+        .map((line) => line.trim())
+        .every((line) => line === "" || line.startsWith("--"));
     const statements = sqlContent
       .split("--> statement-breakpoint")
       .map((s) => s.trim())
-      .filter(Boolean);
+      .filter(Boolean)
+      .filter((s) => !isCommentOnly(s));
 
     for (const statement of statements) {
       try {

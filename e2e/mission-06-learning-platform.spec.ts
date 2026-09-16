@@ -34,7 +34,7 @@ test.beforeAll(async () => {
   }
 });
 
-// Warm the cold route explicitly before any test uses signInAdmin.
+// Warm the cold routes explicitly before any test uses signInAdmin.
 // This replaces the hidden second login submission inside signInAdmin().
 test.beforeAll(async ({ browser }) => {
   const page = await browser.newPage();
@@ -43,6 +43,42 @@ test.beforeAll(async ({ browser }) => {
     await page.goto("/admin/login", { waitUntil: "domcontentloaded", timeout: 30_000 });
     // A simple wait for the form to be visible is enough to warm the route.
     await page.getByLabel(/Admin Email/).waitFor({ state: "visible", timeout: 10_000 });
+
+    // Warm the Better Auth API routes too. A browser POST against a freshly
+    // started `next dev` can race a route handler's FIRST compile; the
+    // dropped response stream ("destination stream closed early") leaves the
+    // UI stuck with no error. Compile every auth handler the suite exercises
+    // here with harmless payloads — 4xx on invalid payloads means the handler
+    // ran and is now warm. Fail loudly if a route is unavailable instead of
+    // flaking later.
+    for (const [path, payload] of [
+      ["/api/auth/sign-in/email", {}],
+      ["/api/auth/sign-up/email", {}],
+    ] as const) {
+      const warmRes = await page.request.post(path, { data: payload });
+      const status = warmRes.status();
+      if (status < 400 || status > 499) {
+        throw new Error(`auth route warm-up failed (POST ${path} -> HTTP ${status})`);
+      }
+    }
+    const sessionWarm = await page.request.get("/api/auth/get-session");
+    if (sessionWarm.status() > 499) {
+      throw new Error(`auth session warm-up failed with HTTP ${sessionWarm.status()}`);
+    }
+
+    // Warm the post-login redirect target so the first real navigation after
+    // sign-in never waits on /admin/content's first compile (it redirects to
+    // /admin/login while unauthenticated — that IS the warm render). This is
+    // BEST-EFFORT: on a cold server the very first compile of this heavy page
+    // can take long enough that the browser aborts the navigation
+    // (ERR_ABORTED). The server-side compile continues, so the warm still
+    // serves its purpose — and the real assertions all carry their own
+    // generous timeouts, so a dropped warm must never fail the suite.
+    try {
+      await page.goto("/admin/content", { waitUntil: "domcontentloaded", timeout: 30_000 });
+    } catch {
+      // Ignore: aborted best-effort warm; the target compiles server-side.
+    }
   } finally {
     await page.close();
   }

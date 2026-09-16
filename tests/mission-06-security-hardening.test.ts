@@ -3,8 +3,12 @@ import assert from "node:assert/strict";
 import "./helpers/env"; // MUST be first: fake TEST-ONLY secret before any app module.
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { uploadMedia } from "../src/lib/media/service";
+import { uploadMedia, MAX_MEDIA_FILE_SIZE } from "../src/lib/media/service";
+import { MAX_COURSE_RESOURCE_SIZE } from "../src/lib/course-resources/service";
+import { isRequestBodyOverLimit, MULTIPART_ENVELOPE_ALLOWANCE } from "../src/lib/upload-limits";
+import { resolveLessonResourceAccess } from "../src/lib/course-resources/access";
 import { resolveAuthSecret } from "../src/lib/auth";
+import type { Enrollment } from "../src/lib/db";
 
 // ============================================================================
 // MISSION 06 SECURITY HARDENING REGRESSION TESTS
@@ -211,4 +215,169 @@ test("SEC-CLEANUP-2: cleanup failure does not hide the original DB failure", asy
     "original DB error must surface, not the cleanup error"
   );
   assert.equal(fake.deletes.length, 1, "cleanup was still attempted");
+});
+
+// ---------------------------------------------------------------------------
+// 5. Multipart request-body envelope allowance (three-layer size defense)
+// ---------------------------------------------------------------------------
+// Layer 1 (Content-Length) deliberately allows a small, explicit
+// multipart/form envelope on top of the FILE limit so a valid file AT the
+// limit + envelope is not false-rejected; the exact FILE limit is still
+// enforced by File.size (layer 2) and service byteLength (layer 3).
+
+test("BODY-LIMIT: valid file at/near the 5 MB limit + envelope passes the header guard", () => {
+  const fileAtLimit = MAX_MEDIA_FILE_SIZE; // 5 MB
+  const smallEnvelope = 32 * 1024; // typical multipart headers + fields
+  assert.equal(
+    isRequestBodyOverLimit(fileAtLimit + smallEnvelope, MAX_MEDIA_FILE_SIZE),
+    false,
+    "5 MB file + envelope must NOT be rejected by the header guard"
+  );
+  // Clean boundary: file at limit + the full explicit allowance is still OK.
+  assert.equal(
+    isRequestBodyOverLimit(MAX_MEDIA_FILE_SIZE + MULTIPART_ENVELOPE_ALLOWANCE, MAX_MEDIA_FILE_SIZE),
+    false
+  );
+});
+
+test("BODY-LIMIT: body clearly above the 5 MB file limit + safe envelope -> 413", () => {
+  // 5 MB file + 2 MB envelope is far beyond the safe allowance -> reject.
+  assert.equal(
+    isRequestBodyOverLimit(MAX_MEDIA_FILE_SIZE + 2 * 1024 * 1024, MAX_MEDIA_FILE_SIZE),
+    true
+  );
+  // One byte over the allowance boundary also trips the guard.
+  assert.equal(
+    isRequestBodyOverLimit(MAX_MEDIA_FILE_SIZE + MULTIPART_ENVELOPE_ALLOWANCE + 1, MAX_MEDIA_FILE_SIZE),
+    true
+  );
+});
+
+test("BODY-LIMIT: course PDF at/near the 10 MB limit + envelope passes; clearly above -> reject", () => {
+  assert.equal(
+    isRequestBodyOverLimit(MAX_COURSE_RESOURCE_SIZE + 64 * 1024, MAX_COURSE_RESOURCE_SIZE),
+    false,
+    "10 MB PDF + envelope must NOT be rejected by the header guard"
+  );
+  assert.equal(
+    isRequestBodyOverLimit(MAX_COURSE_RESOURCE_SIZE + 3 * 1024 * 1024, MAX_COURSE_RESOURCE_SIZE),
+    true,
+    "10 MB PDF + 3 MB envelope must trip the header guard"
+  );
+});
+
+test("BODY-LIMIT: the EXACT file limit remains enforced (service byteLength layer)", async () => {
+  // The header guard's envelope allowance never leaks into the file limit:
+  // a buffer 1 byte over the FILE limit is still rejected by the service's
+  // byteLength validation (layer 3), and a file exactly AT the limit passes
+  // the size gate. Rejections happen BEFORE any storage write, so no
+  // bindings are touched.
+  await assert.rejects(
+    () =>
+      uploadMedia({
+        buffer: new Uint8Array(MAX_MEDIA_FILE_SIZE + 1),
+        filename: "over.png",
+        contentType: "image/png",
+        namespace: "guides",
+      }),
+    /exceeds maximum limit of 5 MB/
+  );
+  await assert.rejects(
+    () =>
+      (async () => {
+        const { uploadCourseResource } = await import("../src/lib/course-resources/service");
+        await uploadCourseResource({
+          buffer: new Uint8Array(MAX_COURSE_RESOURCE_SIZE + 1),
+          filename: "over.pdf",
+          contentType: "application/pdf",
+          courseId: "c",
+          lessonId: "l",
+          title: "Over",
+        });
+      })(),
+    /exceeds the 10 MB/
+  );
+});
+
+// ---------------------------------------------------------------------------
+// 6. Lesson-resource download authorization (admin draft access vs learners)
+// ---------------------------------------------------------------------------
+// ADMIN: authenticated admin may retrieve lesson resources for
+// authoring/review, INCLUDING draft-lesson resources.
+// NON-ADMIN: active/completed enrollment AND published lesson; anything
+// unpublished answers not-found (404), no-enrollment answers forbidden (403).
+// Learner access is never weakened.
+
+function enrollment(status: "active" | "completed" | "cancelled"): Enrollment {
+  return {
+    id: "enroll_test",
+    userId: "user_test",
+    courseId: "course_test",
+    status,
+    accessSource: "free",
+    enrolledAt: new Date(),
+    completedAt: status === "completed" ? new Date() : null,
+  };
+}
+
+test("RES-DL: admin + draft lesson resource -> allowed", () => {
+  const verdict = resolveLessonResourceAccess({
+    role: "admin",
+    lessonStatus: "draft",
+    enrollment: null,
+  });
+  assert.deepEqual(verdict, { status: "allowed" });
+});
+
+test("RES-DL: admin + published lesson resource -> allowed", () => {
+  assert.deepEqual(
+    resolveLessonResourceAccess({ role: "admin", lessonStatus: "published", enrollment: null }),
+    { status: "allowed" }
+  );
+});
+
+test("RES-DL: enrolled learner + draft lesson resource -> 404 (not-found)", () => {
+  assert.deepEqual(
+    resolveLessonResourceAccess({ role: "user", lessonStatus: "draft", enrollment: enrollment("active") }),
+    { status: "not-found" }
+  );
+});
+
+test("RES-DL: enrolled learner + published lesson resource -> allowed", () => {
+  assert.deepEqual(
+    resolveLessonResourceAccess({ role: "user", lessonStatus: "published", enrollment: enrollment("active") }),
+    { status: "allowed" }
+  );
+  // Completed enrollments keep download access — learner access NOT weakened.
+  assert.deepEqual(
+    resolveLessonResourceAccess({ role: "user", lessonStatus: "published", enrollment: enrollment("completed") }),
+    { status: "allowed" }
+  );
+});
+
+test("RES-DL: cancelled enrollment + published resource -> forbidden (403)", () => {
+  assert.deepEqual(
+    resolveLessonResourceAccess({ role: "user", lessonStatus: "published", enrollment: enrollment("cancelled") }),
+    { status: "forbidden" }
+  );
+});
+
+test("RES-DL: stranger (no enrollment) + published resource -> forbidden (403)", () => {
+  assert.deepEqual(
+    resolveLessonResourceAccess({ role: "user", lessonStatus: "published", enrollment: null }),
+    { status: "forbidden" }
+  );
+});
+
+test("RES-DL: learner + missing lesson row -> not-found (404), no existence leak", () => {
+  assert.deepEqual(
+    resolveLessonResourceAccess({ role: "user", lessonStatus: null, enrollment: enrollment("active") }),
+    { status: "not-found" }
+  );
+  // Admin can still retrieve a resource for review even when the lesson row
+  // is missing (integrity edge) — the rule is role-first, status second.
+  assert.deepEqual(
+    resolveLessonResourceAccess({ role: "admin", lessonStatus: null, enrollment: null }),
+    { status: "allowed" }
+  );
 });

@@ -1,15 +1,19 @@
 import { requireAdmin } from "@/lib/auth";
 import { MAX_MEDIA_FILE_SIZE, uploadMedia } from "@/lib/media/service";
+import { isRequestBodyOverLimit } from "@/lib/upload-limits";
 import { NextResponse } from "next/server";
 
 export async function POST(request: Request) {
   try {
     const session = await requireAdmin();
 
-    // Early Content-Length check (Item K: upload size defense)
+    // Early Content-Length check (Item K: upload size defense — layer 1)
     // Reject oversized bodies before formData() materializes bytes in memory.
+    // The guard permits a small, explicit multipart/form envelope allowance so
+    // a valid file AT the 5 MB limit with its envelope is not false-rejected;
+    // the exact FILE limit is enforced by File.size and the service below.
     const contentLength = request.headers.get("content-length");
-    if (contentLength && Number(contentLength) > MAX_MEDIA_FILE_SIZE) {
+    if (contentLength && isRequestBodyOverLimit(Number(contentLength), MAX_MEDIA_FILE_SIZE)) {
       return NextResponse.json(
         { error: `Request body exceeds maximum limit of 5 MB.` },
         { status: 413 }

@@ -42,11 +42,11 @@ export default async function LearnCoursesPage() {
     <main className="sec-app" id="main" style={{ padding: "clamp(24px,4vw,48px) 0" }}>
       <div className="wrap" style={{ maxWidth: 880 }}>
         <h1 className="a-h1" style={{ marginBottom: 6 }}>My courses</h1>
-        <p className="muted" style={{ marginBottom: 24 }}>Enrolled first. The free catalog follows.</p>
+        <p className="muted" style={{ marginBottom: 24 }}>Enrolled first. The catalog follows.</p>
 
         {enrolled.length === 0 && (
           <p className="muted-strong" style={{ fontSize: 14 }}>
-            You are not enrolled in anything yet — the free courses below enroll instantly.
+            You are not enrolled in anything yet — browse the catalog below to find your next course.
           </p>
         )}
 

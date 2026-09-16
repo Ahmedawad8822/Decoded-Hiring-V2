@@ -1,6 +1,14 @@
 import { getDb } from "@/lib/db";
-import { enrollments, lessonProgress, lessons, courses, type Enrollment, type Lesson } from "@/lib/db";
-import { and, eq, inArray } from "drizzle-orm";
+import {
+  enrollments,
+  lessonProgress,
+  lessons,
+  courses,
+  courseSections,
+  type Enrollment,
+  type Lesson,
+} from "@/lib/db";
+import { and, asc, eq, inArray } from "drizzle-orm";
 import {
   getAdminLessonById,
   getPublishedCourseLessons,
@@ -193,6 +201,10 @@ export async function markLessonComplete(
       // propagate untouched; it is NOT a duplicate race and must never be
       // swallowed.
       if (!isUniqueConstraintError(error)) throw error;
+      // Verify the EXPECTED winner (same enrollmentId + lessonId) actually
+      // exists before treating the unique failure as a lost race. If no
+      // such row exists, rethrow the original DB error — it was not the
+      // duplicate race this recovery handles.
       const winner = await db
         .select()
         .from(lessonProgress)
@@ -201,7 +213,7 @@ export async function markLessonComplete(
       if (winner) {
         alreadyComplete = true;
       } else {
-        throw new Error("Lesson completion failed. Please try again.");
+        throw error;
       }
     }
   }
@@ -252,6 +264,11 @@ export interface BatchedProgressSummary {
   totalPublished: number;
   completedLessonIds: string[];
   resumeLessonId: string | null;
+  /** Slug + title of the deterministic resume lesson (section.position then
+   *  lesson.position), so collection pages can build resume links without
+   *  any per-enrollment lesson fetch. */
+  resumeLessonSlug: string | null;
+  resumeLessonTitle: string | null;
   enrollmentStatus: string;
   enrollmentCompletedAt: Date | null;
 }
@@ -278,16 +295,24 @@ export async function getBatchedEnrollmentProgress(
     .where(inArray(courses.id, courseIds));
   const courseMap = new Map(courseRows.map((c) => [c.id, c]));
 
-  // 2. Batch fetch ALL published lessons for all involved courses in ONE query
-  const allPublishedLessons = await db
-    .select()
-    .from(lessons)
-    .where(
-      and(
-        inArray(lessons.courseId, courseIds),
-        eq(lessons.status, "published")
+  // 2. Batch fetch ALL published lessons for all involved courses in ONE query.
+  // CURRICULUM ORDERING: resume selection must be deterministic by
+  // section.position then lesson.position (not insertion order). The single
+  // bounded query joins course_sections purely to order by the section
+  // position column — no per-enrollment or per-section fetch.
+  const allPublishedLessons = (
+    await db
+      .select({ lesson: lessons })
+      .from(lessons)
+      .innerJoin(courseSections, eq(lessons.sectionId, courseSections.id))
+      .where(
+        and(
+          inArray(lessons.courseId, courseIds),
+          eq(lessons.status, "published")
+        )
       )
-    );
+      .orderBy(asc(courseSections.position), asc(lessons.position), asc(lessons.createdAt))
+  ).map((row) => row.lesson);
   const lessonsByCourse = new Map<string, typeof allPublishedLessons>();
   for (const lesson of allPublishedLessons) {
     const bucket = lessonsByCourse.get(lesson.courseId);
@@ -359,6 +384,8 @@ export async function getBatchedEnrollmentProgress(
       totalPublished: publishedAll.length,
       completedLessonIds: completedIds,
       resumeLessonId: resumeLesson?.id ?? null,
+      resumeLessonSlug: resumeLesson?.slug ?? null,
+      resumeLessonTitle: resumeLesson?.title ?? null,
       enrollmentStatus: currentEnrollment?.status ?? enrollment.status,
       enrollmentCompletedAt: currentEnrollment?.completedAt ?? enrollment.completedAt,
     });

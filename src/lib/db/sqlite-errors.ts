@@ -36,12 +36,19 @@ export function isUniqueConstraintError(error: unknown): boolean {
 function matchesUniqueConstraint(error: unknown): boolean {
   if (!error || typeof error !== "object") return false;
   const candidate = error as { message?: unknown; code?: unknown };
-  const code = typeof candidate.code === "string" ? candidate.code.toUpperCase() : "";
   // Accept explicit UNIQUE extended error code (SQLite extended code 2067 /
-  // SQLITE_CONSTRAINT_UNIQUE). D1 / Cloudflare D1 may surface this as
-  // "SQLITE_CONSTRAINT_UNIQUE" string or numeric 2067.
-  if (code === "SQLITE_CONSTRAINT_UNIQUE" || code === "2067" || code === "0X813") {
-    return true;
+  // SQLITE_CONSTRAINT_UNIQUE) regardless of how the driver surfaces it:
+  // string ("2067", "SQLITE_CONSTRAINT_UNIQUE", "0x813") OR number (2067).
+  // Generic SQLITE_CONSTRAINT (code 19 / "SQLITE_CONSTRAINT") is a DIFFERENT
+  // value and must never match — it covers NOT NULL, FOREIGN KEY, CHECK.
+  const code = candidate.code;
+  if (typeof code === "number") {
+    if (code === 2067) return true;
+  } else if (typeof code === "string") {
+    const upper = code.toUpperCase();
+    if (upper === "SQLITE_CONSTRAINT_UNIQUE" || upper === "2067" || upper === "0X813") {
+      return true;
+    }
   }
   // Generic SQLITE_CONSTRAINT (code 19 / "SQLITE_CONSTRAINT") is NOT
   // sufficient — it covers NOT NULL, FOREIGN KEY, CHECK, and other

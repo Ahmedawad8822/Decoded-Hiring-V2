@@ -119,6 +119,12 @@ export async function createCourse(input: CreateCourseInput): Promise<Course> {
     // condition is converted to the same domain error the pre-check raises;
     // anything else propagates untouched.
     if (!isUniqueConstraintError(error)) throw error;
+    // Verify the EXPECTED business-key conflict actually exists before
+    // converting to a friendly duplicate error. If no conflicting course
+    // slug exists, the unique failure was some other constraint — rethrow
+    // the original DB error.
+    const conflict = await db.select().from(courses).where(eq(courses.slug, slug)).get();
+    if (!conflict) throw error;
     throw new Error(`A course with the slug "${slug}" already exists. Please choose a unique slug.`);
   }
 
@@ -149,7 +155,22 @@ export async function updateCourse(id: string, input: UpdateCourseInput): Promis
   if (typeof input.accessMode !== "undefined") patch.accessMode = input.accessMode;
   if (typeof input.coverImage !== "undefined") patch.coverImage = input.coverImage || null;
 
-  await db.update(courses).set(patch).where(eq(courses.id, id));
+  try {
+    await db.update(courses).set(patch).where(eq(courses.id, id));
+  } catch (error: unknown) {
+    // Lost race on the courses.slug UNIQUE index: a parallel admin renamed
+    // another course onto this slug between the pre-check and the UPDATE.
+    // Convert ONLY when the expected conflicting slug actually exists on a
+    // DIFFERENT course; otherwise rethrow the original DB error.
+    if (!isUniqueConstraintError(error)) throw error;
+    const conflict = await db
+      .select()
+      .from(courses)
+      .where(and(eq(courses.slug, patch.slug ?? input.slug ?? current.slug), ne(courses.id, id)))
+      .get();
+    if (!conflict) throw error;
+    throw new Error(`A course with the slug "${patch.slug ?? input.slug ?? current.slug}" already exists.`);
+  }
   const updated = await getAdminCourseById(id);
   if (!updated) throw new Error("Failed to retrieve updated course");
   return updated;
@@ -343,6 +364,14 @@ export async function createLesson(input: CreateLessonInput): Promise<Lesson> {
     // concurrency backstop: only that condition is converted to the same
     // domain error the pre-check raises; anything else propagates untouched.
     if (!isUniqueConstraintError(error)) throw error;
+    // Verify the EXPECTED business-key conflict actually exists (a lesson
+    // with this courseId + slug) before converting; otherwise rethrow.
+    const conflict = await db
+      .select()
+      .from(lessons)
+      .where(and(eq(lessons.courseId, input.courseId), eq(lessons.slug, slug)))
+      .get();
+    if (!conflict) throw error;
     throw new Error(`A lesson with the slug "${slug}" already exists in this course.`);
   }
   const created = await getAdminLessonById(id);
@@ -372,7 +401,23 @@ export async function updateLesson(id: string, input: UpdateLessonInput): Promis
   if (typeof input.videoUrl !== "undefined") patch.videoUrl = normalizeVideoUrl(input.videoUrl);
   if (typeof input.required !== "undefined") patch.required = input.required;
 
-  await db.update(lessons).set(patch).where(eq(lessons.id, id));
+  try {
+    await db.update(lessons).set(patch).where(eq(lessons.id, id));
+  } catch (error: unknown) {
+    // Lost race on the lessons (course_id, slug) UNIQUE index: a parallel
+    // admin created/renamed a lesson onto this slug between the pre-check
+    // and the UPDATE. Convert ONLY when a lesson with the same courseId +
+    // slug actually exists on a DIFFERENT lesson; otherwise rethrow the
+    // original DB error.
+    if (!isUniqueConstraintError(error)) throw error;
+    const conflict = await db
+      .select()
+      .from(lessons)
+      .where(and(eq(lessons.courseId, current.courseId), eq(lessons.slug, patch.slug ?? input.slug ?? current.slug), ne(lessons.id, id)))
+      .get();
+    if (!conflict) throw error;
+    throw new Error(`A lesson with the slug "${patch.slug ?? input.slug ?? current.slug}" already exists in this course.`);
+  }
   return (await getAdminLessonById(id))!;
 }
 

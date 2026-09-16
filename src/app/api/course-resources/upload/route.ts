@@ -1,5 +1,6 @@
 import { requireAdmin } from "@/lib/auth";
 import { MAX_COURSE_RESOURCE_SIZE, uploadCourseResource } from "@/lib/course-resources/service";
+import { isRequestBodyOverLimit } from "@/lib/upload-limits";
 import { getAdminCourseById, getAdminLessonById } from "@/features/courses/service";
 import { NextResponse } from "next/server";
 
@@ -8,10 +9,13 @@ export async function POST(request: Request) {
   try {
     const session = await requireAdmin();
 
-    // Early Content-Length check (Item K: upload size defense)
+    // Early Content-Length check (Item K: upload size defense — layer 1)
     // Reject oversized bodies before formData() materializes bytes in memory.
+    // The guard permits a small, explicit multipart/form envelope allowance so
+    // a valid file AT the 10 MB limit with its envelope is not false-rejected;
+    // the exact FILE limit is enforced by File.size and the service below.
     const contentLength = request.headers.get("content-length");
-    if (contentLength && Number(contentLength) > MAX_COURSE_RESOURCE_SIZE) {
+    if (contentLength && isRequestBodyOverLimit(Number(contentLength), MAX_COURSE_RESOURCE_SIZE)) {
       return NextResponse.json(
         { error: `Request body exceeds maximum limit of 10 MB.` },
         { status: 413 }

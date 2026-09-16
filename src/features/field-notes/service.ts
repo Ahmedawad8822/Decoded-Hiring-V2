@@ -130,6 +130,10 @@ export async function createFieldNote(input: CreateFieldNoteInput): Promise<Fiel
     // condition is converted to the same domain error the pre-check raises;
     // anything else propagates untouched.
     if (!isUniqueConstraintError(error)) throw error;
+    // Verify the EXPECTED business-key conflict exists (a field note with
+    // this slug) before converting; otherwise rethrow the original.
+    const conflict = await db.select().from(fieldNotes).where(eq(fieldNotes.slug, input.slug)).get();
+    if (!conflict) throw error;
     throw new Error(`A field note with the slug "${input.slug}" already exists. Please choose a unique slug.`);
   }
 
@@ -183,6 +187,14 @@ export async function updateFieldNote(
     // Same race rule as create: only a lost slug-unique race converts to the
     // friendly domain error; unrelated DB errors propagate untouched.
     if (!isUniqueConstraintError(error)) throw error;
+    // Verify the EXPECTED business-key conflict exists (a DIFFERENT field
+    // note with this slug) before converting; otherwise rethrow the original.
+    const conflict = await db
+      .select()
+      .from(fieldNotes)
+      .where(and(eq(fieldNotes.slug, updateData.slug ?? input.slug ?? current.slug), ne(fieldNotes.id, id)))
+      .get();
+    if (!conflict) throw error;
     throw new Error(`A field note with the slug "${input.slug}" already exists.`);
   }
 

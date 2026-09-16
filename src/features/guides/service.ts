@@ -92,6 +92,10 @@ export async function createGuide(input: CreateGuideInput): Promise<Guide> {
     // condition is converted to the same domain error the pre-check raises;
     // anything else propagates untouched.
     if (!isUniqueConstraintError(error)) throw error;
+    // Verify the EXPECTED business-key conflict exists (a guide with this
+    // slug) before converting; otherwise rethrow the original DB error.
+    const conflict = await db.select().from(guides).where(eq(guides.slug, input.slug)).get();
+    if (!conflict) throw error;
     throw new Error(`A guide with the slug "${input.slug}" already exists. Please choose a unique slug.`);
   }
 
@@ -143,6 +147,14 @@ export async function updateGuide(id: string, input: UpdateGuideInput): Promise<
     // Same race rule as create: only a lost slug-unique race converts to the
     // friendly domain error; unrelated DB errors propagate untouched.
     if (!isUniqueConstraintError(error)) throw error;
+    // Verify the EXPECTED business-key conflict exists (a DIFFERENT guide
+    // with this slug) before converting; otherwise rethrow the original.
+    const conflict = await db
+      .select()
+      .from(guides)
+      .where(and(eq(guides.slug, updateData.slug ?? input.slug ?? current.slug), ne(guides.id, id)))
+      .get();
+    if (!conflict) throw error;
     throw new Error(`A guide with the slug "${input.slug}" already exists.`);
   }
 

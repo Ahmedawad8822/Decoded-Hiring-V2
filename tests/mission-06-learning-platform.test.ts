@@ -10,17 +10,20 @@ import {
   lessonResources,
   enrollments,
   lessonProgress,
+  guides,
 } from "../src/lib/db";
 import { migrateLocalDb } from "../src/lib/db/migrate";
 import { requireAdmin, requireUser } from "../src/lib/auth";
 import {
   createCourse,
+  updateCourse,
   publishCourse,
   unpublishLesson,
   archiveCourse,
   createSection,
   moveSection,
   createLesson,
+  updateLesson,
   publishLesson,
   moveLesson,
   getCourseSections,
@@ -864,11 +867,29 @@ test("M06-F3: non-unique DB errors are NOT swallowed by enrollment insert", asyn
     (() => { const e = new Error("constraint failed") as Error & { code?: string }; e.code = "2067"; return isUniqueConstraintError(e); })(),
     true
   );
-  // Generic SQLITE_CONSTRAINT (code 19) is NOT proof of UNIQUE — must return false
-  // to avoid swallowing NOT NULL, FOREIGN KEY, CHECK, and other constraint failures.
+  // NUMERIC extended code: D1/driver errors may surface code as a NUMBER
+  // (2067) rather than a string — both MUST be accepted.
+  assert.equal(
+    (() => { const e = new Error("constraint failed") as Error & { code?: number }; e.code = 2067; return isUniqueConstraintError(e); })(),
+    true
+  );
+  // Generic SQLITE_CONSTRAINT (code 19 / "SQLITE_CONSTRAINT") is NOT proof of
+  // UNIQUE — must return false to avoid swallowing NOT NULL, FOREIGN KEY,
+  // CHECK, and other constraint failures. Rejected in BOTH string and NUMBER
+  // forms.
   assert.equal(
     (() => { const e = new Error("constraint failed") as Error & { code?: string }; e.code = "SQLITE_CONSTRAINT"; return isUniqueConstraintError(e); })(),
     false
+  );
+  assert.equal(
+    (() => { const e = new Error("constraint failed") as Error & { code?: number }; e.code = 19; return isUniqueConstraintError(e); })(),
+    false,
+    "numeric generic SQLITE_CONSTRAINT (19) must be rejected"
+  );
+  assert.equal(
+    (() => { const e = new Error("constraint failed") as Error & { code?: string }; e.code = "19"; return isUniqueConstraintError(e); })(),
+    false,
+    "string generic SQLITE_CONSTRAINT (19) must be rejected"
   );
   // Drizzle wraps driver errors in DrizzleQueryError with the cause chain.
   const { DrizzleQueryError } = await import("drizzle-orm");
@@ -1061,9 +1082,13 @@ test("M06-F5: section/lesson position swaps are atomic and preserve ordering sem
 
 test("M06-F6: non-unique DB errors are NOT swallowed by markLessonComplete", async () => {
   const { isUniqueConstraintError } = await import("../src/lib/db/sqlite-errors");
-  // Verify classifier rejects generic constraint errors.
+  // Verify classifier rejects generic constraint errors — string AND numeric forms.
   assert.equal(
     (() => { const e = new Error("constraint failed") as Error & { code?: string }; e.code = "SQLITE_CONSTRAINT"; return isUniqueConstraintError(e); })(),
+    false
+  );
+  assert.equal(
+    (() => { const e = new Error("constraint failed") as Error & { code?: number }; e.code = 19; return isUniqueConstraintError(e); })(),
     false
   );
 
@@ -1291,4 +1316,413 @@ test("M06-D1: enrolled learner denied draft lesson PDF; allowed after lesson pub
   assert.ok(objectAfterPublish, "PDF should be accessible after lesson publish");
 
   await cleanupCourse(slug);
+});
+
+// ---------------------------------------------------------------------------
+// FINAL FOUNDATION MICRO-CORRECTION (deterministic resume + lost-race rethrow)
+// ---------------------------------------------------------------------------
+
+test("M06-B1: batched progress — multiple enrollments + deterministic resume (section.position, then lesson.position)", async () => {
+  const { getBatchedEnrollmentProgress: batched } = await import("../src/features/progress/service");
+
+  // Course A: two sections. Lessons are INSERTED in an order that diverges
+  // from curriculum order (B1, B2, A1, A2) — a naive insertion-order or
+  // per-lesson-position fetch would resolve the WRONG resume lesson.
+  const slugA = `m06-b1a-${stamp()}`;
+  const courseA = await createCourse({ title: "Batched A", slug: slugA, accessMode: "FREE" });
+  await publishCourse(courseA.id);
+  const s1 = await createSection({ courseId: courseA.id, title: "Section One" });
+  const s2 = await createSection({ courseId: courseA.id, title: "Section Two" });
+  const mk = (sectionId: string, title: string, s: string) =>
+    createLesson({ courseId: courseA.id, sectionId, title, slug: `${s}-${stamp()}`, required: true });
+  // Insertion order differs from curriculum order on purpose.
+  const b1 = await mk(s2.id, "B1", "b1");
+  const b2 = await mk(s2.id, "B2", "b2");
+  const a1 = await mk(s1.id, "A1", "a1");
+  const a2 = await mk(s1.id, "A2", "a2");
+  for (const l of [b1, b2, a1, a2]) await publishLesson(l.id);
+  // Correct curriculum order: section.position asc, then lesson.position asc
+  // -> A1 (s1), A2 (s1), B1 (s2), B2 (s2).
+  assert.equal(s1.position < s2.position, true);
+
+  // Course B: single required lesson for the second enrollment.
+  const slugB = `m06-b1b-${stamp()}`;
+  const courseB = await createCourse({ title: "Batched B", slug: slugB, accessMode: "FREE" });
+  await publishCourse(courseB.id);
+  const sb = await createSection({ courseId: courseB.id, title: "S1" });
+  const bOnly = await createLesson({
+    courseId: courseB.id,
+    sectionId: sb.id,
+    title: "Only",
+    slug: `only-${stamp()}`,
+    required: true,
+  });
+  await publishLesson(bOnly.id);
+
+  const user1 = await makeUser(`m06-b1a-${stamp()}@example.com`);
+  const user2 = await makeUser(`m06-b1b-${stamp()}@example.com`);
+  const enr1 = await enrollFree(user1, courseA.id);
+  const enr2 = await enrollFree(user2, courseB.id);
+
+  // Learner 1 completes A1 (the first lesson in curriculum order). Resume
+  // must be A2 — the first still-incomplete lesson in curriculum order —
+  // NOT B1, which is what an insertion-order fetch would have returned.
+  await markLessonComplete(user1, enr1.id, a1.id);
+
+  const summaries = await batched([enr1, enr2]);
+  assert.equal(summaries.size, 2, "one summary per enrollment");
+
+  const s1e = summaries.get(enr1.id);
+  assert.ok(s1e, "enrollment 1 summary present");
+  assert.equal(s1e.courseTitle, "Batched A");
+  assert.equal(s1e.courseSlug, slugA);
+  assert.equal(s1e.completedRequired, 1);
+  assert.equal(s1e.totalRequired, 4);
+  assert.equal(s1e.totalPublished, 4);
+  assert.equal(s1e.completed, false);
+  assert.equal(s1e.resumeLessonId, a2.id, "resume MUST follow section.position then lesson.position");
+  assert.equal(s1e.resumeLessonSlug, a2.slug);
+  assert.equal(s1e.resumeLessonTitle, "A2");
+
+  const s2e = summaries.get(enr2.id);
+  assert.ok(s2e, "enrollment 2 summary present");
+  assert.equal(s2e.courseTitle, "Batched B");
+  assert.equal(s2e.totalRequired, 1);
+  assert.equal(s2e.completedRequired, 0);
+  assert.equal(s2e.percent, 0);
+  assert.equal(s2e.resumeLessonId, bOnly.id, "fresh enrollment resumes at the first curriculum lesson");
+
+  // Reconcile individually and confirm resume converges with the batched view.
+  const single = await getEnrollmentProgress(enr1);
+  assert.equal(single.resumeLesson?.id, a2.id);
+
+  // Empty input is an empty map (bounded query shape, no per-enrollment work).
+  assert.equal((await batched([])).size, 0);
+
+  await cleanupCourse(slugA);
+  await cleanupCourse(slugB);
+});
+
+test("M06-B2: enrollment UNIQUE race WITHOUT the expected winner rethrows the original DB error", async () => {
+  const slug = `m06-b2-${stamp()}`;
+  const course = await createCourse({ title: "Race Rethrow", slug, accessMode: "FREE" });
+  await publishCourse(course.id);
+  const userId = await makeUser(`m06-b2-${stamp()}@example.com`);
+
+  const { getD1Database, setD1DatabaseForTest, clearD1DatabaseForTest } = await import(
+    "../src/lib/cloudflare/bindings"
+  );
+  const realD1 = await getD1Database();
+  const fakeDb: D1Database = {
+    prepare: (sql: string): D1PreparedStatement => {
+      // Sabotage ONLY the enrollments INSERT with a UNIQUE-flavoured failure;
+      // no winner row exists anywhere, so the race-recovery must NOT mask it.
+      if (/insert\s+into\s+["'`]?enrollments/i.test(sql)) {
+        const boom = () => {
+          throw new Error("UNIQUE constraint failed: enrollments.user_id, enrollments.course_id");
+        };
+        const stmt = {
+          bind: boom,
+          run: () => Promise.reject(new Error("UNIQUE constraint failed: enrollments.user_id, enrollments.course_id")),
+          first: boom,
+          all: boom,
+          raw: boom,
+        };
+        return stmt as unknown as D1PreparedStatement;
+      }
+      return realD1.prepare(sql);
+    },
+    batch: realD1.batch.bind(realD1),
+  } as D1Database;
+  setD1DatabaseForTest(fakeDb);
+
+  try {
+    // The unique error IS a genuine UNIQUE violation, but no (user, course)
+    // winner exists — this is NOT a lost duplicate race, so the ORIGINAL DB
+    // error must propagate (never a friendly swallowed result).
+    await assert.rejects(
+      () => enrollFree(userId, course.id),
+      (err: unknown) => {
+        const e = err as Error & { cause?: Error };
+        const causeMessage = e.cause?.message ?? e.message;
+        return /UNIQUE constraint failed/.test(causeMessage);
+      }
+    );
+  } finally {
+    clearD1DatabaseForTest();
+  }
+
+  // Nothing was inserted; a clean retry (real DB) succeeds.
+  const recovered = await enrollFree(userId, course.id);
+  assert.equal(recovered.status, "active");
+
+  await cleanupCourse(slug);
+});
+
+test("M06-B3: updateCourse slug UNIQUE race WITHOUT a conflicting slug rethrows the original DB error", async () => {
+  const slug = `m06-b3-${stamp()}`;
+  const course = await createCourse({ title: "Update Race", slug, accessMode: "FREE" });
+  const newSlug = `m06-b3-new-${stamp()}`;
+
+  const { getD1Database, setD1DatabaseForTest, clearD1DatabaseForTest } = await import(
+    "../src/lib/cloudflare/bindings"
+  );
+  const realD1 = await getD1Database();
+  const fakeDb: D1Database = {
+    prepare: (sql: string): D1PreparedStatement => {
+      // Sabotage ONLY the courses UPDATE with a UNIQUE-flavoured failure. The
+      // pre-check passes (no real clash exists), so the verification lookup
+      // must find NO conflicting course and therefore rethrow the original.
+      if (/\bupdate\s+["'`]?courses\b/i.test(sql)) {
+        const boom = () => {
+          throw new Error("UNIQUE constraint failed: courses.slug");
+        };
+        const stmt = {
+          bind: boom,
+          run: () => Promise.reject(new Error("UNIQUE constraint failed: courses.slug")),
+          first: boom,
+          all: boom,
+          raw: boom,
+        };
+        return stmt as unknown as D1PreparedStatement;
+      }
+      return realD1.prepare(sql);
+    },
+    batch: realD1.batch.bind(realD1),
+  } as D1Database;
+  setD1DatabaseForTest(fakeDb);
+
+  try {
+    await assert.rejects(
+      () => updateCourse(course.id, { id: course.id, slug: newSlug }),
+      (err: unknown) => {
+        const e = err as Error & { cause?: Error };
+        const causeMessage = e.cause?.message ?? e.message;
+        return /UNIQUE constraint failed/.test(causeMessage);
+      },
+      "no conflicting slug exists -> the original UNIQUE DB error must propagate, not a friendly duplicate"
+    );
+  } finally {
+    clearD1DatabaseForTest();
+  }
+
+  // The update never applied; the course keeps its original slug.
+  const row = await (await getDb()).select().from(courses).where(eq(courses.id, course.id)).get();
+  assert.equal(row?.slug, slug);
+
+  await cleanupCourse(slug);
+});
+
+test("M06-B4: updateLesson slug UNIQUE race WITHOUT a conflicting slug rethrows the original DB error", async () => {
+  const slug = `m06-b4-${stamp()}`;
+  const course = await createCourse({ title: "Lesson Update Race", slug, accessMode: "FREE" });
+  const section = await createSection({ courseId: course.id, title: "S1" });
+  const lesson = await createLesson({
+    courseId: course.id,
+    sectionId: section.id,
+    title: "Original",
+    slug: `m06-b4-orig-${stamp()}`,
+    required: true,
+  });
+  const newSlug = `m06-b4-new-${stamp()}`;
+
+  const { getD1Database, setD1DatabaseForTest, clearD1DatabaseForTest } = await import(
+    "../src/lib/cloudflare/bindings"
+  );
+  const realD1 = await getD1Database();
+  const fakeDb: D1Database = {
+    prepare: (sql: string): D1PreparedStatement => {
+      // Sabotage ONLY the lessons UPDATE; same reasoning as B3.
+      if (/\bupdate\s+["'`]?lessons\b/i.test(sql)) {
+        const boom = () => {
+          throw new Error("UNIQUE constraint failed: lessons.course_id, lessons.slug");
+        };
+        const stmt = {
+          bind: boom,
+          run: () => Promise.reject(new Error("UNIQUE constraint failed: lessons.course_id, lessons.slug")),
+          first: boom,
+          all: boom,
+          raw: boom,
+        };
+        return stmt as unknown as D1PreparedStatement;
+      }
+      return realD1.prepare(sql);
+    },
+    batch: realD1.batch.bind(realD1),
+  } as D1Database;
+  setD1DatabaseForTest(fakeDb);
+
+  try {
+    await assert.rejects(
+      () => updateLesson(lesson.id, { id: lesson.id, slug: newSlug }),
+      (err: unknown) => {
+        const e = err as Error & { cause?: Error };
+        const causeMessage = e.cause?.message ?? e.message;
+        return /UNIQUE constraint failed/.test(causeMessage);
+      },
+      "no conflicting (courseId, slug) exists -> the original UNIQUE DB error must propagate"
+    );
+  } finally {
+    clearD1DatabaseForTest();
+  }
+
+  const row = await (await getDb()).select().from(lessons).where(eq(lessons.id, lesson.id)).get();
+  assert.ok(row, "lesson row still exists");
+  assert.equal(row.slug, lesson.slug, "the failed update must leave the original slug untouched");
+  assert.notEqual(row.slug, newSlug);
+
+  await cleanupCourse(slug);
+});
+
+test("M06-B5: createGuide UNIQUE race WITHOUT a conflicting slug rethrows the original DB error", async () => {
+  const slug = `m06-b5-${stamp()}`;
+
+  const { getD1Database, setD1DatabaseForTest, clearD1DatabaseForTest } = await import(
+    "../src/lib/cloudflare/bindings"
+  );
+  const realD1 = await getD1Database();
+  const fakeDb: D1Database = {
+    prepare: (sql: string): D1PreparedStatement => {
+      // Sabotage ONLY the guides INSERT with a UNIQUE-flavoured failure; no
+      // guide with that slug exists, so the verification lookup finds no
+      // conflict and the ORIGINAL error must propagate.
+      if (/insert\s+into\s+["'`]?guides/i.test(sql)) {
+        const boom = () => {
+          throw new Error("UNIQUE constraint failed: guides.slug");
+        };
+        const stmt = {
+          bind: boom,
+          run: () => Promise.reject(new Error("UNIQUE constraint failed: guides.slug")),
+          first: boom,
+          all: boom,
+          raw: boom,
+        };
+        return stmt as unknown as D1PreparedStatement;
+      }
+      return realD1.prepare(sql);
+    },
+    batch: realD1.batch.bind(realD1),
+  } as D1Database;
+  setD1DatabaseForTest(fakeDb);
+
+  try {
+    const { createGuide } = await import("../src/features/guides/service");
+    await assert.rejects(
+      () => createGuide({ title: "Race Guide", slug, author: "Ahmed Awad", body: [] }),
+      (err: unknown) => {
+        const e = err as Error & { cause?: Error };
+        const causeMessage = e.cause?.message ?? e.message;
+        return /UNIQUE constraint failed/.test(causeMessage);
+      },
+      "no conflicting guide slug exists -> the original UNIQUE DB error must propagate"
+    );
+  } finally {
+    clearD1DatabaseForTest();
+  }
+
+  // No guide was created; a clean retry succeeds.
+  const { createGuide } = await import("../src/features/guides/service");
+  const created = await createGuide({ title: "Race Guide", slug, author: "Ahmed Awad", body: [] });
+  assert.equal(created.slug, slug);
+  const db = await getDb();
+  await db.delete(guides).where(eq(guides.slug, slug));
+
+  await cleanupCourse(slug);
+});
+
+test("M06-B6: updateGuide + createFieldNote + updateFieldNote UNIQUE races WITHOUT conflicts rethrow the original DB error", async () => {
+  const { getD1Database, setD1DatabaseForTest, clearD1DatabaseForTest } = await import(
+    "../src/lib/cloudflare/bindings"
+  );
+  const { createGuide, updateGuide } = await import("../src/features/guides/service");
+  const { createFieldNote, updateFieldNote } = await import("../src/features/field-notes/service");
+  const { fieldNotes: fieldNotesTable } = await import("../src/lib/db");
+
+  // Real rows so the pre-checks pass; the sabotaged UPDATE/INSERT then fires a
+  // UNIQUE-flavoured failure that does NOT correspond to any real conflict.
+  const guideSlug = `m06-b6-guide-${stamp()}`;
+  const guide = await createGuide({ title: "Race Guide B6", slug: guideSlug, author: "Ahmed Awad", body: [] });
+  const fnSlug = `m06-b6-fn-${stamp()}`;
+  const fn = await createFieldNote({ title: "Race FN B6", slug: fnSlug, author: "Ahmed Awad", body: [] });
+  const guideNewSlug = `m06-b6-guide-new-${stamp()}`;
+  const fnNewSlug = `m06-b6-fn-new-${stamp()}`;
+
+  const realD1 = await getD1Database();
+  const fakeDb: D1Database = {
+    prepare: (sql: string): D1PreparedStatement => {
+      // Sabotage ONLY the guides UPDATE, the field_notes INSERT, and the
+      // field_notes UPDATE. No conflicting slug exists anywhere, so each
+      // operation's verification lookup finds nothing and the ORIGINAL DB
+      // error must propagate.
+      const target =
+        /\bupdate\s+["'`]?guides\b/i.test(sql)
+          ? "guides"
+          : /insert\s+into\s+["'`]?field_notes/i.test(sql)
+            ? "field_notes insert"
+            : /\bupdate\s+["'`]?field_notes\b/i.test(sql)
+              ? "field_notes update"
+              : null;
+      if (target) {
+        const boom = () => {
+          throw new Error(`UNIQUE constraint failed: ${target}.slug`);
+        };
+        const stmt = {
+          bind: boom,
+          run: () => Promise.reject(new Error(`UNIQUE constraint failed: ${target}.slug`)),
+          first: boom,
+          all: boom,
+          raw: boom,
+        };
+        return stmt as unknown as D1PreparedStatement;
+      }
+      return realD1.prepare(sql);
+    },
+    batch: realD1.batch.bind(realD1),
+  } as D1Database;
+  setD1DatabaseForTest(fakeDb);
+
+  try {
+    await assert.rejects(
+      () => updateGuide(guide.id, { id: guide.id, slug: guideNewSlug }),
+      (err: unknown) => {
+        const e = err as Error & { cause?: Error };
+        const causeMessage = e.cause?.message ?? e.message;
+        return /UNIQUE constraint failed/.test(causeMessage);
+      },
+      "guide update: no conflicting slug exists -> original UNIQUE DB error must propagate"
+    );
+    await assert.rejects(
+      () => createFieldNote({ title: "Race FN B6b", slug: fnNewSlug, author: "Ahmed Awad", body: [] }),
+      (err: unknown) => {
+        const e = err as Error & { cause?: Error };
+        const causeMessage = e.cause?.message ?? e.message;
+        return /UNIQUE constraint failed/.test(causeMessage);
+      },
+      "field note create: no conflicting slug exists -> original UNIQUE DB error must propagate"
+    );
+    await assert.rejects(
+      () => updateFieldNote(fn.id, { id: fn.id, slug: fnNewSlug }),
+      (err: unknown) => {
+        const e = err as Error & { cause?: Error };
+        const causeMessage = e.cause?.message ?? e.message;
+        return /UNIQUE constraint failed/.test(causeMessage);
+      },
+      "field note update: no conflicting slug exists -> original UNIQUE DB error must propagate"
+    );
+  } finally {
+    clearD1DatabaseForTest();
+  }
+
+  // None of the sabotaged writes applied; rows keep their original slugs.
+  const db = await getDb();
+  const guideRow = await db.select().from(guides).where(eq(guides.id, guide.id)).get();
+  assert.equal(guideRow?.slug, guideSlug);
+  const fnRow = await db.select().from(fieldNotesTable).where(eq(fieldNotesTable.id, fn.id)).get();
+  assert.equal(fnRow?.slug, fnSlug);
+  assert.equal(await db.select().from(fieldNotesTable).where(eq(fieldNotesTable.slug, fnNewSlug)).get(), undefined);
+
+  await db.delete(guides).where(eq(guides.slug, guideSlug));
+  await db.delete(fieldNotesTable).where(eq(fieldNotesTable.slug, fnSlug));
+
+  await cleanupCourse(guideSlug);
 });
