@@ -12,11 +12,17 @@
  * True only for SQLite's UNIQUE-constraint violation.
  * Matches the error surfaced by both raw SQLite ("UNIQUE constraint failed:
  * enrollments.user_id, enrollments.course_id") and D1 wire formats
- * ("constraint failed: UNIQUE (enrollments.user_id, ...)" /
- * code SQLITE_CONSTRAINT). Drizzle wraps driver errors in DrizzleQueryError
- * with the original in `cause`, so the chain is unwrapped. Anything not
- * clearly a uniqueness violation returns false so unexpected errors
- * propagate to the caller.
+ * ("constraint failed: UNIQUE (enrollments.user_id, ...)").
+ * Drizzle wraps driver errors in DrizzleQueryError with the original in
+ * `cause`, so the chain is unwrapped.
+ *
+ * CRITICAL: Generic SQLITE_CONSTRAINT (code 19) is NOT proof of UNIQUE.
+ * Accept only:
+ * - explicit UNIQUE extended code when available (SQLITE_CONSTRAINT_UNIQUE,
+ *   code 2067 / 0x813), OR
+ * - error/cause message that actually establishes a UNIQUE violation.
+ * NOT NULL, FOREIGN KEY, CHECK and generic constraint failures must return
+ * false so they propagate to the caller.
  */
 export function isUniqueConstraintError(error: unknown): boolean {
   let current: unknown = error;
@@ -31,10 +37,15 @@ function matchesUniqueConstraint(error: unknown): boolean {
   if (!error || typeof error !== "object") return false;
   const candidate = error as { message?: unknown; code?: unknown };
   const code = typeof candidate.code === "string" ? candidate.code.toUpperCase() : "";
-  if (code.includes("CONSTRAINT")) {
-    // SQLITE_CONSTRAINT / SQLITE_CONSTRAINT_UNIQUE — D1 reports this code.
+  // Accept explicit UNIQUE extended error code (SQLite extended code 2067 /
+  // SQLITE_CONSTRAINT_UNIQUE). D1 / Cloudflare D1 may surface this as
+  // "SQLITE_CONSTRAINT_UNIQUE" string or numeric 2067.
+  if (code === "SQLITE_CONSTRAINT_UNIQUE" || code === "2067" || code === "0X813") {
     return true;
   }
+  // Generic SQLITE_CONSTRAINT (code 19 / "SQLITE_CONSTRAINT") is NOT
+  // sufficient — it covers NOT NULL, FOREIGN KEY, CHECK, and other
+  // constraint types. Must not return true here.
   const message = typeof candidate.message === "string" ? candidate.message.toLowerCase() : "";
   if (!message) return false;
   return (

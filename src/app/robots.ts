@@ -10,6 +10,7 @@ import { getSiteUrl } from "@/lib/seo";
 // have no public-index value (admin studio, learner classroom, API, auth
 // screens). Auth/private surfaces additionally carry noindex metadata so a
 // linked or cached URL is not indexed even when a crawler ignores robots.
+// Public /api/og and /api/media are explicitly ALLOWED.
 // ============================================================================
 
 export default function robots(): MetadataRoute.Robots {
@@ -17,7 +18,7 @@ export default function robots(): MetadataRoute.Robots {
     rules: [
       {
         userAgent: "*",
-        allow: "/",
+        allow: ["/", "/api/og", "/api/media"],
         disallow: [
           "/admin",
           "/admin/*",

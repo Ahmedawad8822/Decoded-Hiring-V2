@@ -12,15 +12,14 @@ import type { ContentBlock } from "@/features/publishing/types";
 // shared ContentBlock model. Visual markup and class names are unchanged
 // (block-list, block-item, bi-bar, bi-kind, bi-tools, bi-body, block-add)
 // so both editors render exactly as before.
-//
-// Deliberately narrow: no plugin architecture, no rich-text library, no new
-// schema abstraction. Managers control their surface via:
-//   allowedBlockTypes — which add-block buttons appear (in order)
-//   createBlock       — per-vertical default templates / placeholders
-//   eyebrowHint       — the small caption after "BODY · N BLOCKS"
+// 
+// The "resource" block type is reserved in ContentBlock for backward
+// compatibility with legacy stored content, but is NOT offered for creation
+// (no fake download/email CTA functionality). Existing resource blocks
+// render as static cards via ContentBlockRenderer.
 // ============================================================================
 
-export type StructuredBlockType = ContentBlock["type"];
+export type StructuredBlockType = Exclude<ContentBlock["type"], "resource">;
 
 export function createBlockId(): string {
   return `b-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
@@ -38,15 +37,6 @@ export function createDefaultContentBlock(type: StructuredBlockType): ContentBlo
       return { id, type: "callout", tone: "note", label: "NOTE", text: "Callout text..." };
     case "list":
       return { id, type: "list", style: "bullet", items: ["First point", "Second point"] };
-    case "resource":
-      return {
-        id,
-        type: "resource",
-        title: "Resource title",
-        meta: "PDF · 1 PAGE",
-        note: "Download description...",
-        buttonLabel: "Download resource",
-      };
     case "paragraph":
     default:
       return { id, type: "paragraph", text: "New paragraph text..." };
@@ -59,7 +49,6 @@ const ADD_BUTTON_LABELS: Record<StructuredBlockType, string> = {
   blockquote: "Pull-quote",
   callout: "Callout",
   list: "List",
-  resource: "Resource",
 };
 
 interface StructuredBlockEditorProps {

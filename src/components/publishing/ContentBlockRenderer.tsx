@@ -113,6 +113,9 @@ export function ContentBlockRenderer({ blocks }: { blocks: ContentBlock[] }) {
           }
 
           case "resource":
+            // Legacy resource blocks are rendered as static cards without the fake
+            // download/email CTA. The resource type is reserved for backward
+            // compatibility but presents no actionable (fake) functionality.
             return (
               <div className="resource-card" style={{ marginTop: "2.5em" }} key={block.id}>
                 <div style={{ display: "grid", gap: "8px", flex: 1, minWidth: "240px" }}>
@@ -132,13 +135,6 @@ export function ContentBlockRenderer({ blocks }: { blocks: ContentBlock[] }) {
                     {renderInlineFormattedText(block.note)}
                   </p>
                 </div>
-                <button
-                  className="btn secondary"
-                  type="button"
-                  data-toast="Download link requested|Check your inbox for the resource.|"
-                >
-                  {block.buttonLabel}
-                </button>
               </div>
             );
 

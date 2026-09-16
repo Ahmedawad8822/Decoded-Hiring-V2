@@ -1,11 +1,12 @@
 import { getDb } from "@/lib/db";
-import { enrollments, lessonProgress, type Enrollment, type Lesson } from "@/lib/db";
-import { and, eq } from "drizzle-orm";
+import { enrollments, lessonProgress, lessons, courses, type Enrollment, type Lesson } from "@/lib/db";
+import { and, eq, inArray } from "drizzle-orm";
 import {
   getAdminLessonById,
   getPublishedCourseLessons,
 } from "@/features/courses/service";
 import { hasLearnerAccess } from "@/features/enrollments/access";
+import { isUniqueConstraintError } from "@/lib/db/sqlite-errors";
 
 // ============================================================================
 // PROGRESS SERVICE (Mission 06)
@@ -35,26 +36,34 @@ export async function getEnrollmentProgress(enrollment: Enrollment): Promise<Cou
   // previous code called getPublishedCourseLessons twice (required set +
   // next-map) — 2x the curriculum queries per progress read.
   const publishedAll = await getPublishedCourseLessons(enrollment.courseId);
-  const requiredPublished = publishedAll.filter((l) => l.required);
+  const requiredPublishedAll = publishedAll.filter((l) => l.required);
 
   const rows = await db
     .select()
     .from(lessonProgress)
     .where(eq(lessonProgress.enrollmentId, enrollment.id));
 
-  // Only count progress for lessons that are still required + published.
-  const validIds = new Set(requiredPublished.map((l) => l.id));
-  const completedIds = rows.map((r) => r.lessonId).filter((id) => validIds.has(id));
-  const completedSet = new Set(completedIds);
+  // completedLessonIds must represent ALL completed currently-published lessons
+  // (required + optional) so optional completion remains visibly complete after
+  // refresh/navigation. Percentage/completion verdict uses ONLY required.
+  const publishedAllIds = new Set(publishedAll.map((l) => l.id));
+  const completedIds = rows
+    .map((r) => r.lessonId)
+    .filter((id) => publishedAllIds.has(id));
 
-  const totalRequired = requiredPublished.length;
-  const completedRequired = completedSet.size;
+  // Percentage and completion verdict: ONLY required published lessons.
+  const requiredIds = new Set(requiredPublishedAll.map((l) => l.id));
+  const completedRequiredIds = completedIds.filter((id) => requiredIds.has(id));
+  const completedRequiredSet = new Set(completedRequiredIds);
+
+  const totalRequired = requiredPublishedAll.length;
+  const completedRequired = completedRequiredSet.size;
   const percent =
     totalRequired === 0 ? 100 : Math.round((completedRequired / totalRequired) * 100);
   const completed = totalRequired > 0 && completedRequired >= totalRequired;
 
   const resumeLesson =
-    requiredPublished.find((l) => !completedSet.has(l.id)) ?? null;
+    requiredPublishedAll.find((l) => !completedRequiredSet.has(l.id)) ?? null;
 
   const nextAfterLessonId: Record<string, Lesson | null> = {};
   for (let i = 0; i < publishedAll.length; i++) {
@@ -177,10 +186,23 @@ export async function markLessonComplete(
         lessonId: lesson.id,
         completedAt: new Date(),
       });
-    } catch {
-      // Race: another request completed it first (UNIQUE index) — treat as
-      // idempotent success instead of a 500.
-      alreadyComplete = true;
+    } catch (error: unknown) {
+      // Race: another request completed it first (UNIQUE index on
+      // enrollment_id, lesson_id) — verify the winner exists and treat as
+      // idempotent success. Any unrelated DB error (locked, I/O, schema) must
+      // propagate untouched; it is NOT a duplicate race and must never be
+      // swallowed.
+      if (!isUniqueConstraintError(error)) throw error;
+      const winner = await db
+        .select()
+        .from(lessonProgress)
+        .where(and(eq(lessonProgress.enrollmentId, enrollment.id), eq(lessonProgress.lessonId, lesson.id)))
+        .get();
+      if (winner) {
+        alreadyComplete = true;
+      } else {
+        throw new Error("Lesson completion failed. Please try again.");
+      }
     }
   }
 
@@ -206,4 +228,169 @@ export async function isLessonComplete(enrollmentId: string, lessonId: string): 
     .where(and(eq(lessonProgress.enrollmentId, enrollmentId), eq(lessonProgress.lessonId, lessonId)))
     .get();
   return !!row;
+}
+
+// ============================================================================
+// BATCHED PROGRESS SUMMARY (Item E: Learner Collection Query Fan-Out)
+// ============================================================================
+// Single domain-owned batch path for collection pages (/learn/courses).
+// Batches: enrollments, course metadata, published curriculum for all courses,
+// progress rows for all enrollments, current states for reconciliation.
+// Query count bounded as enrollment count grows — no per-enrollment fan-out.
+
+export interface BatchedProgressSummary {
+  enrollmentId: string;
+  courseId: string;
+  courseTitle: string;
+  courseSlug: string;
+  courseAccessMode: string;
+  courseStatus: string;
+  totalRequired: number;
+  completedRequired: number;
+  percent: number;
+  completed: boolean;
+  totalPublished: number;
+  completedLessonIds: string[];
+  resumeLessonId: string | null;
+  enrollmentStatus: string;
+  enrollmentCompletedAt: Date | null;
+}
+
+/**
+ * Compute progress summaries for multiple enrollments in a bounded number of queries.
+ * Returns a map keyed by enrollmentId for O(1) lookups by the caller.
+ * Keeps the existing single-enrollment getEnrollmentProgress for detail/player routes.
+ */
+export async function getBatchedEnrollmentProgress(
+  enrollmentsList: Enrollment[]
+): Promise<Map<string, BatchedProgressSummary>> {
+  if (enrollmentsList.length === 0) return new Map();
+
+  const db = await getDb();
+
+  const enrollmentIds = enrollmentsList.map((e) => e.id);
+  const courseIds = [...new Set(enrollmentsList.map((e) => e.courseId))];
+
+  // 1. Batch fetch all course metadata in ONE query
+  const courseRows = await db
+    .select()
+    .from(courses)
+    .where(inArray(courses.id, courseIds));
+  const courseMap = new Map(courseRows.map((c) => [c.id, c]));
+
+  // 2. Batch fetch ALL published lessons for all involved courses in ONE query
+  const allPublishedLessons = await db
+    .select()
+    .from(lessons)
+    .where(
+      and(
+        inArray(lessons.courseId, courseIds),
+        eq(lessons.status, "published")
+      )
+    );
+  const lessonsByCourse = new Map<string, typeof allPublishedLessons>();
+  for (const lesson of allPublishedLessons) {
+    const bucket = lessonsByCourse.get(lesson.courseId);
+    if (bucket) bucket.push(lesson);
+    else lessonsByCourse.set(lesson.courseId, [lesson]);
+  }
+
+  // 3. Batch fetch ALL progress rows for all enrollments in ONE query
+  const progressRows = await db
+    .select()
+    .from(lessonProgress)
+    .where(inArray(lessonProgress.enrollmentId, enrollmentIds));
+  const progressByEnrollment = new Map<string, typeof progressRows>();
+  for (const row of progressRows) {
+    const bucket = progressByEnrollment.get(row.enrollmentId);
+    if (bucket) bucket.push(row);
+    else progressByEnrollment.set(row.enrollmentId, [row]);
+  }
+
+  // 4. Batch fetch CURRENT enrollment states for reconciliation in ONE query
+  const currentEnrollments = await db
+    .select()
+    .from(enrollments)
+    .where(inArray(enrollments.id, enrollmentIds));
+  const currentEnrollmentMap = new Map(currentEnrollments.map((e) => [e.id, e]));
+
+  // 5. Compute summaries in memory
+  const summaries = new Map<string, BatchedProgressSummary>();
+  const reconciliations: Array<{ enrollmentId: string; completed: boolean }> = [];
+
+  for (const enrollment of enrollmentsList) {
+    const course = courseMap.get(enrollment.courseId);
+    if (!course) continue; // Skip if course not found (should not happen)
+
+    const publishedAll = lessonsByCourse.get(enrollment.courseId) ?? [];
+    const requiredPublishedAll = publishedAll.filter((l) => l.required);
+    const enrollmentProgressRows = progressByEnrollment.get(enrollment.id) ?? [];
+
+    const publishedAllIds = new Set(publishedAll.map((l) => l.id));
+    const completedIds = enrollmentProgressRows
+      .map((r) => r.lessonId)
+      .filter((id) => publishedAllIds.has(id));
+
+    const requiredIds = new Set(requiredPublishedAll.map((l) => l.id));
+    const completedRequiredIds = completedIds.filter((id) => requiredIds.has(id));
+    const completedRequiredSet = new Set(completedRequiredIds);
+
+    const totalRequired = requiredPublishedAll.length;
+    const completedRequired = completedRequiredSet.size;
+    const percent = totalRequired === 0 ? 100 : Math.round((completedRequired / totalRequired) * 100);
+    const completed = totalRequired > 0 && completedRequired >= totalRequired;
+
+    const resumeLesson =
+      requiredPublishedAll.find((l) => !completedRequiredSet.has(l.id)) ?? null;
+
+    const currentEnrollment = currentEnrollmentMap.get(enrollment.id);
+
+    summaries.set(enrollment.id, {
+      enrollmentId: enrollment.id,
+      courseId: enrollment.courseId,
+      courseTitle: course.title,
+      courseSlug: course.slug,
+      courseAccessMode: course.accessMode,
+      courseStatus: course.status,
+      totalRequired,
+      completedRequired,
+      percent,
+      completed,
+      totalPublished: publishedAll.length,
+      completedLessonIds: completedIds,
+      resumeLessonId: resumeLesson?.id ?? null,
+      enrollmentStatus: currentEnrollment?.status ?? enrollment.status,
+      enrollmentCompletedAt: currentEnrollment?.completedAt ?? enrollment.completedAt,
+    });
+
+    reconciliations.push({ enrollmentId: enrollment.id, completed });
+  }
+
+  // 6. Batch reconciliation writes (active ↔ completed only; cancelled is terminal)
+  // Group by target status to minimize writes
+  const toComplete: string[] = [];
+  const toReopen: string[] = [];
+  for (const { enrollmentId, completed } of reconciliations) {
+    const current = currentEnrollmentMap.get(enrollmentId);
+    if (!current) continue;
+    if (current.status === "cancelled") continue;
+    if (completed && current.status === "active") toComplete.push(enrollmentId);
+    else if (!completed && current.status === "completed") toReopen.push(enrollmentId);
+  }
+
+  const now = new Date();
+  if (toComplete.length > 0) {
+    await db
+      .update(enrollments)
+      .set({ completedAt: now, status: "completed" })
+      .where(inArray(enrollments.id, toComplete));
+  }
+  if (toReopen.length > 0) {
+    await db
+      .update(enrollments)
+      .set({ completedAt: null, status: "active" })
+      .where(inArray(enrollments.id, toReopen));
+  }
+
+  return summaries;
 }

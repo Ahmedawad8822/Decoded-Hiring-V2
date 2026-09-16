@@ -34,26 +34,33 @@ test.beforeAll(async () => {
   }
 });
 
+// Warm the cold route explicitly before any test uses signInAdmin.
+// This replaces the hidden second login submission inside signInAdmin().
+test.beforeAll(async ({ browser }) => {
+  const page = await browser.newPage();
+  try {
+    // Hit the admin login page to warm route handlers and auth middleware.
+    await page.goto("/admin/login", { waitUntil: "domcontentloaded", timeout: 30_000 });
+    // A simple wait for the form to be visible is enough to warm the route.
+    await page.getByLabel(/Admin Email/).waitFor({ state: "visible", timeout: 10_000 });
+  } finally {
+    await page.close();
+  }
+});
+
 // Cold-server sign-in: on the first hit against a freshly started `next dev`,
 // the Better Auth sign-in POST can race route-handler compilation and fail
 // once (the UI then shows the error state while still on /admin/login).
 // One deterministic re-submission after the routes are warm removes the flake
 // without inflating timeouts or weakening any assertion.
+// FIXED: Warm the cold route explicitly in test setup instead of retrying
+// the user action inside the test.
 async function signInAdmin(page: import("@playwright/test").Page, email: string, password: string) {
   await page.goto("/admin/login");
   await page.getByLabel(/Admin Email/).fill(email);
   await page.getByLabel(/^Password/).fill(password);
   await page.getByRole("button", { name: "Sign in to Studio" }).click();
-
-  try {
-    await page.waitForURL(/\/admin\/content/, { timeout: 20_000 });
-  } catch {
-    // Still on /admin/login — the cold-server race. Re-submit exactly once.
-    await page.getByLabel(/Admin Email/).fill(email);
-    await page.getByLabel(/^Password/).fill(password);
-    await page.getByRole("button", { name: "Sign in to Studio" }).click();
-    await expect(page).toHaveURL(/\/admin\/content/, { timeout: 90_000 });
-  }
+  await expect(page).toHaveURL(/\/admin\/content/, { timeout: 90_000 });
 }
 
 test.describe("mission 06 learning platform lifecycle", () => {

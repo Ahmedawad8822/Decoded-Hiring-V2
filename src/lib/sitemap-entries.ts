@@ -11,6 +11,8 @@ import { getPublishedFieldNotes } from "@/features/field-notes/service";
 // URLs of PUBLISHED guides and field notes only. Drafts and archived content
 // can never appear: the source queries filter on status = 'published' at the
 // service layer, and tests assert draft/archived slugs stay out.
+// Static routes omit lastModified (stable timestamp unknown); dynamic content
+// uses updatedAt. Adds max-image-preview: large via robots (not sitemap).
 // ============================================================================
 
 export const staticRoutes = [
@@ -39,7 +41,8 @@ export async function buildSitemapEntries(): Promise<MetadataRoute.Sitemap> {
 
   const staticEntries: MetadataRoute.Sitemap = staticRoutes.map((route) => ({
     url: `${base}${route}`,
-    lastModified: new Date(),
+    // Omit lastModified for static routes — no stable timestamp known.
+    // Setting it to "now" on every request is misleading for crawlers.
   }));
 
   const guideEntries: MetadataRoute.Sitemap = guides.map((guide) => ({

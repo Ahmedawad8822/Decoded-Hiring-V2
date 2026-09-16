@@ -6,6 +6,16 @@ export async function POST(request: Request) {
   try {
     const session = await requireAdmin();
 
+    // Early Content-Length check (Item K: upload size defense)
+    // Reject oversized bodies before formData() materializes bytes in memory.
+    const contentLength = request.headers.get("content-length");
+    if (contentLength && Number(contentLength) > MAX_MEDIA_FILE_SIZE) {
+      return NextResponse.json(
+        { error: `Request body exceeds maximum limit of 5 MB.` },
+        { status: 413 }
+      );
+    }
+
     const formData = await request.formData();
     const file = formData.get("file");
 

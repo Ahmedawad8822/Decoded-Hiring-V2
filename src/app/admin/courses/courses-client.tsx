@@ -38,6 +38,12 @@ export function CoursesClient({
   const [description, setDescription] = useState("");
   const [accessMode, setAccessMode] = useState<string>("FREE");
 
+  const [confirmModal, setConfirmModal] = useState<{
+    action: "archive";
+    courseId: string;
+    courseTitle: string;
+  } | null>(null);
+
   const applyFilter = () => {
     const params = new URLSearchParams();
     if (q.trim()) params.set("q", q.trim());
@@ -155,6 +161,45 @@ export function CoursesClient({
         </div>
       )}
 
+      {confirmModal && (
+        <div className="dialog" style={{ display: "grid", placeItems: "center" }}>
+          <div className="dg-panel">
+            <h3>Confirm Archive</h3>
+            <div className="dg-body">
+              <p>
+                Are you sure you want to <strong>archive</strong> &ldquo;
+                {confirmModal.courseTitle}&rdquo;?
+              </p>
+              <div className="dg-consequences">
+                <strong>Consequences:</strong>
+                <ul>
+                  <li>The course will no longer accept new enrollments.</li>
+                  <li>Existing enrolled learners retain access.</li>
+                  <li>Archived courses are terminal — cannot be republished or unpublished.</li>
+                </ul>
+              </div>
+            </div>
+            <div className="dg-actions">
+              <button type="button" className="btn ghost small" onClick={() => setConfirmModal(null)}>
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="btn danger small"
+                onClick={() => {
+                  if (confirmModal) {
+                    runAction(`arch-${confirmModal.courseId}`, () => archiveCourseAction(confirmModal.courseId));
+                  }
+                  setConfirmModal(null);
+                }}
+              >
+                Confirm Archive
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {showCreate && (
         <form
           onSubmit={handleSave}
@@ -224,10 +269,10 @@ export function CoursesClient({
                 </button>
               )}
               {course.status !== "archived" && (
-                <button className="btn ghost small" type="button" disabled={busy === `arch-${course.id}`} onClick={() => runAction(`arch-${course.id}`, () => archiveCourseAction(course.id))}>
-                  Archive
-                </button>
-              )}
+                              <button className="btn ghost small" type="button" disabled={busy === `arch-${course.id}`} onClick={() => setConfirmModal({ action: "archive", courseId: course.id, courseTitle: course.title })}> 
+                                Archive
+                              </button>
+                            )}
             </div>
           </div>
         ))}

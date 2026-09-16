@@ -1,4 +1,4 @@
-import { getDb, lessonResources } from "@/lib/db";
+import { getDb, lessonResources, lessons } from "@/lib/db";
 import { getServerSession } from "@/lib/auth";
 import { getCourseResourceObject } from "@/lib/course-resources/service";
 import { getEnrollment } from "@/features/enrollments/service";
@@ -9,7 +9,9 @@ import { NextResponse } from "next/server";
 /**
  * Protected resource download by database ID.
  * Authenticated user AND (admin OR active enrollment in the resource's course).
+ * Lesson MUST be published — deny draft/unpublished/archived lesson resources.
  * Private caching semantics — never public/immutable.
+ * Returns 404 for unpublished resources to avoid existence leakage.
  */
 export async function GET(
   _request: Request,
@@ -29,6 +31,18 @@ export async function GET(
     .where(eq(lessonResources.id, resourceId))
     .get();
   if (!resource) {
+    return NextResponse.json({ error: "Resource not found" }, { status: 404 });
+  }
+
+  // Resolve the associated lesson and require it to be PUBLISHED.
+  // Non-admin users denied for draft/unpublished/archived lessons.
+  // Use 404 to avoid existence leakage of unpublished resources.
+  const lesson = await db
+    .select()
+    .from(lessons)
+    .where(eq(lessons.id, resource.lessonId))
+    .get();
+  if (!lesson || lesson.status !== "published") {
     return NextResponse.json({ error: "Resource not found" }, { status: 404 });
   }
 

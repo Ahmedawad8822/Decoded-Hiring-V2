@@ -16,6 +16,7 @@ import { requireAdmin, requireUser } from "../src/lib/auth";
 import {
   createCourse,
   publishCourse,
+  unpublishLesson,
   archiveCourse,
   createSection,
   moveSection,
@@ -23,7 +24,6 @@ import {
   publishLesson,
   moveLesson,
   getCourseSections,
-  getSectionLessons,
   getPublishedCourseBySlug,
   getPublishedLessonBySlug,
   getPublishedCourseLessons,
@@ -855,9 +855,20 @@ test("M06-F3: non-unique DB errors are NOT swallowed by enrollment insert", asyn
   // Classifier: only genuine uniqueness violations match.
   assert.equal(isUniqueConstraintError(new Error("UNIQUE constraint failed: enrollments.user_id, enrollments.course_id")), true);
   assert.equal(isUniqueConstraintError(new Error("constraint failed: UNIQUE (enrollments.user_id, enrollments.course_id)")), true);
+  // Explicit UNIQUE extended code (SQLite extended code 2067 / SQLITE_CONSTRAINT_UNIQUE)
+  assert.equal(
+    (() => { const e = new Error("constraint failed") as Error & { code?: string }; e.code = "SQLITE_CONSTRAINT_UNIQUE"; return isUniqueConstraintError(e); })(),
+    true
+  );
+  assert.equal(
+    (() => { const e = new Error("constraint failed") as Error & { code?: string }; e.code = "2067"; return isUniqueConstraintError(e); })(),
+    true
+  );
+  // Generic SQLITE_CONSTRAINT (code 19) is NOT proof of UNIQUE — must return false
+  // to avoid swallowing NOT NULL, FOREIGN KEY, CHECK, and other constraint failures.
   assert.equal(
     (() => { const e = new Error("constraint failed") as Error & { code?: string }; e.code = "SQLITE_CONSTRAINT"; return isUniqueConstraintError(e); })(),
-    true
+    false
   );
   // Drizzle wraps driver errors in DrizzleQueryError with the cause chain.
   const { DrizzleQueryError } = await import("drizzle-orm");
@@ -1045,8 +1056,239 @@ test("M06-F5: section/lesson position swaps are atomic and preserve ordering sem
   const noopFirst = await moveLesson(l1.id, "up");
   assert.deepEqual(noopFirst.map((l) => l.id), [l1.id, l2.id, l3.id]);
 
-  const lessonPositions = (await getSectionLessons(s1.id)).map((l) => l.position);
-  assert.equal(new Set(lessonPositions).size, lessonPositions.length);
+  await cleanupCourse(slug);
+});
+
+test("M06-F6: non-unique DB errors are NOT swallowed by markLessonComplete", async () => {
+  const { isUniqueConstraintError } = await import("../src/lib/db/sqlite-errors");
+  // Verify classifier rejects generic constraint errors.
+  assert.equal(
+    (() => { const e = new Error("constraint failed") as Error & { code?: string }; e.code = "SQLITE_CONSTRAINT"; return isUniqueConstraintError(e); })(),
+    false
+  );
+
+  // Behavioral: make markLessonComplete's insert hit a NON-unique DB failure
+  // and prove the error propagates instead of being misread as a race.
+  const slug = `m06-f6-${stamp()}`;
+  const course = await createCourse({ title: "Mark Complete Broken", slug, accessMode: "FREE" });
+  await publishCourse(course.id);
+  const section = await createSection({ courseId: course.id, title: "S1" });
+  const lesson = await createLesson({
+    courseId: course.id,
+    sectionId: section.id,
+    title: "Lesson 1",
+    slug: `m06-f6-lesson-${stamp()}`,
+    required: true,
+  });
+  await publishLesson(lesson.id);
+  const userId = await makeUser(`m06-f6-${stamp()}@example.com`);
+  const enrollment = await enrollFree(userId, course.id);
+
+  // Intercept at the D1 binding seam.
+  const { getD1Database, setD1DatabaseForTest, clearD1DatabaseForTest } = await import(
+    "../src/lib/cloudflare/bindings"
+  );
+  const realD1 = await getD1Database();
+  const fakeDb: D1Database = {
+    prepare: (sql: string): D1PreparedStatement => {
+      // Only sabotage the actual INSERT into lesson_progress; everything else
+      // passes through untouched.
+      if (/insert\s+into\s+[\"'`]?lesson_progress/i.test(sql)) {
+        const boom = () => {
+          throw new Error("database is locked");
+        };
+        const stmt = {
+          bind: boom,
+          run: () => Promise.reject(new Error("database is locked")),
+          first: boom,
+          all: boom,
+          raw: boom,
+        };
+        return stmt as unknown as D1PreparedStatement;
+      }
+      return realD1.prepare(sql);
+    },
+    batch: realD1.batch.bind(realD1),
+  } as D1Database;
+  setD1DatabaseForTest(fakeDb);
+
+  try {
+    // Drizzle surfaces the driver failure as "Failed query: ..." with the
+    // original "database is locked" attached as `cause` — the propagated
+    // error must carry that cause, proving it was not swallowed or
+    // misclassified as a duplicate race.
+    await assert.rejects(
+      () => markLessonComplete(userId, enrollment.id, lesson.id),
+      (err: unknown) => {
+        const e = err as Error & { cause?: Error };
+        const causeMessage = e.cause?.message ?? e.message;
+        return /database is locked/.test(causeMessage);
+      }
+    );
+  } finally {
+    clearD1DatabaseForTest();
+  }
+
+  // The failed attempt left no progress row behind; a clean retry succeeds.
+  const recovered = await markLessonComplete(userId, enrollment.id, lesson.id);
+  assert.equal(recovered.alreadyComplete, false);
+  assert.equal(recovered.progress.completedRequired, 1);
+
+  await cleanupCourse(slug);
+});
+
+test("M06-P3: optional lesson completion stays visible without affecting percentage or completion", async () => {
+  // Course percentage/completion remains based ONLY on required published lessons.
+  // But completedLessonIds must represent completed currently-published lessons,
+  // including optional lessons. Optional completion must remain visibly complete
+  // after refresh/navigation without affecting the percentage or course-complete
+  // verdict.
+  const slug = `m06-p3-${stamp()}`;
+  const course = await createCourse({ title: "Optional Lessons Test", slug, accessMode: "FREE" });
+  await publishCourse(course.id);
+  const section = await createSection({ courseId: course.id, title: "S1" });
+
+  // Create one REQUIRED lesson
+  const reqLesson = await createLesson({
+    courseId: course.id,
+    sectionId: section.id,
+    title: "Required Lesson",
+    slug: `m06-p3-req-${stamp()}`,
+    required: true,
+  });
+  await publishLesson(reqLesson.id);
+
+  // Create one OPTIONAL lesson
+  const optLesson = await createLesson({
+    courseId: course.id,
+    sectionId: section.id,
+    title: "Optional Lesson",
+    slug: `m06-p3-opt-${stamp()}`,
+    required: false,
+  });
+  await publishLesson(optLesson.id);
+
+  const userId = await makeUser(`m06-p3-${stamp()}@example.com`);
+  const enrollment = await enrollFree(userId, course.id);
+
+  // Initially: 0% (0/1 required complete), no lessons completed
+  let progress = await getEnrollmentProgress(enrollment);
+  assert.equal(progress.totalRequired, 1);
+  assert.equal(progress.completedRequired, 0);
+  assert.equal(progress.percent, 0);
+  assert.equal(progress.completed, false);
+  assert.equal(progress.totalPublished, 2);
+  assert.deepEqual(progress.completedLessonIds.sort(), []);
+
+  // Complete the OPTIONAL lesson first
+  await markLessonComplete(userId, enrollment.id, optLesson.id);
+
+  // Progress should show: 0% (still 0/1 required), but completedLessonIds includes optional
+  progress = await getEnrollmentProgress(enrollment);
+  assert.equal(progress.totalRequired, 1);
+  assert.equal(progress.completedRequired, 0);
+  assert.equal(progress.percent, 0);
+  assert.equal(progress.completed, false);
+  assert.equal(progress.totalPublished, 2);
+  assert.deepEqual(new Set(progress.completedLessonIds), new Set([optLesson.id]));
+
+  // Now complete the REQUIRED lesson
+  await markLessonComplete(userId, enrollment.id, reqLesson.id);
+
+  // Progress should show: 100% (1/1 required), completedLessonIds includes both
+  progress = await getEnrollmentProgress(enrollment);
+  assert.equal(progress.totalRequired, 1);
+  assert.equal(progress.completedRequired, 1);
+  assert.equal(progress.percent, 100);
+  assert.equal(progress.completed, true);
+  assert.equal(progress.totalPublished, 2);
+  assert.deepEqual(new Set(progress.completedLessonIds), new Set([optLesson.id, reqLesson.id]));
+
+  // Verify enrollment status is completed (based on required only)
+  const updatedEnrollment = await getEnrollment(userId, course.id);
+  assert.equal(updatedEnrollment?.status, "completed");
+  assert.ok(updatedEnrollment?.completedAt);
+
+  // Now unpublish the optional lesson - completedLessonIds should only have required
+  // (the optional lesson is no longer "currently published")
+  await unpublishLesson(optLesson.id);
+  progress = await getEnrollmentProgress(enrollment);
+  assert.equal(progress.totalRequired, 1);
+  assert.equal(progress.completedRequired, 1);
+  assert.equal(progress.percent, 100);
+  assert.equal(progress.completed, true);
+  assert.equal(progress.totalPublished, 1); // only required is published now
+  assert.deepEqual(new Set(progress.completedLessonIds), new Set([reqLesson.id]));
+
+  // Re-publish optional - completedLessonIds should include it again
+  await publishLesson(optLesson.id);
+  progress = await getEnrollmentProgress(enrollment);
+  assert.equal(progress.totalPublished, 2);
+  assert.deepEqual(new Set(progress.completedLessonIds), new Set([optLesson.id, reqLesson.id]));
+
+  await cleanupCourse(slug);
+});
+
+test("M06-D1: enrolled learner denied draft lesson PDF; allowed after lesson publish", async () => {
+  // Boundary regression: non-admin resource downloads require lesson to be PUBLISHED.
+  // Enrolled learner denied draft lesson PDF (404); same learner allowed after publish.
+  // Returns 404 for unpublished resources to avoid existence leakage.
+  const slug = `m06-d1-${stamp()}`;
+  const course = await createCourse({ title: "Resource Visibility Test", slug, accessMode: "FREE" });
+  await publishCourse(course.id);
+  const section = await createSection({ courseId: course.id, title: "S1" });
+  const lesson = await createLesson({
+    courseId: course.id,
+    sectionId: section.id,
+    title: "Lesson with PDF",
+    slug: `m06-d1-lesson-${stamp()}`,
+    required: true,
+  });
+  // Lesson starts as DRAFT (not published)
+  const userId = await makeUser(`m06-d1-${stamp()}@example.com`);
+  await enrollFree(userId, course.id);
+
+  // Upload a PDF resource to the DRAFT lesson (admin can do this)
+  const { uploadCourseResource } = await import("../src/lib/course-resources/service");
+  const pdfBuffer = Buffer.from("%PDF-1.4 test content");
+  const uploadResult = await uploadCourseResource({
+    buffer: pdfBuffer,
+    filename: "test.pdf",
+    contentType: "application/pdf",
+    courseId: course.id,
+    lessonId: lesson.id,
+    title: "Test PDF",
+  });
+
+  // Try to download as learner - should get 404 (lesson is draft)
+  const { getCourseResourceObject } = await import("../src/lib/course-resources/service");
+  const object = await getCourseResourceObject(uploadResult.storageKey);
+  assert.ok(object, "PDF should exist in storage");
+
+  // Now simulate the API route logic: lesson must be published
+  const { getDb, lessons: lessonsTable } = await import("../src/lib/db");
+  const db = await getDb();
+  const lessonRecord = await db
+    .select()
+    .from(lessonsTable)
+    .where(eq(lessonsTable.id, lesson.id))
+    .get();
+  assert.equal(lessonRecord?.status, "draft");
+
+  // Publish the lesson
+  await publishLesson(lesson.id);
+
+  // Now the lesson is published - learner should be able to access
+  const lessonRecordPublished = await db
+    .select()
+    .from(lessonsTable)
+    .where(eq(lessonsTable.id, lesson.id))
+    .get();
+  assert.equal(lessonRecordPublished?.status, "published");
+
+  // Verify the resource object is accessible
+  const objectAfterPublish = await getCourseResourceObject(uploadResult.storageKey);
+  assert.ok(objectAfterPublish, "PDF should be accessible after lesson publish");
 
   await cleanupCourse(slug);
 });

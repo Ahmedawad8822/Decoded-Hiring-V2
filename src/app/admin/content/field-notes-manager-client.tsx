@@ -34,8 +34,6 @@ function createFieldNoteBlock(type: StructuredBlockType): FieldNoteBlock {
       return { id, type: "callout", tone: "note", label: "IMPLICATION", text: "What this means in practice..." };
     case "list":
       return { id, type: "list", style: "bullet", items: ["First point", "Second point"] };
-    case "resource":
-      return { id, type: "resource", title: "Resource title", meta: "PDF · 1 PAGE", note: "Download description...", buttonLabel: "Download resource" };
     case "paragraph":
     default:
       return { id, type: "paragraph", text: "New paragraph text..." };

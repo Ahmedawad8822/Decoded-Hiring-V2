@@ -11,10 +11,10 @@ import "./globals.css";
 import "./universal.css";
 
 export async function generateMetadata(): Promise<Metadata> {
-  const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000";
+  const siteUrl = getSiteUrl();
 
   return {
-    metadataBase: new URL(siteUrl),
+    metadataBase: siteUrl,
     title: "Decoded Hiring | Recruitment strategy, systems and AI",
     description: siteDescription,
     openGraph: {
