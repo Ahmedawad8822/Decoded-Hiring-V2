@@ -43,6 +43,13 @@
       "when": 1789572276764,
       "tag": "0005_moaning_gressill",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1789598540530,
+      "tag": "0006_nostalgic_swordsman",
+      "breakpoints": true
     }
   ]
 }
