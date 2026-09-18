@@ -3,6 +3,9 @@ import { getServerSession } from "@/lib/auth";
 import { listKnowledgeSources } from "@/features/editorial-ai/knowledge/service";
 import { KnowledgePageClient } from "./page-client";
 
+// Auth-gated admin page — force-dynamic to avoid SSG-time D1 contention.
+export const dynamic = "force-dynamic";
+
 export const metadata = {
   title: "Knowledge · Studio | Decoded Hiring",
   description: "Manage the editorial knowledge library.",

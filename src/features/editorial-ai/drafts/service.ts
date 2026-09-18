@@ -15,31 +15,48 @@
 //
 // Publishing (Mission 07 §6):
 //   - APPROVED drafts can be published once.
-//   - Idempotency: slug uniqueness on guides/field_notes prevents duplicates.
-//   - If the target entity already exists (retry after partial failure), the
-//     draft is relinked — no duplicate entity is created.
+//   - Idempotency is owned by `editorial_publications` (one row per draft,
+//     UNIQUE(draftId)): retries/simultaneous publishes resolve to the same
+//     target — NOT by slug (slug is an unrelated-collision backstop).
+//   - The target (Guide/Field Note) is created, PUBLISHED, and verified on the
+//     public resolver BEFORE the editorial draft is marked PUBLISHED. A failure
+//     at any step leaves the draft truthful (not PUBLISHED).
+//   - Unrelated guide/field-note with the same slug → error, never relink.
+//   - Crash recovery is anchored on entityId, set on the reservation
+//     immediately after the target is created. A crashed publish leaves an
+//     owned reservation; the next publishDraft resumes the EXACT target by ID
+//     — never a slug that could collide with an unrelated guide/field note.
+//
+// D1 transaction note: Drizzle 0.45.2's D1 session exposes db.transaction()
+// via BEGIN/COMMIT/ROLLBACK. However, createGuide/publishGuide/etc. each call
+// getDb() independently and cannot share a transaction context. The reservation
+// + CAS pattern below achieves equivalent atomicity at the application level:
+// UNIQUE(draft_id) serializes concurrent publishes, CAS on status detects
+// stale publishes, and finalizeOwnedPublication handles crash recovery by entityId.
 // ============================================================================
 
 import { getDb } from "@/lib/db";
+import type { Database, EditorialPublication } from "@/lib/db";
 import {
   editorial_drafts,
   editorial_draft_sources,
+  editorial_publications,
   knowledge_sources,
   knowledge_chunks,
-  guides,
-  fieldNotes,
+  users,
 } from "@/lib/db";
-import { eq, desc, and } from "drizzle-orm";
+import { eq, desc, and, inArray } from "drizzle-orm";
 import type { LlmBlock, ContextChunk } from "../skills/types";
+import type { LLMProvider } from "../providers";
 import type { ContentBlock } from "@/features/publishing/types";
 import { resolveProvider } from "../providers";
 import { retrieveKnowledge } from "../knowledge/retrieval";
 import { getActiveMemory } from "../memory/service";
 import { logAudit } from "../audit/service";
-import { createGuide } from "@/features/guides/service";
-import { createFieldNote } from "@/features/field-notes/service";
+import { createGuide, getAdminGuideById, publishGuide, unpublishGuide } from "@/features/guides/service";
+import { createFieldNote, getAdminFieldNoteById, publishFieldNote, unpublishFieldNote } from "@/features/field-notes/service";
 import { isUniqueConstraintError } from "@/lib/db/sqlite-errors";
-import { AHA_AUTHORITY_V1, SKILL_VERSION } from "../skills/aha-authority";
+import { AHA_AUTHORITY_V1, SKILL_VERSION, NoRelevantEvidenceError } from "../skills/aha-authority";
 import type {
   DraftContentType,
   DraftStatus,
@@ -55,9 +72,13 @@ import type {
 
 export async function generateDraft(
   input: GenerateDraftInput,
-  actor: string
+  actor: string,
+  opts?: { provider?: LLMProvider }
 ): Promise<EditorialDraftWithSources> {
-  const provider = await resolveProvider();
+  // Provider boundary (Mission 07 §3): use the injected provider when
+  // supplied (tests/dev), otherwise resolve from env — which throws
+  // EditorialProviderNotConfiguredError when unset (fail-closed, no fake).
+  const provider = opts?.provider ?? (await resolveProvider());
 
   // 1-2. Retrieve knowledge based on topic, audience, angle
   const searchQuery = [input.topic, input.audience, input.angle]
@@ -69,6 +90,12 @@ export async function generateDraft(
     topK: 8,
     sourceIds: input.sourceIds,
   });
+
+  // Evidence-first (Mission 07 §4): never generate a groundless draft. The
+  // provider is only called when we actually have retrieved evidence.
+  if (retrievedChunks.length === 0) {
+    throw new NoRelevantEvidenceError();
+  }
 
   // 3. Retrieve active editorial memory
   const memory = await getActiveMemory();
@@ -167,33 +194,11 @@ export async function generateDraft(
 // Retrieval
 // ---------------------------------------------------------------------------
 
-export async function getDraft(id: string): Promise<EditorialDraftWithSources | null> {
-  const db = await getDb();
-
-  const draft = await db
-    .select()
-    .from(editorial_drafts)
-    .where(eq(editorial_drafts.id, id))
-    .get();
-
-  if (!draft) return null;
-
-  const provenanceRows = await db
-    .select({
-      sourceId: knowledge_sources.id,
-      sourceTitle: knowledge_sources.title,
-      chunkId: editorial_draft_sources.chunkId,
-      heading: knowledge_chunks.heading,
-      ordinal: knowledge_chunks.ordinal,
-      content: knowledge_chunks.content,
-      rank: editorial_draft_sources.rank,
-    })
-    .from(editorial_draft_sources)
-    .innerJoin(knowledge_sources, eq(knowledge_sources.id, editorial_draft_sources.sourceId))
-    .innerJoin(knowledge_chunks, eq(knowledge_chunks.id, editorial_draft_sources.chunkId))
-    .where(eq(editorial_draft_sources.draftId, id))
-    .orderBy(editorial_draft_sources.rank);
-
+/** Shared assembler: turn a raw draft row + its provenance into the public type. */
+function assembleDraft(
+  draft: typeof editorial_drafts.$inferSelect,
+  provenance: DraftSourceProvenance[],
+): EditorialDraftWithSources {
   let body: LlmBlock[] = [];
   try {
     body = JSON.parse(draft.body || "[]");
@@ -226,8 +231,56 @@ export async function getDraft(id: string): Promise<EditorialDraftWithSources | 
     publishedAt: draft.publishedAt,
     publishedEntityId: draft.publishedEntityId,
     publishedEntityType: draft.publishedEntityType as "guide" | "field_note" | null,
-    sources: provenanceRows as DraftSourceProvenance[],
+    sources: provenance,
   };
+}
+
+/** Fetch provenance rows for a set of drafts in a single query (no N+1). */
+async function fetchProvenanceForDrafts(
+  db: Database,
+  draftIds: string[],
+): Promise<Map<string, DraftSourceProvenance[]>> {
+  const result = new Map<string, DraftSourceProvenance[]>();
+  draftIds.forEach((id) => result.set(id, []));
+  if (draftIds.length === 0) return result;
+
+  const rows = await db
+    .select({
+      draftId: editorial_draft_sources.draftId,
+      sourceId: knowledge_sources.id,
+      sourceTitle: knowledge_sources.title,
+      chunkId: editorial_draft_sources.chunkId,
+      heading: knowledge_chunks.heading,
+      ordinal: knowledge_chunks.ordinal,
+      content: knowledge_chunks.content,
+      rank: editorial_draft_sources.rank,
+    })
+    .from(editorial_draft_sources)
+    .innerJoin(knowledge_sources, eq(knowledge_sources.id, editorial_draft_sources.sourceId))
+    .innerJoin(knowledge_chunks, eq(knowledge_chunks.id, editorial_draft_sources.chunkId))
+    .where(inArray(editorial_draft_sources.draftId, draftIds))
+    .orderBy(editorial_draft_sources.rank);
+
+  for (const row of rows) {
+    const arr = result.get(row.draftId);
+    if (arr) arr.push(row as unknown as DraftSourceProvenance);
+  }
+  return result;
+}
+
+export async function getDraft(id: string): Promise<EditorialDraftWithSources | null> {
+  const db = await getDb();
+
+  const draft = await db
+    .select()
+    .from(editorial_drafts)
+    .where(eq(editorial_drafts.id, id))
+    .get();
+
+  if (!draft) return null;
+
+  const provenance = await fetchProvenanceForDrafts(db, [id]);
+  return assembleDraft(draft, provenance.get(id) ?? []);
 }
 
 export async function listDrafts(opts?: {
@@ -242,15 +295,23 @@ export async function listDrafts(opts?: {
 
   const drafts =
     conditions.length > 0
-      ? await db.select().from(editorial_drafts).where(and(...conditions)).orderBy(desc(editorial_drafts.updatedAt))
+      ? await db
+          .select()
+          .from(editorial_drafts)
+          .where(and(...conditions))
+          .orderBy(desc(editorial_drafts.updatedAt))
       : await db.select().from(editorial_drafts).orderBy(desc(editorial_drafts.updatedAt));
 
-  const results: EditorialDraftWithSources[] = [];
-  for (const draft of drafts) {
-    const withSources = await getDraft(draft.id);
-    if (withSources) results.push(withSources);
-  }
-  return results;
+  if (drafts.length === 0) return [];
+
+  // One round-trip for ALL provenance (fixes the N+1 in the old per-draft
+  // getDraft loop — previously 2 queries per draft).
+  const provenance = await fetchProvenanceForDrafts(
+    db,
+    drafts.map((d) => d.id),
+  );
+
+  return drafts.map((draft) => assembleDraft(draft, provenance.get(draft.id) ?? []));
 }
 
 // ---------------------------------------------------------------------------
@@ -264,6 +325,8 @@ export async function updateDraft(
 ): Promise<EditorialDraftWithSources> {
   const db = await getDb();
   const now = new Date();
+  const draft = await getDraft(id);
+  if (!draft) throw new Error(`Draft with id "${id}" not found`);
 
   const updates: Partial<typeof editorial_drafts.$inferInsert> = { updatedAt: now };
   if (input.title !== undefined) updates.title = input.title;
@@ -272,6 +335,21 @@ export async function updateDraft(
   if (input.body !== undefined) updates.body = JSON.stringify(input.body);
   if (input.metaTitle !== undefined) updates.metaTitle = input.metaTitle;
   if (input.metaDescription !== undefined) updates.metaDescription = input.metaDescription;
+
+  // A meaningful content edit to an APPROVED draft invalidates its approval:
+  // the content must flow through review again, so revert to DRAFT and clear
+  // the approval/published fields. A no-op or absent-field patch does NOT revoke.
+  const contentFields = ["title", "slug", "excerpt", "body", "metaTitle", "metaDescription"];
+  const isContentEdit = contentFields.some((f) => (input as Record<string, unknown>)[f] !== undefined);
+  if (draft.status === "APPROVED" && isContentEdit) {
+    updates.status = "DRAFT" as DraftStatus;
+    updates.approvedBy = null;
+    updates.approvedAt = null;
+    updates.reviewedBy = null;
+    updates.publishedEntityId = null;
+    updates.publishedEntityType = null;
+    updates.publishedAt = null;
+  }
 
   await db.update(editorial_drafts).set(updates).where(eq(editorial_drafts.id, id));
 
@@ -309,6 +387,8 @@ export async function approve(id: string, actor: string): Promise<EditorialDraft
 
   const db = await getDb();
   const now = new Date();
+  // CAS: only advance IN_REVIEW → APPROVED. A concurrent state change (e.g. a
+  // send-back/reject) moves 0 rows, which the re-check below detects.
   await db
     .update(editorial_drafts)
     .set({
@@ -318,20 +398,27 @@ export async function approve(id: string, actor: string): Promise<EditorialDraft
       approvedAt: now,
       updatedAt: now,
     })
-    .where(eq(editorial_drafts.id, id));
+    .where(and(eq(editorial_drafts.id, id), eq(editorial_drafts.status, "IN_REVIEW")));
 
   await logAudit({ actor, entityType: "editorial_draft", entityId: id, action: "draft_approved" });
 
   const updated = await getDraft(id);
-  return updated!;
+  if (!updated || updated.status !== "APPROVED") {
+    throw new Error(`Cannot approve draft — status was "${updated?.status ?? "unknown"}" during approval (concurrent modification).`);
+  }
+  return updated;
 }
 
 export async function rejectDraft(id: string, actor: string, reason?: string): Promise<EditorialDraftWithSources> {
   const draft = await getDraft(id);
   if (!draft) throw new Error(`Draft with id "${id}" not found`);
+  if (draft.status !== "IN_REVIEW") {
+    throw new Error(`Cannot reject draft in "${draft.status}" status. Not in IN_REVIEW status.`);
+  }
 
   const db = await getDb();
   const now = new Date();
+  // CAS: only advance IN_REVIEW → REJECTED.
   await db
     .update(editorial_drafts)
     .set({
@@ -340,7 +427,7 @@ export async function rejectDraft(id: string, actor: string, reason?: string): P
       rejectedAt: now,
       updatedAt: now,
     })
-    .where(eq(editorial_drafts.id, id));
+    .where(and(eq(editorial_drafts.id, id), eq(editorial_drafts.status, "IN_REVIEW")));
 
   await logAudit({
     actor,
@@ -351,82 +438,317 @@ export async function rejectDraft(id: string, actor: string, reason?: string): P
   });
 
   const updated = await getDraft(id);
-  return updated!;
+  if (!updated || updated.status !== "REJECTED") {
+    throw new Error(`Cannot reject draft — status was "${updated?.status ?? "unknown"}" during rejection (concurrent modification).`);
+  }
+  return updated;
 }
 
 /**
- * APPROVED → PUBLISHED. Creates a Guide or Field Note and links the draft.
+ * APPROVED → PUBLISHED. Creates a Guide or Field Note, actually *publishes* it
+ * on the public resolver, verifies it, and records the authoritative draft→target
+ * link in `editorial_publications`.
  *
- * Idempotency strategy (Mission 07 §6):
- * - If already PUBLISHED → return existing entity (no-op).
- * - Slug uniqueness on guides/field_notes is the authoritative backstop.
- * - On slug conflict (concurrent/retry), look up the existing entity and relink.
+ * Idempotency & concurrency (Mission 07 §6):
+ * - A publication record is INSERTED FIRST (reservation, entityId NULL). Its
+ *   `draft_id` is UNIQUE, so concurrent publishes of the SAME draft collapse
+ *   onto one target: the loser detects the reservation, waits, and resolves to
+ *   the winner. Identity is owned by the draft — NOT by slug.
+ * - Retries after partial failure find the owned record (entityId set) and
+ *   finalize it by ID — never by slug.
+ * - An UNRELATED guide/field-note sharing the draft's slug makes creation fail;
+ *   the reservation is cleaned up and the error is propagated (no relink).
+ * - The editorial draft is marked PUBLISHED only AFTER the target is verified
+ *   public. Any earlier failure leaves the draft truthful (not PUBLISHED).
+ *
+ * `opts` exposes two injection hooks used to test the publish/verify/CAS paths
+ * deterministically (production callers omit them, using the real publishers).
  */
-export async function publishDraft(id: string, actor: string): Promise<{ entityType: "guide" | "field_note"; entityId: string }> {
+export async function publishDraft(
+  id: string,
+  actor: string,
+  opts?: {
+    /** Publish the target entity (defaults to publishGuide/publishFieldNote). */
+    publishTarget?: (entityType: "guide" | "field_note", entityId: string) => Promise<unknown>;
+    /** Hook invoked after the target entity is created, before it is published. */
+    onCreateTarget?: (entityType: "guide" | "field_note", entityId: string) => Promise<void>;
+  },
+): Promise<{ entityType: "guide" | "field_note"; entityId: string }> {
+  const db = await getDb();
   const draft = await getDraft(id);
   if (!draft) throw new Error(`Draft with id "${id}" not found`);
 
-  // Idempotency: already published → return existing entity (no-op)
-  if (draft.publishedEntityId && draft.publishedEntityType) {
-    return { entityType: draft.publishedEntityType, entityId: draft.publishedEntityId };
+  const entityType = entityTypeFor(draft.contentType);
+  const now = new Date();
+  const publishTargetFn = opts?.publishTarget ?? defaultPublishTarget;
+
+  // 1. Idempotency / crash recovery: a publication record already exists.
+  //    Ownership is anchored on entityId — NEVER on slug — so an unrelated
+  //    guide/field note sharing the draft's slug can never be claimed.
+  const existing = await getPublicationByDraftId(db, draft.id);
+  if (existing) {
+    if (existing.entityId) {
+      // Owned by an exact target → resume/finalize by ID (covers both
+      // idempotent re-publish and crash recovery).
+      return await finalizeOwnedPublication(
+        db,
+        draft,
+        actor,
+        existing.entityType as "guide" | "field_note",
+        existing.entityId,
+        now,
+        publishTargetFn,
+      );
+    }
+    // entityId is NULL → a concurrent publish reserved this draft but has
+    // not yet created its target. Wait for it to finish (or time out).
+    return await waitForPublication(db, draft.id);
   }
 
   if (draft.status !== "APPROVED") {
     throw new Error(`Cannot publish draft in "${draft.status}" status. Not in APPROVED status.`);
   }
 
-  const contentBlocks = toContentBlocks(draft.body);
-  const now = new Date();
+  // 2. Reserve a publication record (authoritative, draft-owned identity).
+  //    UNIQUE(draft_id) serializes concurrent publishes of the SAME draft.
+  try {
+    await db
+      .insert(editorial_publications)
+      .values({
+        id: `pub_${crypto.randomUUID().slice(0, 12)}`,
+        draftId: draft.id,
+        entityType,
+        entityId: null,
+        createdAt: now,
+      });
+  } catch (err) {
+    if (!isUniqueConstraintError(err)) throw err;
+    // Another publish already reserved/owns this draft's publication.
+    return await waitForPublication(db, draft.id);
+  }
 
   try {
-    if (draft.contentType === "GUIDE") {
-      const guide = await createGuide({
-        title: draft.title,
-        slug: draft.slug,
-        excerpt: draft.excerpt ?? undefined,
-        body: contentBlocks,
-        metaTitle: draft.metaTitle ?? undefined,
-        metaDescription: draft.metaDescription ?? undefined,
-        author: "Ahmed Awad",
-        coverImage: null,
-      });
-      await linkPublishedDraft(id, "guide", guide.id, actor, now);
-      return { entityType: "guide", entityId: guide.id };
-    } else {
-      const fieldNote = await createFieldNote({
-        title: draft.title,
-        slug: draft.slug,
-        excerpt: draft.excerpt ?? undefined,
-        body: contentBlocks,
-        metaTitle: draft.metaTitle ?? undefined,
-        metaDescription: draft.metaDescription ?? undefined,
-        author: "Ahmed Awad",
-        coverImage: null,
-      });
-      await linkPublishedDraft(id, "field_note", fieldNote.id, actor, now);
-      return { entityType: "field_note", entityId: fieldNote.id };
+    // 3. Create the target entity (fails fast on an unrelated slug collision).
+    const authorName = await resolveAuthorName(actor);
+    const { entityId } = await createTarget(draft, authorName);
+
+    // OWN the reservation with the exact target identity IMMEDIATELY — slug is
+    // never used for ownership. If we crash after this, the next publishDraft
+    // recovers THIS exact target by entityId, never a slug-colliding one.
+    await db
+      .update(editorial_publications)
+      .set({ entityId })
+      .where(eq(editorial_publications.draftId, draft.id));
+
+    // (test hook) observe the freshly-created target before publishing it.
+    await opts?.onCreateTarget?.(entityType, entityId);
+
+    // 4. Actually publish the target so it is genuinely public.
+    await publishTargetFn(entityType, entityId);
+
+    // 5. Verify by exact ID (NOT slug) that the target is public.
+    if (!(await verifyTargetPublic(entityType, entityId))) {
+      throw new Error("Publication verification failed: target is not publicly visible after publish.");
     }
+
+    // 6. CAS the draft to PUBLISHED and audit-log (entityId already bound).
+    return await markDraftPublished(db, draft, actor, entityType, entityId, now);
   } catch (err) {
-    // Slug conflict → look up existing entity and relink
-    if (isUniqueConstraintError(err)) {
-      const { entityType, entityId } = await findExistingEntity(draft.contentType, draft.slug);
-      if (entityType && entityId) {
-        await linkPublishedDraft(id, entityType, entityId, actor, now);
-        return { entityType, entityId };
-      }
-    }
+    // Creation/verification failed (unrelated slug collision, verification
+    // failure, etc.): clean up our reservation so the draft stays truthful
+    // (APPROVED) and a retry can proceed cleanly. Do NOT mark PUBLISHED.
+    await deletePublicationByDraftId(db, draft.id);
     throw err;
   }
 }
 
-async function linkPublishedDraft(
-  draftId: string,
+const DEFAULT_PUBLISH_AUTHOR = "Decoded Editorial";
+
+function entityTypeFor(contentType: DraftContentType): "guide" | "field_note" {
+  return contentType === "GUIDE" ? "guide" : "field_note";
+}
+
+/** Resolve a display author for the target from the actor's user row; fall
+ * back to the actor id, then a safe constant — never a hardcoded personal name. */
+async function resolveAuthorName(actor: string): Promise<string> {
+  const db = await getDb();
+  const user = await db
+    .select({ name: users.name })
+    .from(users)
+    .where(eq(users.id, actor))
+    .get();
+  return user?.name ?? actor ?? DEFAULT_PUBLISH_AUTHOR;
+}
+
+/** Create the target publishing entity (Guide/Field Note) from the draft. */
+async function createTarget(
+  draft: EditorialDraftWithSources,
+  authorName: string,
+): Promise<{ entityType: "guide" | "field_note"; entityId: string }> {
+  const contentBlocks = toContentBlocks(draft.body);
+  if (draft.contentType === "GUIDE") {
+    const guide = await createGuide({
+      title: draft.title,
+      slug: draft.slug,
+      excerpt: draft.excerpt ?? undefined,
+      body: contentBlocks,
+      metaTitle: draft.metaTitle ?? undefined,
+      metaDescription: draft.metaDescription ?? undefined,
+      author: authorName,
+      coverImage: null,
+    });
+    return { entityType: "guide", entityId: guide.id };
+  }
+  const fieldNote = await createFieldNote({
+    title: draft.title,
+    slug: draft.slug,
+    excerpt: draft.excerpt ?? undefined,
+    body: contentBlocks,
+    metaTitle: draft.metaTitle ?? undefined,
+    metaDescription: draft.metaDescription ?? undefined,
+    author: authorName,
+    coverImage: null,
+  });
+  return { entityType: "field_note", entityId: fieldNote.id };
+}
+
+/** Publish (flip to "published") the target entity. */
+async function defaultPublishTarget(entityType: "guide" | "field_note", entityId: string): Promise<unknown> {
+  if (entityType === "guide") {
+    return publishGuide(entityId);
+  }
+  return publishFieldNote(entityId);
+}
+
+/** Roll back a published target (undo publish) — used on stale-publish. */
+async function rollbackPublication(entityType: "guide" | "field_note", entityId: string): Promise<void> {
+  try {
+    if (entityType === "guide") {
+      await unpublishGuide(entityId);
+    } else {
+      await unpublishFieldNote(entityId);
+    }
+  } catch {
+    // Best-effort rollback; the draft is already left truthful (not PUBLISHED).
+  }
+}
+
+/** Resolve a target entity by exact ID (admin resolver, no public slug lookup). */
+async function getTargetById(
   entityType: "guide" | "field_note",
   entityId: string,
+): Promise<{ status: string } | null> {
+  if (entityType === "guide") {
+    const guide = await getAdminGuideById(entityId);
+    return guide ? { status: guide.status } : null;
+  }
+  const note = await getAdminFieldNoteById(entityId);
+  return note ? { status: note.status } : null;
+}
+
+/** Verify the target is genuinely public (status === "published") by exact ID.
+ * The editorial draft must never report PUBLISHED unless this is true. */
+async function verifyTargetPublic(entityType: "guide" | "field_note", entityId: string): Promise<boolean> {
+  const target = await getTargetById(entityType, entityId);
+  return !!target && target.status === "published";
+}
+
+/** Fetch the publication record for a draft (if any). */
+async function getPublicationByDraftId(
+  db: Database,
+  draftId: string,
+): Promise<EditorialPublication | undefined> {
+  return await db
+    .select()
+    .from(editorial_publications)
+    .where(eq(editorial_publications.draftId, draftId))
+    .get();
+}
+
+/** Delete a draft's publication record (reservation or finalized). */
+async function deletePublicationByDraftId(db: Database, draftId: string): Promise<void> {
+  await db.delete(editorial_publications).where(eq(editorial_publications.draftId, draftId));
+}
+
+/** Poll (bounded) for a concurrent publish to finalize its publication record. */
+async function waitForPublication(
+  db: Database,
+  draftId: string,
+  timeoutMs = 2000,
+  intervalMs = 20,
+): Promise<{ entityType: "guide" | "field_note"; entityId: string }> {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    const pub = await getPublicationByDraftId(db, draftId);
+    if (pub && pub.entityId) {
+      return { entityType: pub.entityType as "guide" | "field_note", entityId: pub.entityId };
+    }
+    await new Promise((resolve) => setTimeout(resolve, intervalMs));
+  }
+  throw new Error(`Publication of draft ${draftId} is still in progress — please retry in a moment.`);
+}
+
+/**
+ * Resume/finalize a publication whose reservation is already owned by an exact
+ * target entityId (set immediately after the target was created). This covers
+ * both idempotent re-publish and crash recovery, and NEVER uses the slug to
+ * identify the target — an unrelated guide/field note sharing the draft's slug
+ * can never be claimed.
+ */
+async function finalizeOwnedPublication(
+  db: Database,
+  draft: EditorialDraftWithSources,
   actor: string,
-  now: Date
-): Promise<void> {
-  const db = await getDb();
+  entityType: "guide" | "field_note",
+  entityId: string,
+  now: Date,
+  publishTargetFn: (entityType: "guide" | "field_note", entityId: string) => Promise<unknown>,
+): Promise<{ entityType: "guide" | "field_note"; entityId: string }> {
+  // If a crashed run created the target but never published it, resume the
+  // publish now; otherwise the target is already public.
+  if (!(await verifyTargetPublic(entityType, entityId))) {
+    await publishTargetFn(entityType, entityId);
+  }
+  if (!(await verifyTargetPublic(entityType, entityId))) {
+    throw new Error(`Publication record owns target ${entityId} but it is not publicly visible.`);
+  }
+  // Idempotency: an already-PUBLISHED draft with a verified target is done.
+  if (draft.status === "PUBLISHED") {
+    await logAudit({
+      actor,
+      entityType: "editorial_draft",
+      entityId: draft.id,
+      action: "draft_publish_recovered",
+      detail: { entityType, entityId, recovered: true },
+    });
+    return { entityType, entityId };
+  }
+  return await markDraftPublished(db, draft, actor, entityType, entityId, now);
+}
+
+/**
+ * Finalize publication: set entityId on the publication record, CAS-update the
+ * draft to PUBLISHED (only if still APPROVED), verify, audit-log, and return.
+ * On stale-publish (draft was modified concurrently), roll back the target
+ * and clean up the reservation — fail closed.
+ */
+async function markDraftPublished(
+  db: Database,
+  draft: EditorialDraftWithSources,
+  actor: string,
+  entityType: "guide" | "field_note",
+  entityId: string,
+  now: Date,
+): Promise<{ entityType: "guide" | "field_note"; entityId: string }> {
+  // Finalize the publication record (set entityId).
+  await db
+    .update(editorial_publications)
+    .set({ entityId })
+    .where(eq(editorial_publications.draftId, draft.id));
+
+  // CAS: mark draft PUBLISHED only if still APPROVED.
+  // If a concurrent edit moved the draft off APPROVED, this matches nothing
+  // and the draft is left truthful — then we roll the publish back.
   await db
     .update(editorial_drafts)
     .set({
@@ -436,30 +758,26 @@ async function linkPublishedDraft(
       publishedAt: now,
       updatedAt: now,
     })
-    .where(eq(editorial_drafts.id, draftId));
+    .where(and(eq(editorial_drafts.id, draft.id), eq(editorial_drafts.status, "APPROVED")));
+
+  const after = await getDraft(draft.id);
+  if (after?.status !== "PUBLISHED") {
+    // Stale publish: the draft was edited/rejected while we were publishing.
+    // The target was made public — roll it back so we fail closed.
+    await rollbackPublication(entityType, entityId);
+    await deletePublicationByDraftId(db, draft.id);
+    throw new Error(`Stale publish: draft "${draft.id}" was modified (status="${after?.status ?? "unknown"}") during publication. Re-approve and retry.`);
+  }
 
   await logAudit({
     actor,
     entityType: "editorial_draft",
-    entityId: draftId,
+    entityId: draft.id,
     action: "draft_published",
-    detail: { entityType, entityId },
+    detail: { entityType, entityId, verifiedPublic: true },
   });
-}
 
-async function findExistingEntity(
-  contentType: DraftContentType,
-  slug: string
-): Promise<{ entityType: "guide" | "field_note"; entityId: string } | { entityType: null; entityId: null }> {
-  const db = await getDb();
-  if (contentType === "GUIDE") {
-    const guide = await db.select({ id: guides.id }).from(guides).where(eq(guides.slug, slug)).get();
-    if (guide) return { entityType: "guide", entityId: guide.id };
-  } else {
-    const fn = await db.select({ id: fieldNotes.id }).from(fieldNotes).where(eq(fieldNotes.slug, slug)).get();
-    if (fn) return { entityType: "field_note", entityId: fn.id };
-  }
-  return { entityType: null, entityId: null };
+  return { entityType, entityId };
 }
 
 // ---------------------------------------------------------------------------
@@ -524,7 +842,12 @@ async function transitionDraft(
     updates.approvedAt = now;
   }
 
-  await db.update(editorial_drafts).set(updates).where(eq(editorial_drafts.id, id));
+  // CAS: only advance if the draft is still in expectedStatus. A concurrent
+  // transition moves 0 rows, which the re-check below detects.
+  await db
+    .update(editorial_drafts)
+    .set(updates)
+    .where(and(eq(editorial_drafts.id, id), eq(editorial_drafts.status, expectedStatus)));
 
   await logAudit({
     actor,
@@ -535,7 +858,10 @@ async function transitionDraft(
   });
 
   const updated = await getDraft(id);
-  return updated!;
+  if (!updated || updated.status !== newStatus) {
+    throw new Error(`Cannot ${auditAction} draft — status was "${updated?.status ?? "unknown"}" during transition (concurrent modification).`);
+  }
+  return updated;
 }
 
 // Re-export types for convenience.

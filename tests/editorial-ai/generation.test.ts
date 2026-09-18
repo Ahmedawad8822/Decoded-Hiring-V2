@@ -3,20 +3,30 @@
  * ---------------------------------------------------------------------------
  * Verifies: generation pipeline (knowledge retrieval -> memory assembly -> LLM
  * call -> draft save -> provenance recording -> audit log). Uses the FakeProvider
- * so no external API key is needed.
+ * injected via generateDraft's opts.provider so no external API key is needed.
  */
 import test from "node:test";
 import assert from "node:assert/strict";
 import "../helpers/env";
 import { migrateLocalDb } from "../../src/lib/db/migrate";
 import { disposeCloudflareBindings, getR2Bucket } from "../../src/lib/cloudflare/bindings";
-import { getDb, knowledge_sources, knowledge_chunks, editorial_drafts, editorial_draft_sources, editorial_audit_log, guides, fieldNotes } from "../../src/lib/db";
+import {
+  getDb,
+  knowledge_sources,
+  knowledge_chunks,
+  editorial_drafts,
+  editorial_draft_sources,
+  editorial_audit_log,
+  guides,
+  fieldNotes,
+} from "../../src/lib/db";
 import { eq } from "drizzle-orm";
 
 import { uploadKnowledgeSource } from "../../src/features/editorial-ai/knowledge/storage";
 import { ingestKnowledgeSource } from "../../src/features/editorial-ai/knowledge/service";
 import { generateDraft } from "../../src/features/editorial-ai/drafts/service";
-import { resolveProvider } from "../../src/features/editorial-ai/providers";
+import { resolveProvider, EditorialProviderNotConfiguredError, isProviderNotConfigured } from "../../src/features/editorial-ai/providers";
+import { FakeProvider } from "../../src/features/editorial-ai/providers/fake";
 
 const createdDraftIds: string[] = [];
 const createdSourceIds: string[] = [];
@@ -60,26 +70,43 @@ async function seedKnowledge(content: string, title: string) {
 }
 
 // ---------------------------------------------------------------------------
-test("resolveProvider: returns FakeProvider when no env vars set", async () => {
-  const provider = await resolveProvider();
-  assert.equal(provider.name, "fake");
+// Provider resolution (fail-closed)
+// ---------------------------------------------------------------------------
+test("resolveProvider: throws EditorialProviderNotConfiguredError when no env vars set", async () => {
+  await assert.rejects(
+    async () => resolveProvider(),
+    (err) => {
+      assert.ok(err instanceof EditorialProviderNotConfiguredError);
+      assert.equal(err.code, "EDITORIAL_PROVIDER_NOT_CONFIGURED");
+      return true;
+    },
+  );
 });
 
+test("isProviderNotConfigured: true for unconfigured error", () => {
+  const err = new EditorialProviderNotConfiguredError();
+  assert.equal(isProviderNotConfigured(err), true);
+  assert.equal(isProviderNotConfigured(new Error("other")), false);
+});
+
+// ---------------------------------------------------------------------------
+// Generation pipeline
+// ---------------------------------------------------------------------------
 test("generateDraft: creates a DRAFT with content blocks", async () => {
-  const topic = "GCC compiler optimization";
+  const topic = "Build system optimization patterns";
   await seedKnowledge(
-    "## GCC Optimizations\n\nGCC applies multiple optimization passes to GIMPLE IR. " +
-    "The -O2 flag enables standard passes including dead code elimination.",
-    "GCC Optimizations Test"
+    "## Build Optimization\n\nBuild systems apply multiple optimization passes to reduce output size. " +
+    "The production build flag enables standard passes including tree shaking and dead code elimination.",
+    "Build Optimization Test",
   );
 
   const draft = await generateDraft({
     contentType: "GUIDE",
     topic,
-    workingTitle: "Understanding GCC Optimizations",
-    audience: "C++ developers",
+    workingTitle: "Understanding Build Optimizations",
+    audience: "Frontend developers",
     angle: "pass-by-pass walkthrough",
-  }, "test-admin");
+  }, "test-admin", { provider: new FakeProvider() });
   createdDraftIds.push(draft.id);
 
   assert.equal(draft.status, "DRAFT");
@@ -95,18 +122,18 @@ test("generateDraft: creates a DRAFT with content blocks", async () => {
 });
 
 test("generateDraft: records source provenance", async () => {
-  const topic = "LLVM backend pipeline";
+  const topic = "Deployment pipeline architecture";
   await seedKnowledge(
-    "## LLVM Pipeline\n\nLLVM uses a pass-based optimization architecture. " +
-    "The LLVM IR is transformed through multiple passes in the pass manager.",
-    "LLVM Pipeline Test"
+    "## Deployment Pipeline\n\nModern deployment systems use a pass-based optimization architecture. " +
+    "The build output is transformed through multiple stages in the pipeline before reaching production.",
+    "Deployment Pipeline Test",
   );
 
   const draft = await generateDraft({
     contentType: "FIELD_NOTE",
     topic,
     audience: "systems programmers",
-  }, "test-admin");
+  }, "test-admin", { provider: new FakeProvider() });
   createdDraftIds.push(draft.id);
 
   assert.equal(draft.contentType, "FIELD_NOTE");
@@ -121,32 +148,19 @@ test("generateDraft: records source provenance", async () => {
   }
 });
 
-test("generateDraft: creates draft even without knowledge sources", async () => {
-  const topic = "Compiler architecture design";
-  const draft = await generateDraft({
-    contentType: "GUIDE",
-    topic,
-    audience: "compiler engineers",
-  }, "test-admin");
-  createdDraftIds.push(draft.id);
-
-  assert.equal(draft.status, "DRAFT");
-  assert.ok(draft.body.length > 0);
-});
-
 test("generateDraft: uses sourceIds filter when provided", async () => {
-  const topic = "GCC vs Clang comparison";
+  const topic = "Build tool comparison";
   const srcId = await seedKnowledge(
-    "## GCC vs Clang\n\nGCC and Clang are both C/C++ compilers. " +
-    "GCC is the GNU Compiler Collection. Clang is part of the LLVM project.",
-    "GCC vs Clang Test"
+    "## Build Tool A\n\nBuild tool A and Build tool B are both modern bundlers. " +
+    "Build tool A is the popular choice with fast incremental builds.",
+    "Build Tool Comparison Test",
   );
 
   const draft = await generateDraft({
     contentType: "GUIDE",
     topic,
     sourceIds: [srcId],
-  }, "test-admin");
+  }, "test-admin", { provider: new FakeProvider() });
   createdDraftIds.push(draft.id);
 
   assert.equal(draft.status, "DRAFT");
@@ -156,12 +170,18 @@ test("generateDraft: uses sourceIds filter when provided", async () => {
 });
 
 test("generateDraft: audit entry logged on generation", async () => {
-  const topic = "Dead code elimination";
+  const topic = "Tree shaking in build systems";
+  await seedKnowledge(
+    "## Tree Shaking\n\nTree shaking removes unused exports from bundle output. " +
+    "This optimization pass runs after module resolution in the build pipeline.",
+    "Tree Shaking Test",
+  );
+
   const draft = await generateDraft({
     contentType: "GUIDE",
     topic,
-    workingTitle: "DCE Analysis",
-  }, "test-admin");
+    workingTitle: "Tree Shaking Deep Dive",
+  }, "test-admin", { provider: new FakeProvider() });
   createdDraftIds.push(draft.id);
 
   const db = await getDb();
@@ -177,15 +197,32 @@ test("generateDraft: audit entry logged on generation", async () => {
 });
 
 test("generateDraft: unique IDs across multiple drafts", async () => {
+  await seedKnowledge(
+    "## Test Knowledge\n\nThis source covers multiple test topics including topic alpha, " +
+    "topic beta, and topic gamma. Each is discussed in its own section.",
+    "Multi Topic Test",
+  );
+
   const ids = new Set<string>();
   for (let i = 0; i < 3; i++) {
     const draft = await generateDraft({
       contentType: "GUIDE",
-      topic: `test topic ${i}`,
-    }, "test-admin");
+      topic: `topic ${i}`,
+    }, "test-admin", { provider: new FakeProvider() });
     createdDraftIds.push(draft.id);
     assert.ok(!ids.has(draft.id), `draft ID should be unique: ${draft.id}`);
     ids.add(draft.id);
   }
   assert.equal(ids.size, 3);
+});
+
+test("generateDraft: throws NoRelevantEvidenceError when no knowledge matches topic", async () => {
+  await assert.rejects(
+    async () =>
+      generateDraft({
+        contentType: "GUIDE",
+        topic: "Quantum flux capacitor engineering",
+      }, "test-admin", { provider: new FakeProvider() }),
+    /No relevant evidence/i,
+  );
 });

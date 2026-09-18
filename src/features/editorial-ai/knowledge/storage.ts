@@ -12,7 +12,7 @@
 
 import { getR2Bucket } from "@/lib/cloudflare/bindings";
 import { getDb, knowledge_sources, type KnowledgeSource } from "@/lib/db";
-import { and, eq, ne } from "drizzle-orm";
+import { eq, ne } from "drizzle-orm";
 import {
   isSupportedMimeType,
   MIME_TO_EXTENSION,
@@ -34,9 +34,10 @@ export interface KnowledgeUploadResult {
 
 /**
  * Store a knowledge source's original file in private R2 and record
- * metadata in D1. If an identical file (same checksum) already exists as a
- * non-archived source, the upload is rejected with a domain error so the
- * admin can decide whether to re-ingest the existing source.
+ * metadata in D1. If an identical file (same checksum) already exists —
+ * regardless of status (incl. ARCHIVED) — the upload is rejected with a
+ * domain error. The global UNIQUE(checksum) index (migration 0007) is the
+ * backstop: only deleting the existing source frees its checksum for re-upload.
  *
  * R2 write happens BEFORE D1 row creation — on D1 failure the orphan R2
  * object is deleted (mirrors media/service.ts uploadMedia pattern).
@@ -76,18 +77,22 @@ export async function uploadKnowledgeSource(params: {
   const { hashBytes } = await import("./chunker");
   const checksum = hashBytes(buffer);
 
-  // 4. Duplicate detection — same checksum, not archived/failed
+  // 4. Duplicate detection — checksums are globally unique (see migration
+  //    0007). The only way to re-upload identical content is to first DELETE
+  //    the existing source, which also frees its checksum. Archived sources are
+  //    preserved for restore and still occupy their checksum — use restore,
+  //    not re-upload, to revive archived material.
   const db = await getDb();
   const existing = await db
     .select()
     .from(knowledge_sources)
-    .where(and(eq(knowledge_sources.checksum, checksum), ne(knowledge_sources.status, "ARCHIVED")))
+    .where(eq(knowledge_sources.checksum, checksum))
     .get();
 
   if (existing) {
     throw new Error(
       `Identical source content already exists (ID: ${existing.id}, title: "${existing.title}"). ` +
-        "Re-ingest the existing source instead of uploading a duplicate."
+        "Restore the existing source, or delete it first and re-upload."
     );
   }
 

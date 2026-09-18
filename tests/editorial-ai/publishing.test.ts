@@ -3,16 +3,29 @@
  * ---------------------------------------------------------------------------
  * Verifies the full draft lifecycle (DRAFT → IN_REVIEW → APPROVED → PUBLISHED),
  * status transition guards, publishing idempotency, and guide/field-note
- * creation from approved drafts.
+ * creation from approved drafts. Uses FakeProvider injected via opts.provider.
  */
 import test from "node:test";
 import assert from "node:assert/strict";
 import "../helpers/env";
+
 import { migrateLocalDb } from "../../src/lib/db/migrate";
 import { disposeCloudflareBindings, getR2Bucket } from "../../src/lib/cloudflare/bindings";
-import { getDb, editorial_drafts, editorial_draft_sources, editorial_audit_log, knowledge_sources, knowledge_chunks, guides, fieldNotes } from "../../src/lib/db";
+import {
+  getDb,
+  editorial_drafts,
+  editorial_draft_sources,
+  editorial_audit_log,
+  editorial_publications,
+  knowledge_sources,
+  knowledge_chunks,
+  guides,
+  fieldNotes,
+} from "../../src/lib/db";
 import { eq } from "drizzle-orm";
 
+import { uploadKnowledgeSource } from "../../src/features/editorial-ai/knowledge/storage";
+import { ingestKnowledgeSource } from "../../src/features/editorial-ai/knowledge/service";
 import {
   generateDraft,
   submitForReview,
@@ -20,13 +33,38 @@ import {
   rejectDraft,
   publishDraft,
   sendBack,
+  getDraft,
 } from "../../src/features/editorial-ai/drafts/service";
+import { FakeProvider } from "../../src/features/editorial-ai/providers/fake";
+import { createGuide, publishGuide, getPublicGuideBySlug } from "../../src/features/guides/service";
+import type { ContentBlock } from "../../src/features/publishing/types";
 
 const createdDraftIds: string[] = [];
 const createdSourceIds: string[] = [];
 
+// Seed a broad knowledge source so generateDraft can retrieve evidence for
+// any test topic (evidence-first pipeline requires at least one chunk).
 test.before(async () => {
   await migrateLocalDb();
+  const content =
+    "## Development Lifecycle\n\n" +
+    "This content covers the development lifecycle for working engineers shipping real " +
+    "software. A draft goes through review before it is approved and published. " +
+    "Test audiences include developers, architects, and engineering teams. The publishing " +
+    "workflow creates guides and field notes from approved drafts. Content is tested at " +
+    "every stage before deployment.\n\n" +
+    "## Testing Practices\n\n" +
+    "Every draft is reviewed and tested. The testing phase ensures quality before " +
+    "the content is published to the public. Test-driven development catches issues early.";
+  const result = await uploadKnowledgeSource({
+    buffer: new TextEncoder().encode(content).buffer,
+    filename: "doc.md",
+    contentType: "text/markdown",
+    title: "Development Lifecycle Reference",
+    createdBy: "test-admin",
+  });
+  createdSourceIds.push(result.id);
+  await ingestKnowledgeSource(result.id, "test-admin");
 });
 
 test.after(async () => {
@@ -37,6 +75,7 @@ test.after(async () => {
   await db.delete(editorial_drafts);
   await db.delete(editorial_draft_sources);
   await db.delete(editorial_audit_log);
+  await db.delete(editorial_publications);
   for (const id of createdSourceIds) {
     await db.delete(knowledge_chunks).where(eq(knowledge_chunks.sourceId, id));
     const src = await db.select().from(knowledge_sources).where(eq(knowledge_sources.id, id)).get();
@@ -52,13 +91,14 @@ test.after(async () => {
   await disposeCloudflareBindings();
 });
 
-// Helper: run the full approval pipeline and return the approved draft
+// Helper: run the full approval pipeline and return the approved draft.
+// Injects FakeProvider via opts.provider (no env-based provider needed).
 async function prepareApprovedDraft(topic: string, contentType: "GUIDE" | "FIELD_NOTE" = "GUIDE") {
-  const draft = await generateDraft({
-    contentType,
-    topic,
-    audience: "test audience",
-  }, "test-admin");
+  const draft = await generateDraft(
+    { contentType, topic, audience: "test audience" },
+    "test-admin",
+    { provider: new FakeProvider() },
+  );
   createdDraftIds.push(draft.id);
 
   await submitForReview(draft.id, "test-admin");
@@ -87,53 +127,57 @@ test("lifecycle: DRAFT → IN_REVIEW → APPROVED → PUBLISHED (happy path, gui
 });
 
 test("lifecycle: submitForReview on non-DRAFT throws", async () => {
-  const draft = await generateDraft({
-    contentType: "GUIDE",
-    topic: `submit-fail-${Date.now()}`,
-  }, "test-admin");
+  const draft = await generateDraft(
+    { contentType: "GUIDE", topic: `submit-fail-${Date.now()}`, audience: "test audience" },
+    "test-admin",
+    { provider: new FakeProvider() },
+  );
   createdDraftIds.push(draft.id);
 
   await submitForReview(draft.id, "test-admin");
   // Already in IN_REVIEW → second submit should throw
   await assert.rejects(
     () => submitForReview(draft.id, "test-admin"),
-    /not in DRAFT status/i
+    /not in DRAFT status/i,
   );
 });
 
 test("lifecycle: approve on non-IN_REVIEW throws", async () => {
-  const draft = await generateDraft({
-    contentType: "GUIDE",
-    topic: `approve-fail-${Date.now()}`,
-  }, "test-admin");
+  const draft = await generateDraft(
+    { contentType: "GUIDE", topic: `approve-fail-${Date.now()}`, audience: "test audience" },
+    "test-admin",
+    { provider: new FakeProvider() },
+  );
   createdDraftIds.push(draft.id);
 
   // Draft is in DRAFT status, not IN_REVIEW
   await assert.rejects(
     () => approve(draft.id, "test-admin"),
-    /not in IN_REVIEW status/i
+    /not in IN_REVIEW status/i,
   );
 });
 
 test("lifecycle: publishDraft on non-APPROVED throws", async () => {
-  const draft = await generateDraft({
-    contentType: "GUIDE",
-    topic: `publish-fail-${Date.now()}`,
-  }, "test-admin");
+  const draft = await generateDraft(
+    { contentType: "GUIDE", topic: `publish-fail-${Date.now()}`, audience: "test audience" },
+    "test-admin",
+    { provider: new FakeProvider() },
+  );
   createdDraftIds.push(draft.id);
 
   // Draft is in DRAFT status, not APPROVED
   await assert.rejects(
     () => publishDraft(draft.id, "test-admin"),
-    /not in APPROVED status/i
+    /not in APPROVED status/i,
   );
 });
 
 test("lifecycle: reject moves IN_REVIEW → REJECTED", async () => {
-  const draft = await generateDraft({
-    contentType: "GUIDE",
-    topic: `reject-test-${Date.now()}`,
-  }, "test-admin");
+  const draft = await generateDraft(
+    { contentType: "GUIDE", topic: `reject-test-${Date.now()}` },
+    "test-admin",
+    { provider: new FakeProvider() },
+  );
   createdDraftIds.push(draft.id);
 
   await submitForReview(draft.id, "test-admin");
@@ -144,15 +188,16 @@ test("lifecycle: reject moves IN_REVIEW → REJECTED", async () => {
   // REJECTED is terminal — cannot publish
   await assert.rejects(
     () => publishDraft(draft.id, "test-admin"),
-    /not in APPROVED status/i
+    /not in APPROVED status/i,
   );
 });
 
 test("lifecycle: sendBack moves IN_REVIEW → DRAFT", async () => {
-  const draft = await generateDraft({
-    contentType: "GUIDE",
-    topic: `sendback-test-${Date.now()}`,
-  }, "test-admin");
+  const draft = await generateDraft(
+    { contentType: "GUIDE", topic: `sendback-test-${Date.now()}` },
+    "test-admin",
+    { provider: new FakeProvider() },
+  );
   createdDraftIds.push(draft.id);
 
   await submitForReview(draft.id, "test-admin");
@@ -172,7 +217,7 @@ test("lifecycle: PUBLISHED is terminal — no further transitions", async () => 
   // Cannot submit for review after publishing (not DRAFT)
   await assert.rejects(
     () => submitForReview(approved.id, "test-admin"),
-    /already/i
+    /already/i,
   );
 
   // Cannot unpublish (no unpublish action for drafts)
@@ -196,6 +241,148 @@ test("publish: idempotent — publishing same draft twice returns same entity", 
 
   assert.equal(pub1.entityId, pub2.entityId);
   assert.equal(pub1.entityType, pub2.entityType);
+});
+
+test("publish: crash recovery — in-flight reservation with already-published target is recovered", async () => {
+  // Simulate a crash during publishDraft: the reservation was inserted
+  // (entityId NULL), the target guide was created and published, but the
+  // process died before finalizing the publication record / marking the
+  // draft PUBLISHED. The next publishDraft call should detect this state,
+  // finalize the record, and mark the draft PUBLISHED — without timing out.
+  const topic = `crash-recovery-${Date.now()}`;
+  const approved = await prepareApprovedDraft(topic, "GUIDE");
+
+  const db = await getDb();
+
+  // Simulate the crashed state: create and publish the target guide directly.
+  const guide = await createGuide({
+    title: approved.title,
+    slug: approved.slug,
+    excerpt: approved.excerpt ?? undefined,
+    body: approved.body as unknown as ContentBlock[],
+    author: "Decoded Editorial",
+    coverImage: null,
+  });
+  await publishGuide(guide.id);
+
+  // Insert the orphaned publication record that OWNS the target by entityId.
+  // (Recovery is anchored on entityId, never slug — see publishDraft docs.)
+  await db.insert(editorial_publications).values({
+    id: `pub_crashed_${crypto.randomUUID().slice(0, 12)}`,
+    draftId: approved.id,
+    entityType: "guide",
+    entityId: guide.id,
+    createdAt: new Date(),
+  });
+
+  // Verify the target is already published before calling publishDraft.
+  const published = await getPublicGuideBySlug(approved.slug);
+  assert.ok(published, "target guide should already exist and be visible");
+  assert.equal(published?.status, "published");
+
+  // publishDraft should recover: detect the in-flight reservation,
+  // find the already-published target, finalize the record, mark PUBLISHED.
+  const result = await publishDraft(approved.id, "test-admin");
+
+  assert.equal(result.entityType, "guide");
+  assert.equal(result.entityId, guide.id);
+
+  // The draft should now be PUBLISHED with the recovered entityId.
+  const finalized = await getDraft(approved.id);
+  assert.equal(finalized?.status, "PUBLISHED");
+  assert.equal(finalized?.publishedEntityId, guide.id);
+  assert.equal(finalized?.publishedEntityType, "guide");
+
+  // The publication record should be finalized with the entityId.
+  const pub = await db
+    .select()
+    .from(editorial_publications)
+    .where(eq(editorial_publications.draftId, approved.id))
+    .get();
+  assert.ok(pub, "publication record should be finalized");
+  assert.equal(pub?.entityId, guide.id);
+});
+
+test("publish: crash recovery — in-flight reservation with created-but-unpublished target is resumed", async () => {
+  // Simulate a crash between target creation and target publishing: the guide
+  // exists in "draft" status with a reservation (entityId NULL) but was never
+  // published. The next publishDraft call should detect the existing target,
+  // PUBLISH it, finalize the record, and mark the draft as PUBLISHED.
+  const topic = `crash-recovery-draft-${Date.now()}`;
+  const approved = await prepareApprovedDraft(topic, "GUIDE");
+
+  const db = await getDb();
+
+  // Create the guide (as a crashed publish would have done), but do NOT publish it.
+  const guide = await createGuide({
+    title: approved.title,
+    slug: approved.slug,
+    excerpt: approved.excerpt ?? undefined,
+    body: approved.body as unknown as ContentBlock[],
+    author: "Decoded Editorial",
+    coverImage: null,
+  });
+  assert.equal(guide.status, "draft", "guide should start in draft status");
+
+  // Insert the orphaned publication record that OWNS the (unpublished) target
+  // by entityId. (Recovery is anchored on entityId, never slug.)
+  await db.insert(editorial_publications).values({
+    id: `pub_crashed_draft_${crypto.randomUUID().slice(0, 12)}`,
+    draftId: approved.id,
+    entityType: "guide",
+    entityId: guide.id,
+    createdAt: new Date(),
+  });
+
+  // publishDraft should recover: detect the owned reservation, find the draft
+  // guide by ID, publish it, finalize the record, and mark the draft PUBLISHED.
+  const result = await publishDraft(approved.id, "test-admin");
+
+  assert.equal(result.entityType, "guide");
+  assert.equal(result.entityId, guide.id);
+
+  // The draft should be PUBLISHED with the recovered entityId.
+  const finalized = await getDraft(approved.id);
+  assert.equal(finalized?.status, "PUBLISHED");
+  assert.equal(finalized?.publishedEntityId, guide.id);
+});
+
+test("publish: unrelated guide with same slug is NEVER claimed (ownership by entityId)", async () => {
+  const db = await getDb();
+  const collisionSlug = "development-lifecycle";
+
+  // An UNRELATED guide occupies the draft's slug. Per §2, ownership is by
+  // entityId — so this guide must never be silently relinked as the target.
+  const unrelated = await createGuide({
+    title: "Unrelated Existing Guide",
+    slug: collisionSlug,
+    author: "Decoded Editorial",
+    body: [
+      { id: "cb_seed", type: "paragraph", text: "A pre-existing guide occupying this slug." },
+    ] as unknown as ContentBlock[],
+  });
+
+  const approved = await prepareApprovedDraft("Development Lifecycle", "GUIDE");
+  assert.equal(approved.slug, collisionSlug, "draft slug collides with the unrelated guide");
+
+  // createTarget → createGuide hits the unrelated guide's slug collision → fails.
+  await assert.rejects(
+    () => publishDraft(approved.id, "test-admin"),
+    /already exists/i,
+  );
+
+  // The draft remains APPROVED and the unrelated guide is untouched.
+  const draft = await getDraft(approved.id);
+  assert.equal(draft?.status, "APPROVED");
+  const unaffected = await db.select().from(guides).where(eq(guides.id, unrelated.id)).get();
+  assert.equal(unaffected?.slug, collisionSlug);
+  // No publication record was finalized for the draft's id.
+  const pub = await db
+    .select()
+    .from(editorial_publications)
+    .where(eq(editorial_publications.draftId, approved.id))
+    .get();
+  assert.equal(pub, undefined);
 });
 
 test("publish: two different drafts create different guides", async () => {

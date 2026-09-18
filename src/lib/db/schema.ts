@@ -118,20 +118,24 @@ export const fieldNotes = sqliteTable("field_notes", {
 
 export type FieldNoteRevisionTrigger = "publish" | "update" | "unpublish" | "archive";
 
-export const fieldNoteRevisions = sqliteTable("field_note_revisions", {
-  id: text("id").primaryKey(),
-  fieldNoteId: text("field_note_id")
-    .notNull()
-    .references(() => fieldNotes.id, { onDelete: "cascade" }),
-  title: text("title").notNull(),
-  body: text("body").notNull(), // JSON-stringified ContentBlock[] snapshot
-  status: text("status").$type<FieldNoteStatus>().notNull(),
-  trigger: text("trigger").$type<FieldNoteRevisionTrigger>().notNull(),
-  createdBy: text("created_by"),
-  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
-}, (table) => [
-  index("field_note_revisions_note_idx").on(table.fieldNoteId),
-]);
+export const fieldNoteRevisions = sqliteTable(
+  "field_note_revisions",
+  {
+    id: text("id").primaryKey(),
+    fieldNoteId: text("field_note_id")
+      .notNull()
+      .references(() => fieldNotes.id, { onDelete: "cascade" }),
+    title: text("title").notNull(),
+    body: text("body").notNull(), // JSON-stringified ContentBlock[] snapshot
+    status: text("status").$type<FieldNoteStatus>().notNull(),
+    trigger: text("trigger").$type<FieldNoteRevisionTrigger>().notNull(),
+    createdBy: text("created_by"),
+    createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+  },
+  (table) => [
+    index("field_note_revisions_note_idx").on(table.fieldNoteId),
+  ]
+);
 
 // ============================================================================
 // MEDIA DOMAIN (Cloudflare R2 Metadata)
@@ -327,7 +331,9 @@ export const knowledge_sources = sqliteTable(
   },
   (table) => [
     index("knowledge_sources_status_idx").on(table.status),
-    index("knowledge_sources_checksum_idx").on(table.checksum),
+    // UNIQUE (was a plain index) — concurrent identical uploads collide here;
+    // see storage.ts which converts this into the friendly duplicate error.
+    uniqueIndex("knowledge_sources_checksum_unique").on(table.checksum),
   ]
 );
 
@@ -352,6 +358,10 @@ export const knowledge_chunks = sqliteTable(
   ]
 );
 
+// NOTE: GCC_CONTEXT was removed from EditorialMemoryCategory during Mission 07
+// remediation — the compiler/toolchain vertical leaked into the editorial
+// memory seed and does not belong to the general website editorial AI. See
+// migration 0007.
 export type EditorialMemoryCategory =
   | "POSITIONING"
   | "VOICE"
@@ -359,7 +369,6 @@ export type EditorialMemoryCategory =
   | "METHODOLOGY"
   | "EDITORIAL_RULE"
   | "AVOID"
-  | "GCC_CONTEXT"
   | "EDITORIAL_NOTE";
 
 export const editorial_memory = sqliteTable(
@@ -443,6 +452,44 @@ export const editorial_draft_sources = sqliteTable(
   ]
 );
 
+// ============================================================================
+// EDITORIAL AI — PUBLICATION RECORD (Mission 07 §6)
+// ----------------------------------------------------------------------------
+// Authoritative, draft-owned link between an APPROVED editorial draft and the
+// Guide/Field Note it produced. This is the single source of truth for
+// "has this draft been published and to which target?", replacing the old
+// slug-based relinking heuristic (which could not distinguish a draft's OWN
+// retry from an unrelated guide sharing a slug).
+//
+// Invariants:
+//  - One draft -> at most one publication record (UNIQUE draftId).
+//  - One finalized target -> at most one publication record (UNIQUE entityId;
+//    SQLite permits multiple NULL entityId rows, which is what lets a draft
+//    hold an in-flight CREATING reservation without colliding with other
+//    drafts' reservations).
+//  - An editorial draft is only marked PUBLISHED once its target is verified
+//    publicly visible.
+// ============================================================================
+
+export const editorial_publications = sqliteTable(
+  "editorial_publications",
+  {
+    id: text("id").primaryKey(),
+    // UNIQUE: one publication record per draft (prevents double-publish).
+    draftId: text("draft_id").notNull().unique(),
+    entityType: text("entity_type").notNull(), // 'guide' | 'field_note'
+    // NULL while a publish reservation is in flight (CREATING state);
+    // set to the target entity id once finalized (PUBLISHED).
+    entityId: text("entity_id"),
+    createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+  },
+  (table) => [
+    // One finalized target per publication record (backstop against two
+    // drafts both claiming the same guide/field-note).
+    uniqueIndex("editorial_publications_entity_unique").on(table.entityId),
+  ]
+);
+
 export type EditorialAuditAction =
   | "knowledge_ingested"
   | "knowledge_failed"
@@ -475,4 +522,5 @@ export type KnowledgeChunk = typeof knowledge_chunks.$inferSelect;
 export type EditorialMemory = typeof editorial_memory.$inferSelect;
 export type EditorialDraft = typeof editorial_drafts.$inferSelect;
 export type EditorialDraftSource = typeof editorial_draft_sources.$inferSelect;
+export type EditorialPublication = typeof editorial_publications.$inferSelect;
 export type EditorialAuditLog = typeof editorial_audit_log.$inferSelect;

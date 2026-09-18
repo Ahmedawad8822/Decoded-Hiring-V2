@@ -152,6 +152,69 @@ test("upload: duplicate checksum rejected", async () => {
 });
 
 // ---------------------------------------------------------------------------
+// Checksum duplicate detection — global UNIQUE (§9)
+// ---------------------------------------------------------------------------
+test("upload: duplicate checksum rejected even after archive (Option A)", async () => {
+  // The checksum UNIQUE index is GLOBAL: an ARCHIVED source still occupies its
+  // checksum, so it cannot be re-uploaded until it is deleted. (This is the
+  // Option A tradeoff chosen for §9: archived sources are preserved for
+  // restore and keep their checksum busy.)
+  const content = "## Archived Duplicate\n\nContent that should not be re-uploadable after archiving.";
+  const src = await upload(content, "Archive Dup Parent");
+  await ingestKnowledgeSource(src.id, "test-admin");
+  await archiveKnowledgeSource(src.id, "test-admin");
+  assert.equal((await getKnowledgeSource(src.id))?.status, "ARCHIVED");
+
+  await assert.rejects(
+    () =>
+      uploadKnowledgeSource({
+        buffer: new TextEncoder().encode(content).buffer,
+        filename: "test.md",
+        contentType: "text/markdown",
+        title: "Archive Dup Reborn",
+        createdBy: "test-admin",
+      }),
+    /already exists/i
+  );
+});
+
+test("upload: deletion frees checksum for identical re-upload", async () => {
+  // Deleting a source frees its checksum, so identical content can be
+  // re-uploaded under a new id (Option A: only deletion, not archive, releases it).
+  const content = "## Deleted Then Renewed\n\nFresh content for re-upload after delete.";
+  const src = await upload(content, "Delete Parent");
+  const db = await getDb();
+  await db.delete(knowledge_chunks).where(eq(knowledge_chunks.sourceId, src.id));
+  await db.delete(knowledge_sources).where(eq(knowledge_sources.id, src.id));
+
+  const renewed = await upload(content, "Delete Renewed");
+  assert.notEqual(renewed.id, src.id, "re-upload should yield a new source id");
+  assert.equal(renewed.checksum, src.checksum, "checksum is identical for identical content");
+});
+
+test("upload: concurrent identical uploads — exactly one wins (lost race)", async () => {
+  // The global UNIQUE(checksum) index is the authoritative backstop: two
+  // concurrent identical uploads resolve to one winner; the loser is rejected.
+  const content = "## Race Condition\n\nIdentical content uploaded concurrently.";
+  const makePayload = () => ({
+    buffer: new TextEncoder().encode(content).buffer,
+    filename: "test.md",
+    contentType: "text/markdown",
+    title: "Race Upload",
+    createdBy: "test-admin",
+  });
+
+  const results = await Promise.allSettled([
+    uploadKnowledgeSource(makePayload()),
+    uploadKnowledgeSource(makePayload()),
+  ]);
+  const fulfilled = results.filter((r) => r.status === "fulfilled");
+  const rejected = results.filter((r) => r.status === "rejected");
+  assert.equal(fulfilled.length, 1, "exactly one upload should win the checksum race");
+  assert.equal(rejected.length, 1, "the loser must be rejected by the duplicate constraint");
+});
+
+// ---------------------------------------------------------------------------
 // Ingestion lifecycle
 // ---------------------------------------------------------------------------
 test("ingest: UPLOADED → READY with deterministic chunks", async () => {

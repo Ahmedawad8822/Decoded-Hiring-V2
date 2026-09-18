@@ -45,7 +45,7 @@ function truncate(text: string, maxLen: number): string {
  */
 export function buildSystemPrompt(): string {
   return [
-    "You are the editorial assistant for Decoded, a learning platform for builders.",
+    "You are the editorial assistant for Decoded, a learning platform that helps engineers ship better software through evidence-backed insights.",
     "",
     "ROLE & TONE:",
     "- You transform researched knowledge into concise, evidence-backed insights.",
@@ -86,6 +86,24 @@ function schemaDescription(): string {
   return `{title, slugSuggestion, excerpt, contentBlocks: [{type, ...}], metaTitle, metaDescription, reasoning}`;
 }
 
+export const NO_RELEVANT_EVIDENCE = "NO_RELEVANT_EVIDENCE" as const;
+
+/**
+ * Raised by `generateDraft` when retrieval returns zero chunks for the topic.
+ * Generation is evidence-first and fail-closed: we never fabricate a draft
+ * from "general Decoded knowledge" — the caller must upload a covering source
+ * and retry.
+ */
+export class NoRelevantEvidenceError extends Error {
+  readonly code = NO_RELEVANT_EVIDENCE;
+  constructor(
+    message = "No relevant evidence found for this topic in the knowledge library. Upload a knowledge source that covers this topic, then regenerate.",
+  ) {
+    super(message);
+    this.name = "NoRelevantEvidenceError";
+  }
+}
+
 /**
  * Assemble the full prompt: system + user message with retrieved context.
  * The context is the bounded, source-attributed knowledge that grounds the draft.
@@ -102,7 +120,11 @@ export function buildGenerationPrompt(
   contextLines.push("");
 
   if (ctx.retrievedChunks.length === 0) {
-    contextLines.push("[No source evidence retrieved. Ground the draft in general Decoded knowledge and clearly state it is not source-cited.]");
+    // Evidence-first (Mission 07 §4): with no retrieved chunks the provider is
+    // never invoked; the service raises NoRelevantEvidenceError instead. This
+    // line is a defensive belt-and-suspenders signal if a provider is called
+    // directly with empty context.
+    contextLines.push("[NO_RELEVANT_EVIDENCE: no source evidence was retrieved. Do not generate a groundless draft.]");
   } else {
     let totalChars = 0;
     for (const chunk of ctx.retrievedChunks) {

@@ -8,8 +8,9 @@ import {
   approveAction,
   rejectDraftAction,
   publishDraftAction,
+  updateDraftAction,
 } from "@/features/editorial-ai/drafts/actions";
-import type { EditorialDraftWithSources } from "@/features/editorial-ai/drafts/types";
+import type { EditorialDraftWithSources, UpdateDraftInput } from "@/features/editorial-ai/drafts/types";
 import type { LlmBlock } from "@/features/editorial-ai/skills/types";
 
 interface DraftDetailClientProps {
@@ -20,6 +21,7 @@ export function DraftDetailClient({ draft }: DraftDetailClientProps) {
   const [isPending, startTransition] = useTransition();
   const [actionError, setActionError] = useState<string | null>(null);
   const [actionSuccess, setActionSuccess] = useState<string | null>(null);
+  const [isEditing, setIsEditing] = useState(false);
 
   const statusColors: Record<string, string> = {
     DRAFT: "#6b7280",
@@ -50,6 +52,29 @@ export function DraftDetailClient({ draft }: DraftDetailClientProps) {
       try {
         const result = await publishDraftAction(draft.id);
         setActionSuccess(`Published as ${result.entityType} (${result.entityId})`);
+        window.location.reload();
+      } catch (err) {
+        setActionError((err as Error).message);
+      }
+    });
+  }
+
+  async function handleEdit(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    setActionError(null);
+    setActionSuccess(null);
+    const formData = new FormData(e.currentTarget);
+    const input: UpdateDraftInput = {
+      title: (formData.get("title") as string) || undefined,
+      excerpt: (formData.get("excerpt") as string) || undefined,
+      metaTitle: (formData.get("metaTitle") as string) || undefined,
+      metaDescription: (formData.get("metaDescription") as string) || undefined,
+    };
+    startTransition(async () => {
+      try {
+        await updateDraftAction(draft.id, input);
+        setActionSuccess("Draft updated");
+        setIsEditing(false);
         window.location.reload();
       } catch (err) {
         setActionError((err as Error).message);
@@ -95,6 +120,70 @@ export function DraftDetailClient({ draft }: DraftDetailClientProps) {
           <p style={{ fontSize: "14px", marginTop: "4px" }}>{draft.excerpt}</p>
         </div>
       )}
+
+      {/* Edit form (toggleable) */}
+      <div style={{ marginBottom: isEditing ? "8px" : "24px" }}>
+        <button
+          onClick={() => setIsEditing(!isEditing)}
+          type="button"
+          style={{
+            padding: "6px 12px", fontSize: "12px", background: isEditing ? "#ef4444" : "#6b7280",
+            color: "white", border: "none", borderRadius: "4px", cursor: "pointer",
+          }}
+        >
+          {isEditing ? "Cancel edit" : "Edit draft"}
+        </button>
+        {isEditing && (
+          <form id="edit-draft-form" onSubmit={handleEdit} style={{ marginTop: "12px", display: "grid", gap: "12px" }}>
+            <div>
+              <label style={{ display: "block", fontSize: "12px", fontWeight: 500, marginBottom: "2px" }}>Title</label>
+              <input
+                type="text" name="title" defaultValue={draft.title}
+                style={{ width: "100%", padding: "6px 8px", border: "1px solid #d1d5db", borderRadius: "4px", fontSize: "13px" }}
+              />
+            </div>
+            <div>
+              <label style={{ display: "block", fontSize: "12px", fontWeight: 500, marginBottom: "2px" }}>Excerpt</label>
+              <textarea
+                name="excerpt" rows={2} defaultValue={draft.excerpt ?? ""}
+                style={{ width: "100%", padding: "6px 8px", border: "1px solid #d1d5db", borderRadius: "4px", fontSize: "13px", resize: "vertical" }}
+              />
+            </div>
+            <div>
+              <label style={{ display: "block", fontSize: "12px", fontWeight: 500, marginBottom: "2px" }}>Meta Title</label>
+              <input
+                type="text" name="metaTitle" defaultValue={draft.metaTitle ?? ""}
+                style={{ width: "100%", padding: "6px 8px", border: "1px solid #d1d5db", borderRadius: "4px", fontSize: "13px" }}
+              />
+            </div>
+            <div>
+              <label style={{ display: "block", fontSize: "12px", fontWeight: 500, marginBottom: "2px" }}>Meta Description</label>
+              <textarea
+                name="metaDescription" rows={2} defaultValue={draft.metaDescription ?? ""}
+                style={{ width: "100%", padding: "6px 8px", border: "1px solid #d1d5db", borderRadius: "4px", fontSize: "13px", resize: "vertical" }}
+              />
+            </div>
+            <div style={{ display: "flex", gap: "8px" }}>
+              <button
+                type="submit"
+                disabled={isPending}
+                style={{ padding: "6px 12px", fontSize: "12px", background: "#10b981", color: "white", border: "none", borderRadius: "4px", cursor: "pointer" }}
+              >
+                {isPending ? "Saving..." : "Save changes"}
+              </button>
+              <button
+                type="button"
+                onClick={() => setIsEditing(false)}
+                style={{ padding: "6px 12px", fontSize: "12px", background: "#ef4444", color: "white", border: "none", borderRadius: "4px", cursor: "pointer" }}
+              >
+                Cancel
+              </button>
+            </div>
+            {actionError && <p style={{ color: "#ef4444", fontSize: "12px" }}>{actionError}</p>}
+            {actionSuccess && <p style={{ color: "#10b981", fontSize: "12px" }}>{actionSuccess}</p>}
+          </form>
+        )}
+      </div>
 
       {/* Body */}
       <div style={{ marginBottom: "24px" }}>

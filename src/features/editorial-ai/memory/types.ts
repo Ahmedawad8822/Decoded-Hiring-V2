@@ -20,7 +20,6 @@ export const MEMORY_CATEGORIES = [
   "METHODOLOGY",
   "EDITORIAL_RULE",
   "AVOID",
-  "GCC_CONTEXT",
   "EDITORIAL_NOTE",
 ] as const;
 
@@ -36,7 +35,6 @@ export const MEMORY_CATEGORY_LABELS: Record<MemoryCategory, string> = {
   METHODOLOGY: "Methodology",
   EDITORIAL_RULE: "Editorial Rule",
   AVOID: "Avoid",
-  GCC_CONTEXT: "GCC Context",
   EDITORIAL_NOTE: "Editorial Note",
 };
 
@@ -66,11 +64,11 @@ export type UpdateMemoryInput = z.infer<typeof updateMemorySchema>;
 export const SEEDED_MEMORY: CreateMemoryInput[] = [
   {
     category: "POSITIONING",
-    content: "Decoded teaches builders to ship production features, not consume tutorials. Every insight must lead to an action the reader can take in their codebase today.",
+    content: "Decoded teaches working engineers to ship better software, not consume tutorials. Every insight must lead to an action the reader can take in their codebase today.",
   },
   {
     category: "POSITIONING",
-    content: "Decoded's content is GCC-audited: claims about compiler behavior, runtime internals, or toolchain mechanics are verified against the actual toolchain before publication.",
+    content: "Decoded verifies every claim against the actual tools and systems in use before publication — never documentation alone.",
   },
   {
     category: "VOICE",
@@ -78,7 +76,7 @@ export const SEEDED_MEMORY: CreateMemoryInput[] = [
   },
   {
     category: "AUDIENCE",
-    content: "Audience: working developers and architects building production systems. Assume deep technical knowledge but not familiarity with the specific problem space.",
+    content: "Audience: working engineers building and operating real software. Assume deep technical knowledge but not familiarity with the specific problem space.",
   },
   {
     category: "METHODOLOGY",
@@ -97,8 +95,8 @@ export const SEEDED_MEMORY: CreateMemoryInput[] = [
     content: "Never reproduce full source material verbatim — summarize, paraphrase, and cite by name.",
   },
   {
-    category: "GCC_CONTEXT",
-    content: "GCC-specific: compiler internals discussed must reference the specific GCC version (e.g. GCC 13+) and source files in gcc/ subdirectory, not general documentation.",
+    category: "EDITORIAL_NOTE",
+    content: "When writing about a specific tool, language, or runtime, reference the real version and source files in use — not upstream documentation or memory.",
   },
   {
     category: "EDITORIAL_RULE",

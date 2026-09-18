@@ -58,17 +58,17 @@ async function setupSource(content: string, title: string) {
 // ---------------------------------------------------------------------------
 test("retrieve: finds chunks matching a term", async () => {
   await setupSource(
-    "## GCC Internals\n\nThe GCC compiler uses GIMPLE as its intermediate representation. " +
-    "GIMPLE is a three-address code representation used in GCC optimization passes.\n\n" +
-    "## RTL Generation\n\nAfter GIMPLE, GCC converts to RTL (Register Transfer Language). " +
-    "RTL is the final representation before machine code generation.",
-    "GCC IR Test"
+    "## System Architecture\n\nThe system uses microservices as its primary deployment pattern. " +
+    "Microservices allow independent scaling of different service components.\n\n" +
+    "## Infrastructure\n\nAfter deployment, the system converts to production configuration. " +
+    "Infrastructure is the final layer before the application goes live.",
+    "System Architecture Test",
   );
 
-  const results = await retrieveKnowledge({ query: "GIMPLE", topK: 5 });
-  assert.ok(results.length > 0, "should find chunks mentioning GIMPLE");
+  const results = await retrieveKnowledge({ query: "microservices", topK: 5 });
+  assert.ok(results.length > 0, "should find chunks mentioning microservices");
   const allContent = results.map((r) => r.content).join(" ");
-  assert.match(allContent, /GIMPLE/i);
+  assert.match(allContent, /microservices/i);
 
   // Rank should be positive (FTS5 bm25 rank)
   for (const r of results) {
@@ -83,17 +83,18 @@ test("retrieve: returns empty for non-matching query", async () => {
 
 test("retrieve: multi-word query uses AND matching", async () => {
   await setupSource(
-    "## Compiler\n\nGCC and Clang are both C compilers. GCC is the GNU Compiler Collection. " +
-    "Clang uses LLVM backend. Both compile to machine code.",
-    "Compiler Test"
+    "## Build Tools\n\nWebpack and Vite are both JavaScript bundlers. " +
+    "Webpack is the mature bundler with extensive plugin support. " +
+    "Vite uses native ES modules for fast development builds. Both are widely used today.",
+    "Build Tools Test",
   );
 
-  // "GCC Clang" should match chunks with BOTH terms
-  await retrieveKnowledge({ query: "GCC Clang", topK: 5 });
+  // "Webpack Vite" should match chunks with either term
+  await retrieveKnowledge({ query: "Webpack Vite", topK: 5 });
 
-  // "GCC" alone should match
-  const gccResults = await retrieveKnowledge({ query: "GCC", topK: 5 });
-  assert.ok(gccResults.length > 0);
+  // "Webpack" alone should match
+  const webpackResults = await retrieveKnowledge({ query: "Webpack", topK: 5 });
+  assert.ok(webpackResults.length > 0);
 });
 
 // ---------------------------------------------------------------------------
@@ -124,7 +125,7 @@ test("retrieve: topK defaults to MAX_RETRIEVAL_K when omitted", async () => {
 // ---------------------------------------------------------------------------
 test("retrieve: sourceIds filter restricts results", async () => {
   // Upload two sources with different content
-  const content1 = "## Source A\n\nGCC optimization pipeline information here.";
+  const content1 = "## Source A\n\nWebpack optimization pipeline information here.";
   const buffer1 = new TextEncoder().encode(content1).buffer;
   const result1 = await uploadKnowledgeSource({
     buffer: buffer1,
@@ -135,7 +136,7 @@ test("retrieve: sourceIds filter restricts results", async () => {
   });
   await ingestKnowledgeSource(result1.id, "test-admin");
 
-  const content2 = "## Source B\n\nClang LLVM backend information here.";
+  const content2 = "## Source B\n\nVite native build backend information here.";
   const buffer2 = new TextEncoder().encode(content2).buffer;
   const result2 = await uploadKnowledgeSource({
     buffer: buffer2,
@@ -208,7 +209,7 @@ test("retrieve: FTS5 injection via query syntax is neutralized", async () => {
     .where(eq(knowledge_sources.id, testSourceId));
 
   // A malicious query with FTS5 operators should be treated as literal terms
-  const results = await retrieveKnowledge({ query: '"GCC" OR "1"="1' });
+  const results = await retrieveKnowledge({ query: '"webpack" OR "1"="1' });
   // The query should be treated as matching "gcc" AND "1" AND "1" — not as
   // an OR injection. Results are bounded and safe.
   assert.ok(Array.isArray(results));
@@ -224,8 +225,8 @@ test("retrieve: results include full metadata (sourceTitle, heading, ordinal)", 
     .set({ status: "READY" })
     .where(eq(knowledge_sources.id, testSourceId));
 
-  const results = await retrieveKnowledge({ query: "GCC", topK: 5 });
-  assert.ok(results.length > 0, "should find results for GCC");
+  const results = await retrieveKnowledge({ query: "webpack", topK: 5 });
+  assert.ok(results.length > 0, "should find results for webpack");
 
   const r = results[0]!;
   assert.ok(r.chunkId, "should have chunkId");

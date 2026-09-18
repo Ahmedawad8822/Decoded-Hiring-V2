@@ -71,7 +71,7 @@ export class FakeProvider implements LLMProvider {
         },
       ],
       metaTitle: `Aha: ${topic}`,
-      metaDescription: `Discover an unexpected insight about ${topic} backed by evidence. Read why this matters for builders.`,
+      metaDescription: `Discover an unexpected insight about ${topic} backed by evidence.`,
       reasoning: `Generated ${topic} with aha framing. Source: ${sourceLabel}.`,
     };
 

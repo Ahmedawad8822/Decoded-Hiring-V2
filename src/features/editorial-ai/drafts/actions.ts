@@ -24,6 +24,16 @@ import type { GenerateDraftInput, UpdateDraftInput, ReviewNoteInput } from "./ty
 
 export async function generateDraftAction(input: GenerateDraftInput) {
   const session = await requireAdmin();
+  // EXPLICIT TEST-ONLY (Mission 07 §2): when EDITORIAL_FORCE_FAKE_PROVIDER=1
+  // is set, inject FakeProvider so the E2E suite exercises the full generation
+  // pipeline without real API credentials. Opt-in via env-var gate — there is
+  // NEVER a silent FakeProvider fallback in production code.
+  if (process.env.EDITORIAL_FORCE_FAKE_PROVIDER === "1") {
+    const { FakeProvider } = await import("../providers/fake");
+    const draft = await generateDraft(input, session.user.id, { provider: new FakeProvider() });
+    revalidatePath("/admin/editorial");
+    return draft;
+  }
   const draft = await generateDraft(input, session.user.id);
   revalidatePath("/admin/editorial");
   return draft;

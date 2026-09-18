@@ -1,10 +1,13 @@
 // ============================================================================
 // EDITORIAL AI — LLM PROVIDER INTERFACE
 // ----------------------------------------------------------------------------
-// Abstraction over any OpenAI-compatible chat completions API. In dev/test
-// or when no credentials are configured, the FakeProvider is used.
+// Abstraction over any OpenAI-compatible chat completions API. Generation is
+// fail-closed: when no provider is configured, `resolveProvider` throws
+// EditorialProviderNotConfiguredError (there is NO silent FakeProvider
+// fallback in production code — callers must resolve explicitly, and tests
+// inject a fake via `generateDraft`'s `opts.provider`).
 //
-// Env vars (all optional — FakeProvider activates when unset):
+// Env vars (all required to enable real generation):
 //   EDITORIAL_MODEL_BASE_URL    API endpoint (e.g. https://api.openai.com/v1)
 //   EDITORIAL_MODEL_API_KEY     Bearer token
 //   EDITORIAL_MODEL_NAME        Model identifier (e.g. gpt-4o-mini)
@@ -34,6 +37,31 @@ export interface ProviderEnv {
   maxTokens: number;
 }
 
+/**
+ * Thrown by `resolveProvider` when no LLM provider is configured.
+ * Generation is fail-closed: we never silently fall back to a fake provider.
+ */
+export class EditorialProviderNotConfiguredError extends Error {
+  readonly code = "EDITORIAL_PROVIDER_NOT_CONFIGURED";
+  constructor(
+    message = "AI provider is not configured. Set EDITORIAL_MODEL_API_KEY, " +
+      "EDITORIAL_MODEL_BASE_URL, and EDITORIAL_MODEL_NAME in your environment to " +
+      "enable draft generation.",
+  ) {
+    super(message);
+    this.name = "EditorialProviderNotConfiguredError";
+  }
+}
+
+/** True for errors thrown by `resolveProvider` when the provider is unset. */
+export function isProviderNotConfigured(err: unknown): boolean {
+  return (
+    err instanceof EditorialProviderNotConfiguredError ||
+    (err instanceof Error && err.name === "EditorialProviderNotConfiguredError") ||
+    (err instanceof Error && (err as { code?: string }).code === "EDITORIAL_PROVIDER_NOT_CONFIGURED")
+  );
+}
+
 /** Read provider config from environment. */
 export function getProviderEnv(): ProviderEnv {
   const parseNumber = (val: string | undefined, fallback: number) => {
@@ -50,13 +78,16 @@ export function getProviderEnv(): ProviderEnv {
   };
 }
 
-/** Resolve the configured provider: OpenAI if env vars are set, Fake otherwise. */
-export async function resolveProvider(): Promise<LLMProvider> {
-  const env = getProviderEnv();
+/**
+ * Resolve the configured provider. Throws `EditorialProviderNotConfiguredError`
+ * (fail-closed) when no provider is configured — there is NO silent FakeProvider
+ * fallback in production code. Tests inject a fake explicitly via `generateDraft`.
+ */
+export async function resolveProvider(providerEnv?: ProviderEnv): Promise<LLMProvider> {
+  const env = providerEnv ?? getProviderEnv();
   if (env.baseUrl && env.apiKey && env.modelName) {
     const { OpenAIProvider } = await import("./openai");
     return new OpenAIProvider(env);
   }
-  const { FakeProvider } = await import("./fake");
-  return new FakeProvider();
+  throw new EditorialProviderNotConfiguredError();
 }
