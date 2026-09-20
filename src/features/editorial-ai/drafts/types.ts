@@ -83,6 +83,13 @@ export interface EditorialDraftWithSources {
   sources: DraftSourceProvenance[];
 }
 
+/**
+ * Lightweight draft for list views — omits `sources` (chunk text) so the
+ * editorial listing does not join knowledge_chunks.content unnecessarily.
+ * Use getDraft() for the detail view which includes full provenance.
+ */
+export type DraftSummary = Omit<EditorialDraftWithSources, "sources">;
+
 /** Input for the review decision log (approve/reject/send-back notes). */
 export const reviewNoteSchema = z.object({
   note: z.string().max(2000).optional(),

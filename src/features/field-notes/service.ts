@@ -116,7 +116,7 @@ export async function createFieldNote(input: CreateFieldNoteInput): Promise<Fiel
       excerpt: input.excerpt || null,
       body: JSON.stringify(input.body || []),
       coverImage: input.coverImage || null,
-      author: input.author || "Ahmed Awad",
+      author: input.author || "Decoded Editorial",
       status: "draft",
       metaTitle: input.metaTitle || input.title,
       metaDescription: input.metaDescription || input.excerpt || null,

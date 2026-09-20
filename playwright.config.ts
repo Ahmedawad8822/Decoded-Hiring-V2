@@ -16,7 +16,7 @@ export default defineConfig({
   // Remediation F: the certification run must report 0 retries required. A
   // cold-server race is handled deterministically in the spec (single
   // re-submission), so local runs retry nothing; CI keeps its 2-retry safety.
-  retries: process.env.CI ? 2 : 0,
+  retries: 0,
   reporter: "list",
   use: {
     baseURL: `http://localhost:${port}`,

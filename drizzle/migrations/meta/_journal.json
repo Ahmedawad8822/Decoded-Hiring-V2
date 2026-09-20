@@ -57,6 +57,13 @@
       "when": 1789600000000,
       "tag": "0007_editorial_publications",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1789878068890,
+      "tag": "0008_editorial_identity_correction",
+      "breakpoints": true
     }
   ]
 }

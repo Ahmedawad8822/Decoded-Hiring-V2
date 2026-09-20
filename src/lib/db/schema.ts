@@ -75,7 +75,7 @@ export const guides = sqliteTable("guides", {
   excerpt: text("excerpt"),
   body: text("body").notNull(), // JSON-stringified GuideBlock[]
   coverImage: text("cover_image"),
-  author: text("author").notNull().default("Ahmed Awad"),
+  author: text("author").notNull().default("Decoded Editorial"),
   category: text("category"),
   tags: text("tags"),
   status: text("status").$type<GuideStatus>().notNull().default("draft"),
@@ -107,7 +107,7 @@ export const fieldNotes = sqliteTable("field_notes", {
   excerpt: text("excerpt"),
   body: text("body").notNull(), // JSON-stringified ContentBlock[]
   coverImage: text("cover_image"),
-  author: text("author").notNull().default("Ahmed Awad"),
+  author: text("author").notNull().default("Decoded Editorial"),
   status: text("status").$type<FieldNoteStatus>().notNull().default("draft"),
   metaTitle: text("meta_title"),
   metaDescription: text("meta_description"),

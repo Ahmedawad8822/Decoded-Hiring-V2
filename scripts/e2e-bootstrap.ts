@@ -56,7 +56,7 @@ async function main() {
   if (!existingUser) {
     console.log(`🧪 e2e-bootstrap: creating admin account (${adminEmail})...`);
     const newUser = await auth.api.signUpEmail({
-      body: { email: adminEmail, password: adminPassword, name: process.env.ADMIN_INITIAL_NAME || "Ahmed Awad" },
+      body: { email: adminEmail, password: adminPassword, name: process.env.ADMIN_INITIAL_NAME || "Decoded Editorial" },
     });
     if (newUser?.user?.id) {
       await db.update(users).set({ role: "admin" }).where(eq(users.id, newUser.user.id));

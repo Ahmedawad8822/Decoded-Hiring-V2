@@ -184,7 +184,7 @@ export function FieldNotesManagerClient({ initialNotes }: FieldNotesManagerClien
           title,
           slug,
           excerpt,
-          author: "Ahmed Awad",
+          author: "Decoded Editorial",
           coverImage: coverImage || null,
           metaTitle: metaTitle || title,
           metaDescription: metaDescription || excerpt,

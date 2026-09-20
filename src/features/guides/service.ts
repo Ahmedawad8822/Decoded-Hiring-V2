@@ -76,7 +76,7 @@ export async function createGuide(input: CreateGuideInput): Promise<Guide> {
       excerpt: input.excerpt || null,
       body: JSON.stringify(input.body || []),
       coverImage: input.coverImage || null,
-      author: input.author || "Ahmed Awad",
+      author: input.author || "Decoded Editorial",
       category: input.category || null,
       tags: input.tags || null,
       status: "draft",

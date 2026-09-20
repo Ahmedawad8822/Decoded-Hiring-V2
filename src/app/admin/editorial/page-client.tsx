@@ -3,10 +3,10 @@
 import { useTransition } from "react";
 import Link from "next/link";
 import { approveAction, rejectDraftAction, publishDraftAction } from "@/features/editorial-ai/drafts/actions";
-import type { EditorialDraftWithSources } from "@/features/editorial-ai/drafts/types";
+import type { DraftSummary } from "@/features/editorial-ai/drafts/types";
 
 interface EditorialListClientProps {
-  initialDrafts: EditorialDraftWithSources[];
+  initialDrafts: DraftSummary[];
 }
 
 export function EditorialListClient({ initialDrafts }: EditorialListClientProps) {

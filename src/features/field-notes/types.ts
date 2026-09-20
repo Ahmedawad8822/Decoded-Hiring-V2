@@ -24,7 +24,7 @@ export const createFieldNoteSchema = z.object({
   title: z.string().min(3, "Title must be at least 3 characters").max(200),
   slug: slugSchema,
   excerpt: z.string().max(500).optional(),
-  author: z.string().min(2).max(100).optional().default("Ahmed Awad"),
+  author: z.string().min(2).max(100).optional().default("Decoded Editorial"),
   coverImage: coverImageSchema,
   metaTitle: z.string().max(100).optional(),
   metaDescription: z.string().max(300).optional(),

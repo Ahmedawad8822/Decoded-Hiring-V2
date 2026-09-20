@@ -64,6 +64,7 @@ import type {
   UpdateDraftInput,
   EditorialDraftWithSources,
   DraftSourceProvenance,
+  DraftSummary,
 } from "./types";
 
 // ---------------------------------------------------------------------------
@@ -286,7 +287,7 @@ export async function getDraft(id: string): Promise<EditorialDraftWithSources | 
 export async function listDrafts(opts?: {
   status?: DraftStatus;
   contentType?: DraftContentType;
-}): Promise<EditorialDraftWithSources[]> {
+}): Promise<DraftSummary[]> {
   const db = await getDb();
 
   const conditions: Parameters<typeof and>[0][] = [];
@@ -304,14 +305,13 @@ export async function listDrafts(opts?: {
 
   if (drafts.length === 0) return [];
 
-  // One round-trip for ALL provenance (fixes the N+1 in the old per-draft
-  // getDraft loop — previously 2 queries per draft).
-  const provenance = await fetchProvenanceForDrafts(
-    db,
-    drafts.map((d) => d.id),
-  );
-
-  return drafts.map((draft) => assembleDraft(draft, provenance.get(draft.id) ?? []));
+  // The list view does NOT join knowledge_chunks.content — only draft-level
+  // fields are needed for the table. Fetching full chunk text per draft was
+  // an O(N × chunk_size) bandwidth waste on the listing page. getDraft()
+  // (detail view) still loads full provenance via fetchProvenanceForDrafts.
+  // DraftSummary = Omit<EditorialDraftWithSources, "sources">, so the
+  // full assembled object is assignable without a separate destructure.
+  return drafts.map((draft) => assembleDraft(draft, []) as DraftSummary);
 }
 
 // ---------------------------------------------------------------------------

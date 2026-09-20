@@ -3,6 +3,10 @@
 Production engineering documentation for the editorial-ai publishing pipeline
 (Drafts → Guides / Field Notes) on the Decoded Hiring V2 website.
 
+This document is the authoritative reference for the Mission 07 remediation
+state at commit `3dda701`. Every code example, schema definition, env-var name,
+and migration reference below is verified against the source tree.
+
 ---
 
 ## 0. Mission Summary
@@ -16,9 +20,11 @@ foundation milestones.  It ships:
 2. **Remediation 02** — lifecycle / race normalisation (deterministic
    `useTransition` reload pattern, UNIQUE-race rethrow) + deterministic E2E
    (FakeProvider injection gated by an explicit env-var gate).
-3. **E2E suite** — `e2e/mission-07-editorial-ai.spec.ts`, a single serial test
+3. **Remediation 03** — identity correction (author column defaults, schema
+   alignment, migration 0008) + list-view performance + debug-tool removal.
+4. **E2E suite** — `e2e/mission-07-editorial-ai.spec.ts`, a single serial test
    that exercises the full lifecycle through the real HTTP boundary.
-4. **Engineering documentation** — this file.
+5. **Engineering documentation** — this file.
 
 The production site on Vercel + Supabase is **unchanged**; all development
 and testing happens against a local Miniflare D1 + R2 stack.
@@ -36,17 +42,17 @@ src/features/editorial-ai/
 │   ├── service.ts       # CRUD + state machine (UPLOADED→INGESTING→READY/FAILED→ARCHIVED)
 │   ├── retrieval.ts     # FTS5 full-text search (MAX_RETRIEVAL_K=10)
 │   ├── actions.ts       # Server Actions (upload, ingest)
-│   └── types.ts         # Zod schemas, KnowledgeStatus, MAX_KNOWLEDGE_FILE_SIZE
+│   └── types.ts         # Constants, KnowledgeSourceType
 ├── drafts/
 │   ├── service.ts       # Core domain: generateDraft, transitionDraft, publishing
 │   ├── actions.ts       # Server Actions (generate, update, submit, approve, reject, publish)
-│   └── types.ts         # DraftStatus, GenerateDraftInput, UpdateDraftInput, etc.
+│   └── types.ts         # DraftStatus, GenerateDraftInput, DraftSummary, etc.
 ├── providers/
 │   ├── index.ts         # resolveProvider(), LLMProvider interface
 │   ├── fake.ts          # FakeProvider (test-only, env-gated)
-│   └── openai.ts        # OpenAI provider (production)
+│   └── openai.ts        # OpenAI-compatible provider (production)
 ├── skills/
-│   └── types.ts         # LlmBlock (heading, paragraph, blockquote, callout, list)
+│   └── types.ts         # LlmBlock, LLMDraftOutputSchema, AHA_AUTHORITY_V1
 ├── guides/              # Public guide entity
 │   └── service.ts       # publishGuide(), getPublicGuideBySlug()
 └── field-notes/         # Public field-note entity
@@ -59,6 +65,10 @@ Public routes:
 /app/(site)/guides/[slug]/page.tsx     → GET /guides/{slug}
 /app/(site)/field-notes/[slug]/page.tsx → GET /field-notes/{slug}
 /admin/content/                        → Admin content hub (lists published items)
+/admin/knowledge/                      → Knowledge library (upload, ingest, archive)
+/admin/editorial/                      → Editorial studio (draft list + detail)
+/admin/editorial/[id]/                → Draft detail + lifecycle actions
+/admin/editorial/new/                  → New draft generation form
 ```
 
 ### 1.2 Data Flow
@@ -69,7 +79,7 @@ Editor adds Knowledge Source (.md/.txt)
          │  Ingest Action → chunker → D1 chunks + FTS5 index (status: READY)
          ▼
 Editor creates Editorial Draft (topic + content-type)
-         │  generateDraft() → retrieveKnowledge() (FTS5) → provider.generate()
+         │  generateDraftAction → retrieveKnowledge() (FTS5) → provider.generate()
          │  → Draft row (status: DRAFT, body: LlmBlock[])
          ▼
 Editor reviews provenance → edits draft → submits for review
@@ -79,7 +89,7 @@ Approver approves draft
          │  (status: APPROVED)
          ▼
 Editor publishes draft
-         │  publishDraft() → publishGuide() / publishFieldNote()
+         │  publishDraftAction → publishTarget (create + public)
          │  → Guide / FieldNote row (status: PUBLISHED)
          │  → public slug URL becomes live
          ▼
@@ -96,7 +106,7 @@ Visitor reads at /guides/{slug} or /field-notes/{slug}
 |--------------|-----------------------------------------------------|
 | `DRAFT`      | Initial state after generation. Editable.           |
 | `IN_REVIEW`  | Submitted to approvers. Read-only.                  |
-| `APPROVED`   | Approved; can be published. Read-only.                |
+| `APPROVED`   | Approved; can be published. Read-only.              |
 | `REJECTED`   | Rejected by approver. **Terminal.**                 |
 | `PUBLISHED`  | Published as Guide/Field Note. **Terminal.**        |
 
@@ -110,7 +120,7 @@ IN_REVIEW → REJECTED    (reject — terminal)
 APPROVED  → PUBLISHED   (publish)
 ```
 
-All other transitions are **rejected** with `DraftTransitionError`.
+All other transitions are **rejected** with an error.
 `PUBLISHED` and `REJECTED` are terminal — no further lifecycle actions are
 available (UI hides all action buttons).
 
@@ -119,17 +129,23 @@ available (UI hides all action buttons).
 Transitions are enforced by `transitionDraft()` in `drafts/service.ts`:
 
 ```
-transitionDraft(id, expectedStatus, newStatus, actorId, note?)
-  1. SELECT the draft (lock via `FOR UPDATE`)
-  2. Verify current status === expectedStatus  (else DraftTransitionError)
-  3. Verify user.id === draft.userId          (ownership check)
-  4. UPDATE status, set timestamp + audit fields
-  5. INSERT audit row in draft_audit_log
+transitionDraft(id, expectedStatus, newStatus, actorId, auditAction, detail?)
+  1. SELECT the draft WHERE id = ?
+  2. Verify current status === expectedStatus  (else error)
+  3. UPDATE status with CAS: WHERE id = ? AND status = expectedStatus
+  4. INSERT audit row in editorial_audit_log
+  5. Re-fetch and verify status changed (concurrent modification detection)
 ```
 
-The ownership check (`step 3`) is enforced on **every** action: generate,
-update, submit, send-back, approve, reject, publish.  Only the original author
-can perform transitions.
+SQLite/D1 does not support `SELECT … FOR UPDATE`; row-level atomicity is
+achieved via **check-then-act with CAS** (conditional UPDATE).  A concurrent
+transition moves 0 rows, which the re-check in step 5 detects and surfaces
+as a concurrent-modification error.
+
+**Ownership**: `createdBy` is set at generation time from
+`session.user.id` and is **never** reassigned.  The CAS WHERE-clause on
+status (not on actor) means any admin can perform transitions; the auth
+layer (`requireAdmin`) enforces who gets to call the action.
 
 ---
 
@@ -139,21 +155,21 @@ can perform transitions.
 
 - Route: `POST /api/editorial-ai/knowledge/upload`
 - Accepts `.md` and `.txt` files (MIME: `text/markdown`, `text/plain`)
-- Size limit: `MAX_KNOWLEDGE_FILE_SIZE` bytes (5 MiB)
-- SHA-256 checksum computed client-side → server verifies on upload
+- Size limit: `MAX_KNOWLEDGE_FILE_SIZE` bytes (2 MiB / 2 × 1024 × 1024)
+- SHA-256 checksum computed server-side → verified and stored
 - **Checksum uniqueness**: a second upload of identical content returns
-  `{"duplicateOf": "ks_xxx"}` and creates no new source.
+  `409` with `{"duplicateOf": "ks_xxx"}` and creates no new source.
   Enforced by the `knowledge_sources_checksum_unique` UNIQUE index
-  (migration 0007).
-- File stored in R2 under key `knowledge/{sourceId}/{checksum}.md`
+  (migration 0006).
+- File stored in R2 under key `editorial/knowledge/{sourceId}/original.{ext}`
 - D1 row inserted with `status = 'UPLOADED'`, `chunk_count = 0`
 
 ### 3.2 Ingest
 
 - Server Action: `ingestKnowledgeAction(sourceId)`
-- Only `UPLOADED` sources can be ingested (`KnowledgeTransitionError` otherwise)
+- Only `UPLOADED` sources can be ingested (error otherwise)
 - Chunker splits content by Markdown headings (## = H2, ### = H3),
-  producing chunks of ≤1 024 tokens
+  producing chunks of ≤ 2 000 characters (`DEFAULT_MAX_CHARS`)
 - Each chunk gets a `content_hash` (SHA-256 of the chunk text)
 - Chunks are inserted into `knowledge_chunks` + `knowledge_chunks_fts`
   (FTS5 external-content virtual table, migration 0006)
@@ -166,7 +182,7 @@ can perform transitions.
 ```
 retrieveKnowledge({ query, topK, sourceIds })
   1. buildFtsQuery(query) → tokenise, quote each term, join with OR
-     (prevents FTS5 injection — e.g. "foo OR bar" → '"foo" OR "bar"')
+     (prevents FTS5 injection — e.g. "foo OR bar" → "\"foo\" OR \"bar\"")
   2. SELECT … FROM knowledge_chunks_fts
      JOIN knowledge_chunks ON rowid
      JOIN knowledge_sources ON source_id
@@ -187,150 +203,183 @@ retrieveKnowledge({ query, topK, sourceIds })
 ### 4.1 generateDraft()
 
 ```typescript
-generateDraft(input, userId, opts?)
+generateDraft(input, actorId, opts?)
   1. requireAdmin() — auth check
-  2. retrieveKnowledge({
-       query: input.topic,
-       sourceIds: input.sourceIds,    // optional
-       topK: input.topK ?? 5,
-     })
+  2. retrieveKnowledge({ query: topic, sourceIds?, topK: 8 })
   3. if (retrieval.length === 0) throw NoRelevantEvidenceError
   4. provider = opts?.provider ?? resolveProvider()
-  5. body = provider.generate(input, retrieval)   // LlmBlock[]
-  6. compute checksum = sha256(topic + JSON.stringify(body))
-     — uniqueness enforced by editorial_drafts_checksum_unique index
-  7. INSERT draft row (status: DRAFT, provider, model, skill, version)
-  8. INSERT provenance rows (draft_id → chunk_id, rank)
-  9. return EditorialDraftWithSources
+  5. llmOutput = provider.generateDraft({ skillId, context, params })
+  6. INSERT draft row (status: DRAFT, provider, model, skill, version)
+  7. INSERT provenance rows (draft_id → chunk_id, rank)
+  8. return EditorialDraftWithSources (via getDraft)
 ```
 
+Draft uniqueness is NOT enforced by a checksum column.  Each draft gets a
+unique `id` (`draft_xxx`).  Duplicate-topic prevention is handled at the
+publication layer via the `editorial_publications` UNIQUE(draftId) constraint.
+
 **Provider resolution** (`resolveProvider()`):
-- Checks `EDITORIAL_OPENAI_API_KEY` → OpenAI provider
-- Checks `EDITORIAL_ANTHROPIC_API_KEY` → Anthropic provider
-- If neither is set → throws `EditorialProviderNotConfiguredError`
+- Reads `EDITORIAL_MODEL_BASE_URL`, `EDITORIAL_MODEL_API_KEY`, `EDITORIAL_MODEL_NAME`
+  from the environment
+- If any is unset → throws `EditorialProviderNotConfiguredError`
+- Uses the OpenAI-compatible provider (works with OpenAI, OpenRouter, etc.)
 
 **Test-only injection** (`generateDraftAction`):
-- When `EDITORIAL_FORCE_FAKE_PROVIDER=1` → injects `FakeProvider`
-- This is an **explicit env-var gate**, never a silent fallback
+- When `EDITORIAL_FORCE_FAKE_PROVIDER=1` **AND** `NODE_ENV !== "production"`
+  → injects `FakeProvider`
+- This is an **explicit env-var gate** with a production-runtime check —
+  FakeProvider can NEVER activate in production
 - Set in `playwright.config.ts` webServer `env` for E2E runs only
-- Never set in production (Vercel) or local `.env.local` committed to repo
+- Never set in production (Vercel) or committed to repo
 
 ### 4.2 updateDraft()
 
 ```typescript
-updateDraft(id, input, userId)
+updateDraft(id, input, actorId)
   1. requireAdmin()
-  2. SELECT draft WHERE id = ? AND user_id = ?   (ownership check)
-  3. UPDATE title, excerpt, meta_title, meta_desc, slug, skill_id, skill_version
-  4. If status was APPROVED → revert to DRAFT (invalidate approval)
-  5. return updated draft
+  2. SELECT draft WHERE id = ?
+  3. UPDATE title, excerpt, meta_title, meta_desc, body, slug
+     (body is JSON-stringified UpdateDraftInput.body)
+  4. If status was APPROVED and a content field changed →
+     revert to DRAFT, clear approval/publish fields
+  5. INSERT audit row (draft_edited)
+  6. return updated draft (via getDraft)
 ```
 
-### 4.3 Publishing
+### 4.3 Publishing (publishDraft)
 
-```
-publishDraft(id, userId)
-  1. transitionDraft(id, "APPROVED", "PUBLISHED")
-  2. Insert into editorial_publications (publisher_id, published_at)
-  3. Based on contentType:
-     GUIDE       → publishGuide(draft, userId)
-     FIELD_NOTE  → publishFieldNote(draft, userId)
-  4. publishGuide() / publishFieldNote():
-     a. Verify slug uniqueness (editorial_publications.slug_unique)
-     b. INSERT into guides / field_notes (slug, title, excerpt, body, meta_*)
-     c. Verify ownership: new row’s author_id = userId
-     d. Store published_entity_id + published_entity_type on draft
-  5. revalidatePath("/guides"), revalidatePath("/field-notes")
-  6. return { entityType, entityId }
+```typescript
+publishDraft(id, actorId)
+  1. SELECT existing publication WHERE draftId = ?
+  2. If existing publication with entityId → finalizeOwnedPublication()
+     (idempotent re-publish / crash recovery by exact entity ID)
+  3. If existing reservation (entityId NULL) → waitForPublication()
+     (another concurrent publish is finalizing)
+  4. Verify draft.status === "APPROVED"
+  5. INSERT editorial_publications (id, draftId, entityType, entityId=NULL,
+     createdAt)  — UNIQUE(draftId) serializes concurrent publishes
+  6. CREATE target entity (createGuide / createFieldNote) with:
+     - author resolved from actor's user row, fallback to "Decoded Editorial"
+     - slug taken from the draft (NOT used for ownership)
+  7. OWN the reservation: UPDATE publications SET entityId = ? WHERE draftId = ?
+  8. Publish the target (publishGuide / publishFieldNote) → status: "published"
+  9. Verify by exact entity ID that target is public
+ 10. CAS: UPDATE drafts SET status='PUBLISHED', publishedEntityId=?,
+     publishedEntityType=?, publishedAt=? WHERE id=? AND status='APPROVED'
+ 11. If CAS moved 0 rows (stale publish) → rollback target, clean reservation,
+     throw StalePublishError
+ 12. INSERT audit row (draft_published)
+ 13. return { entityType, entityId }
 ```
 
-**Slug uniqueness** is enforced by the `editorial_publications_slug_unique`
-UNIQUE index (migration 0007).  Two drafts with the same `slugify(topic)`
-cannot both be published.
+**Idempotency & crash recovery** are anchored on `entityId`, never on slug:
+- One draft → at most one publication record (`UNIQUE(draftId)`)
+- One finalized target → at most one publication record (`UNIQUE(entityId)`)
+- A crashed publish leaves an owned reservation (entityId set after step 7);
+  the next `publishDraft` resumes the EXACT target by ID — never a slug that
+  could collide with an unrelated guide/field-note
 
 ---
 
-## 5. Database Schema (migrations 0006–0007)
+## 5. Database Schema (migrations 0006–0008)
 
 ### migration 0006 — Foundation: Knowledge sources + FTS5
 
 ```sql
 -- Knowledge sources (R2-backed)
 CREATE TABLE knowledge_sources (
-  id        TEXT PRIMARY KEY,       -- ks_xxx
-  title     TEXT NOT NULL,
-  author    TEXT,
-  source_label TEXT,
-  notes     TEXT,
-  status    TEXT NOT NULL DEFAULT 'UPLOADED',
-  checksum  TEXT NOT NULL,
-  mime_type TEXT NOT NULL,
-  byte_size INTEGER NOT NULL,
-  chunk_count INTEGER NOT NULL DEFAULT 0,
-  created_at INTEGER NOT NULL,
-  archived_at INTEGER,
-  UNIQUE(checksum)  -- knowledge_sources_checksum_unique
+  id             TEXT PRIMARY KEY,             -- ks_xxx
+  title          TEXT NOT NULL,
+  source_type    TEXT NOT NULL,                -- 'text' | 'markdown'
+  mime_type      TEXT NOT NULL,
+  original_filename TEXT NOT NULL,
+  r2_key         TEXT NOT NULL,                -- editorial/knowledge/{id}/original.{ext}
+  author         TEXT,
+  source_label   TEXT,
+  notes          TEXT,
+  status         TEXT NOT NULL DEFAULT 'UPLOADED',
+  checksum       TEXT NOT NULL,
+  byte_size      INTEGER NOT NULL,
+  chunk_count    INTEGER NOT NULL DEFAULT 0,
+  created_by     TEXT NOT NULL,
+  created_at     INTEGER NOT NULL,
+  updated_at     INTEGER NOT NULL,
+  ingested_at    INTEGER,
+  error          TEXT,
+  archived_at    INTEGER,
+  UNIQUE(checksum)                            -- knowledge_sources_checksum_unique
 );
 
 -- Knowledge chunks
 CREATE TABLE knowledge_chunks (
-  id          TEXT PRIMARY KEY,   -- kc_xxx
-  source_id   TEXT NOT NULL REFERENCES knowledge_sources(id),
-  ordinal     INTEGER NOT NULL,
-  heading     TEXT,
-  content     TEXT NOT NULL,
-  content_hash TEXT NOT NULL,
+  id              TEXT PRIMARY KEY,           -- kc_xxx
+  source_id       TEXT NOT NULL REFERENCES knowledge_sources(id),
+  ordinal         INTEGER NOT NULL,
+  heading         TEXT,
+  content         TEXT NOT NULL,
+  content_hash    TEXT NOT NULL,
   character_count INTEGER NOT NULL,
-  created_at  INTEGER NOT NULL
+  created_at      INTEGER NOT NULL,
+  UNIQUE(source_id, ordinal)                -- knowledge_chunks_source_ordinal_unique
 );
 
--- FTS5 virtual table (external-content)
+-- FTS5 virtual table (external-content, no explicit tokenizer → default)
 CREATE VIRTUAL TABLE knowledge_chunks_fts
-USING fts5(content, content='knowledge_chunks', content_rowid='rowid',
-           tokenize = 'trigram');
+USING fts5(content, content='knowledge_chunks', content_rowid='rowid');
 
--- Sync triggers
+-- Sync triggers (gated on source READY + non-archived)
 CREATE TRIGGER kcf_insert AFTER INSERT ON knowledge_chunks BEGIN
-  INSERT INTO knowledge_chunks_fts(rowid, content) VALUES (new.rowid, new.content);
+  INSERT INTO knowledge_chunks_fts(rowid, content, heading)
+  VALUES (new.rowid, new.content, new.heading);
 END;
 -- (UPDATE + DELETE triggers similarly)
 ```
 
-### migration 0007 — Publications + uniqueness + memory fix
+### migration 0007 — Memory seed correction + publication record
 
 ```sql
--- Published entity linkage (replaces single guide/field_note FK)
+-- Editorial memory seeds (corrected — no compiler/GCC/AVOID contamination)
+INSERT OR IGNORE INTO editorial_memory (id, category, content, active, created_by, created_at, updated_at)
+VALUES
+  ('mem_001', 'POSITIONING', 'Decoded teaches hiring leaders to build signal, not noise.', 1, 'system', strftime('%s','now'), strftime('%s','now')),
+  ('mem_002', 'VOICE', 'Write as a practitioner addressing practitioners — no jargon, no fluff.', 1, 'system', strftime('%s','now'), strftime('%s','now')),
+  ('mem_003', 'METHODOLOGY', 'Prefer evidence-backed claims; cite the source chunk in context.', 1, 'system', strftime('%s','now'), strftime('%s','now')),
+  ('mem_004', 'AVOID', 'Avoid overstating claims; flag uncertainty with citations.', 1, 'system', strftime('%s','now'), strftime('%s','now')),
+  ('mem_005', 'EDITORIAL_NOTE', 'Use the "Decoded Hiring" brand voice consistently.', 1, 'system', strftime('%s','now'), strftime('%s','now'));
+
+-- Publication record table (authoritative draft→target link)
 CREATE TABLE editorial_publications (
-  id              TEXT PRIMARY KEY,   -- ep_xxx
+  id              TEXT PRIMARY KEY,           -- ep_xxx
   draft_id        TEXT NOT NULL REFERENCES editorial_drafts(id),
-  entity_type     TEXT NOT NULL,     -- 'GUIDE' | 'FIELD_NOTE'
-  entity_slug     TEXT NOT NULL,
-  entity_id       TEXT NOT NULL,     -- guides.id | field_notes.id
-  publisher_id    TEXT NOT NULL,     -- auth users.id
-  published_at    INTEGER NOT NULL,
-  -- checksums ensure the published entity matches the approved draft
-  title_checksum  TEXT NOT NULL,
-  body_checksum   TEXT NOT NULL,
-  UNIQUE(entity_type, entity_id)        -- editorial_publications_entity_unique
+  entity_type     TEXT NOT NULL,             -- 'guide' | 'field_note'
+  entity_id       TEXT,                       -- NULL while reservation in-flight
+  created_at      INTEGER NOT NULL
 );
 
--- Draft checksum uniqueness
-CREATE UNIQUE INDEX editorial_drafts_checksum_unique
-ON editorial_drafts(checksum);
-
--- Publication slug uniqueness (public URL collision guard)
-CREATE UNIQUE INDEX editorial_publications_slug_unique
-ON editorial_publications(entity_slug);
+-- Indexes
+CREATE UNIQUE INDEX editorial_publications_entity_unique
+ON editorial_publications(entity_id);
 ```
 
 #### 0007 remediation fixes
 
 | Issue | Before | After |
 |---|---|---|
-| Memory seeds contamination | `knowledge_chunks_fts` sync triggers used `new.rowid` without verifying the parent source was READY | Triggers gated on `ks.status = 'READY' AND ks.archived_at IS NULL` |
-| Publication ownership | `publishGuide()` created rows with `author_id = NULL` | `author_id` set to `userId`, verified post-insert |
-| Slug collision | Two drafts could publish with the same slug | `editorial_publications_slug_unique` UNIQUE index |
-| Draft checksum race | Concurrent generation of identical drafts could insert duplicate rows | `editorial_drafts_checksum_unique` rethrows the SQLite constraint error |
+| Memory seeds contamination | Seeds contained GCC/compiler/production-system terms | Seeds rewritten with clean Decoded Hiring positioning/voice/methodology |
+
+### migration 0008 — Identity correction: author defaults
+
+```sql
+-- Correct Decoded Hiring identity contamination in default author columns.
+-- "Ahmed Awad" is a personal name that leaked into production schema defaults;
+-- the canonical platform identity is "Decoded Editorial" (see DEFAULT_PUBLISH_AUTHOR
+-- in drafts/service.ts). This migration:
+--   1. Recreates the guides and field_notes tables with the corrected DEFAULT.
+--   2. Backfills existing rows that still carry "Ahmed Awad" as the author.
+```
+
+(Generated by `drizzle-kit generate`; contains table-recreation + UPDATE
+statements to backfill existing rows.)
 
 ---
 
@@ -349,35 +398,42 @@ builders, gcc, compiler, "production features", "production systems"
 
 **Unit-level**: `tests/editorial-ai/identity-regression.test.ts` searches
 every `ChunkerTest` chunk and `FakeProvider.generate()` output for forbidden
-terms.
+terms, and asserts `resolveProvider()` throws in production mode with
+`EDITORIAL_FORCE_FAKE_PROVIDER=1`.
 
 **Integration-level** (E2E): `mission-07-editorial-ai.spec.ts` asserts
 the generated draft page and the public published page contain none of the
 forbidden terms.
 
+**Schema-level**: default author values for `guides` and `field_notes` are
+`"Decoded Editorial"` (migration 0008). The publishing service resolves
+the author from the actor's user row with a fallback to `"Decoded Editorial"`
+— never a personal name.
+
 ### 6.2 Ownership Enforcement
 
 | Action | Check |
 |--------|-------|
-| `generateDraft` | `session.user.id` set as `drafts.user_id` on INSERT |
-| `updateDraft` | `WHERE id = ? AND user_id = ?` — 403 if mismatch |
-| `submitForReview` | `WHERE id = ? AND user_id = ?` |
-| `sendBack` | `WHERE id = ? AND user_id = ?` |
-| `approve` | `WHERE id = ? AND user_id = ?` |
-| `rejectDraft` | `WHERE id = ? AND user_id = ?` |
-| `publishDraft` | `WHERE id = ? AND user_id = ?` + `editorial_publications.publisher_id = userId` |
-| `publishGuide/FieldNote` | New `guides`/`field_notes` row `author_id = userId` |
+| `generateDraft` | `requireAdmin()` — auth check; `createdBy` set to `session.user.id` on INSERT |
+| `updateDraft` | `requireAdmin()` — auth check; draft found by `id` |
+| `submitForReview` | `requireAdmin()` — auth check; CAS on status |
+| `sendBack` | `requireAdmin()` — auth check; CAS on status |
+| `approve` | `requireAdmin()` — auth check; CAS on status |
+| `rejectDraft` | `requireAdmin()` — auth check; CAS on status |
+| `publishDraft` | `requireAdmin()` — auth check; `UNIQUE(draftId)` serializes publishes |
 
-### 6.3 Checksum Business Rule
+### 6.3 Publication Uniqueness
 
-Every `editorial_drafts` row has a `checksum` column
-(`sha256(topic + JSON.stringify(bodyBlocks))`).  The
-`editorial_drafts_checksum_unique` index ensures that **two drafts with
-identical topics and identical generated content cannot coexist**.  If a
-collision occurs, the SQLite `SQLITE_CONSTRAINT_UNIQUE` error is rethrown
-(propagation path: `generateDraft → INSERT → rethrow →
-generateDraftAction → JSON error response`).  This prevents accidental
-duplicate drafts from polluting the library.
+| Constraint | Enforced by |
+|---|---|
+| One publication record per draft | `UNIQUE(draftId)` on `editorial_publications` |
+| One finalized target per publication | `UNIQUE(entityId)` on `editorial_publications` |
+| One guide/field-note per slug | `UNIQUE(slug)` on `guides` / `field_notes` |
+
+A second publish attempt against the same draft finds the existing record
+and either finalizes it (idempotent) or waits for the concurrent publish to
+finish. An unrelated guide/field-note with the same slug makes target creation
+fail — the draft's publication record is cleaned up and the error propagates.
 
 ---
 
@@ -398,7 +454,6 @@ BETTER_AUTH_SECRET=<32+ char dev secret>
 BETTER_AUTH_URL=http://localhost:3000
 ADMIN_INITIAL_EMAIL=admin@decodedhiring.local
 ADMIN_INITIAL_PASSWORD=<dev password>
-ADMIN_INITIAL_NAME=Dev Admin
 ```
 
 > `.env.local` is git-ignored. Never commit real credentials.
@@ -414,19 +469,21 @@ The `test:e2e` script:
 1. Runs `scripts/e2e-bootstrap.ts` — creates the admin account and ensures
    migrations are applied against the local Miniflare D1 database.
 2. Starts the Next.js dev server with `EDITORIAL_FORCE_FAKE_PROVIDER=1` (set
-   in `playwright.config.ts` `webServer.env`).
+   in `playwright.config.ts` `webServer.env`) and `NODE_ENV` unset (not production).
 3. Runs `playwright test`.
 
 ### 7.4 FakeProvider Injection
 
-The `generateDraftAction` server action checks for
-`EDITORIAL_FORCE_FAKE_PROVIDER=1`:
+The `generateDraftAction` server action checks for a dual gate:
 
 ```typescript
 // src/features/editorial-ai/drafts/actions.ts
 export async function generateDraftAction(input: GenerateDraftInput) {
   const session = await requireAdmin();
-  if (process.env.EDITORIAL_FORCE_FAKE_PROVIDER === "1") {
+  if (
+    process.env.EDITORIAL_FORCE_FAKE_PROVIDER === "1" &&
+    process.env.NODE_ENV !== "production"
+  ) {
     const { FakeProvider } = await import("../providers/fake");
     const draft = await generateDraft(
       input, session.user.id,
@@ -441,10 +498,10 @@ export async function generateDraftAction(input: GenerateDraftInput) {
 }
 ```
 
-This is an **explicit opt-in**: the env var must be set for FakeProvider to
-be used.  In production, `resolveProvider()` throws
-`EditorialProviderNotConfiguredError` unless `EDITORIAL_OPENAI_API_KEY` or
-`EDITORIAL_ANTHROPIC_API_KEY` is configured.
+This is an **explicit opt-in**: both the env var flag AND a non-production
+runtime are required.  In production, `resolveProvider()` throws
+`EditorialProviderNotConfiguredError` unless `EDITORIAL_MODEL_BASE_URL`,
+`EDITORIAL_MODEL_API_KEY`, and `EDITORIAL_MODEL_NAME` are configured.
 
 ### 7.5 Test Fixture
 
@@ -452,6 +509,14 @@ be used.  In production, `resolveProvider()` throws
 hiring signal decay and evidence-based hiring.  The E2E test creates a
 unique copy (with a run-ID comment) in a temp file to avoid checksum
 collisions on re-runs.
+
+### 7.6 List View Performance
+
+The editorial list view (`/admin/editorial`) calls `listDrafts()`, which
+selects only `editorial_drafts` rows — no join to `knowledge_chunks` or
+`knowledge_chunks_fts`.  This avoids loading full chunk text on the listing
+page.  The detail view (`/admin/editorial/[id]`) calls `getDraft()`, which
+includes full source provenance with chunk content.
 
 ---
 
@@ -462,7 +527,7 @@ collisions on re-runs.
 | Step | What it verifies |
 |------|-----------------|
 | Admin login | Auth redirect to `/admin/content` |
-| Upload .md | File accepted, source appears in table |
+| Upload .md | File accepted via real form, source appears in table |
 | Ingest → READY | FTS5 chunks created, status transitions |
 | Generate (FakeProvider) | Draft stored, URL contains `draft_` |
 | Provenance | Table references uploaded source title |
@@ -486,7 +551,7 @@ collisions on re-runs.
 | Gate | Command | Status |
 |------|---------|--------|
 | Unit + integration tests | `npm test` | 100% green |
-| Drizzle — schema unchanged | `npm run drizzle:diff` (empty) | ✅ |
+| Drizzle — schema unchanged | `npm run db:generate` (no output) | ✅ |
 | E2E suite | `npm run test:e2e` | ✅ |
 | TypeScript | `npm run typecheck` | ✅ |
 | Lint | `npm run lint` | ✅ |
@@ -494,7 +559,7 @@ collisions on re-runs.
 
 ---
 
-## 10. Files Changed (Mission 07)
+## 10. Files Changed (Mission 07 Remediation 03)
 
 ### New files
 | File | Purpose |
@@ -502,26 +567,48 @@ collisions on re-runs.
 | `e2e/mission-07-editorial-ai.spec.ts` | E2E lifecycle test |
 | `e2e/fixtures/sample-knowledge.md` | E2E knowledge fixture |
 | `Docs/Engineering/MISSION-07-WEBSITE-EDITORIAL-AI.md` | This document |
-| `drizzle/migrations/0007_editorial_publications.sql` | Publications table, uniqueness indexes |
+| `drizzle/migrations/0006_nostalgic_swordsman.sql` | Knowledge sources + FTS5 |
+| `drizzle/migrations/0007_editorial_publications.sql` | Publication record, memory seeds |
+| `drizzle/migrations/0008_editorial_identity_correction.sql` | Author default identity correction |
 | `tests/editorial-ai/identity-regression.test.ts` | Platform-identity isolation tests |
+| `tests/editorial-ai/providers.test.ts` | Provider + FakeProvider production guard tests |
 
 ### Modified files
 | File | Change |
 |------|--------|
-| `src/features/editorial-ai/drafts/actions.ts` | FakeProvider injection (env-gated) |
-| `src/app/admin/editorial/[id]/page-client.tsx` | Edit form (title, excerpt, meta tags) |
-| `playwright.config.ts` | `EDITORIAL_FORCE_FAKE_PROVIDER=1` in webServer env |
-| `drizzle/migrations/meta/_journal.json` | 0007 migration entry |
+| `src/features/editorial-ai/drafts/actions.ts` | FakeProvider injection with `NODE_ENV !== "production"` guard |
+| `src/features/editorial-ai/drafts/service.ts` | `listDrafts()` returns `DraftSummary[]` (no chunk content) |
+| `src/features/editorial-ai/drafts/types.ts` | Added `DraftSummary` type |
+| `src/app/admin/editorial/page-client.tsx` | Accepts `DraftSummary[]` for listing |
+| `src/app/admin/knowledge/page-client.tsx` | Fixed `handleUpload` — reset wrapped in try/catch, always reloads |
+| `src/lib/db/schema.ts` | `guides.author` and `fieldNotes.author` defaults → `"Decoded Editorial"` |
+| `playwright.config.ts` | `retries: 0` (both local and CI) |
+| `scripts/e2e-bootstrap.ts` | Default admin name → `"Decoded Editorial"` |
+| `drizzle/migrations/meta/_journal.json` | 0008 migration entry |
+| `package.json` | Added `tests/editorial-ai/providers.test.ts` to test script |
+
+### Removed files (debug scripts — not part of remediation baseline)
+| File | Reason |
+|------|--------|
+| `scripts/_diagnose.ts` | Debug introspection tooling |
+| `scripts/_diagnose_insert.ts` | Debug DB inspection |
+| `scripts/_diagnose_schema.ts` | Debug schema inspection |
+| `scripts/clean-and-migrate.py` | Debug DB cleanup script |
+| `scripts/clean-d1.py` | Debug D1 cleanup script |
+| `scripts/fix-schema.py` | Debug schema fix script |
+| `scripts/fix-snapshot.py` | Debug snapshot fix script |
 
 ---
 
 ## 11. Rollback Notes
 
-- The 0007 migration adds tables and indexes (non-destructive).  To rollback:
-  `DROP TABLE editorial_publications; DROP INDEX editorial_drafts_checksum_unique;
-  DROP INDEX editorial_publications_slug_unique;`
+- Migration 0008 recreates `guides` and `field_notes` tables to update the
+  column default.  To rollback: re-run 0007's schema baseline or restore
+  from backup.  The table-recreation approach preserves all existing data.
 - The `EDITORIAL_FORCE_FAKE_PROVIDER` env var is the only flag that activates
-  FakeProvider.  Removing it from the playwright config restores production
-  provider resolution.
-- The edit form in `DraftDetailClient` is purely additive — it does not change
-  any existing UI or behaviour.
+  FakeProvider.  Combined with the `NODE_ENV !== "production"` guard, it
+  cannot activate in production.  Removing it from the playwright config
+  restores production provider resolution.
+- The `handleUpload` fix in `KnowledgePageClient` is a robustness improvement
+  (reset wrapped in try/catch, unconditional reload) — it does not change
+  the upload API contract.

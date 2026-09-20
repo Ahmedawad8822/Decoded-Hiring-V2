@@ -215,7 +215,7 @@ export function GuideManagerClient({ initialGuides }: GuideManagerClientProps) {
           slug,
           excerpt,
           category,
-          author: "Ahmed Awad",
+          author: "Decoded Editorial",
           coverImage: coverImage || null,
           metaTitle: metaTitle || title,
           metaDescription: metaDescription || excerpt,

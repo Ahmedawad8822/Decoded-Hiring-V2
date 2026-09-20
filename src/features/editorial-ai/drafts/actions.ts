@@ -28,7 +28,10 @@ export async function generateDraftAction(input: GenerateDraftInput) {
   // is set, inject FakeProvider so the E2E suite exercises the full generation
   // pipeline without real API credentials. Opt-in via env-var gate — there is
   // NEVER a silent FakeProvider fallback in production code.
-  if (process.env.EDITORIAL_FORCE_FAKE_PROVIDER === "1") {
+  if (
+    process.env.EDITORIAL_FORCE_FAKE_PROVIDER === "1" &&
+    process.env.NODE_ENV !== "production"
+  ) {
     const { FakeProvider } = await import("../providers/fake");
     const draft = await generateDraft(input, session.user.id, { provider: new FakeProvider() });
     revalidatePath("/admin/editorial");

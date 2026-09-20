@@ -57,14 +57,16 @@ async function signInAdmin(page: Page) {
 async function clickReload(page: Page, selector: string) {
   await page.click(selector);
   await page.waitForLoadState("networkidle", { timeout: 60_000 });
-  // React 18 startTransition with async callbacks can be deferred when
-  // preceding setActionError(null)/setActionSuccess(null) bail out (values
-  // already null — no re-render triggered). The ServerAction POST is sent
-  // inside the startTransition callback; without this buffer,
-  // waitForLoadState("networkidle") resolves before the POST fires.
-  // Give the scheduler time to process the transition callback + POST +
-  // window.location.reload().
-  await page.waitForTimeout(3_000);
+  // React 18 startTransition defers the ServerAction callback past the
+  // networkidle resolution above. After the action resolves, the UI calls
+  // window.location.reload(). WaitForFunction polls for the document to
+  // enter "loading" state (the reload has begun) — a meaningful state
+  // change that only fires once the deferred POST + action + reload complete,
+  // replacing the previous fixed 3_000ms sleep.
+  await page.waitForFunction(() => document.readyState === "loading", {
+    timeout: 30_000,
+  });
+  await page.waitForLoadState("networkidle", { timeout: 60_000 });
 }
 
 test.describe("mission 07 editorial ai lifecycle", () => {
@@ -74,6 +76,7 @@ test.describe("mission 07 editorial ai lifecycle", () => {
   let tmpFixture: string;
   let sourceTitle: string;
   let runId: string;
+  let sourceId: string;
 
   test.beforeAll(() => {
     runId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
@@ -106,31 +109,31 @@ test.describe("mission 07 editorial ai lifecycle", () => {
       .locator('input[name="title"]')
       .waitFor({ state: "visible", timeout: 10_000 });
 
-    // Upload via the browser context (bypasses the broken upload form in
-    // page-client.tsx, which has a bug: e.currentTarget.reset() throws after
-    // the async fetch, preventing window.location.reload()). This gives us
-    // the source ID directly from the API response.
-    const fileContent = fs.readFileSync(tmpFixture, "utf-8");
-    const sourceId = await page.evaluate(
-      async (params: { content: string; title: string }) => {
-        const formData = new FormData();
-        formData.append("file", new File([params.content], "sample-knowledge.md", {
-          type: "text/markdown",
-        }));
-        formData.append("title", params.title);
-        const res = await fetch("/api/editorial-ai/knowledge/upload", {
-          method: "POST",
-          body: formData,
-        });
-        if (!res.ok) {
-          throw new Error(`Upload failed: ${res.status} - ${await res.text()}`);
-        }
-        const data = (await res.json()) as { id: string; status?: string };
-        return data.id;
-      },
-      { content: fileContent, title: sourceTitle },
-    );
-    expect(sourceId).toBeTruthy();
+    // Upload via the REAL form — no page.evaluate/fetch bypass.
+    // The upload handler in page-client.tsx calls window.location.reload()
+    // after a successful POST, so we wait for the reload to settle.
+    await page.locator('input[type="file"]').setInputFiles(tmpFixture);
+    await page.locator('input[name="title"]').fill(sourceTitle);
+    await Promise.all([
+      page.waitForLoadState("networkidle", { timeout: 60_000 }),
+      page.getByRole("button", { name: /Upload Source/ }).click(),
+    ]);
+
+    // After reload, the source should appear in the table.
+    await page.locator("td", { hasText: sourceTitle }).first().waitFor({
+      state: "visible",
+      timeout: 15_000,
+    });
+
+    // Extract the source ID from the table link href for subsequent navigation.
+    const sourceHref = await page
+      .locator('a[href*="/admin/knowledge/"]')
+      .filter({ hasText: sourceTitle })
+      .first()
+      .getAttribute("href");
+    expect(sourceHref).toBeTruthy();
+    sourceId = sourceHref!.split("/").pop()!;
+    expect(sourceId).toMatch(/^ks_/);
 
     // === 3. INGEST -> READY ===
     await page.goto(`/admin/knowledge/${sourceId}`);
@@ -150,7 +153,10 @@ test.describe("mission 07 editorial ai lifecycle", () => {
     const chunkCount = parseInt(chunkCountCell || "0", 10);
     expect(chunkCount).toBeGreaterThan(0);
 
-    // Allow D1 FTS5 sync triggers to index newly-created chunks
+    // D1 FTS5 sync triggers index newly-created chunks asynchronously. This
+    // fixed wait is a genuine external consistency boundary — there is no D1
+    // API or FTS5-ready endpoint to poll; the subsequent retrieveKnowledge()
+    // in the generation step depends on the index being current.
     await page.waitForTimeout(1_500);
 
     // === 4. GENERATE DRAFT 1 (GUIDE) - REJECTION PATH ===
@@ -300,7 +306,10 @@ test.describe("mission 07 editorial ai lifecycle", () => {
     // Switch to the "Field Notes" tab to see the published field note.
     await page.getByRole("tab", { name: /Field Notes/ }).click();
     await page.waitForLoadState("networkidle");
-    await page.waitForTimeout(1_000);
+    // No fixed sleep needed — the expect below retries until the published
+    // field-note link is visible in the Field Notes tab content (client-side
+    // tab switch renders synchronously; the 10s timeout covers any render
+    // delay).
     // The admin content table renders Preview links as /field-notes/{slug}?preview=true
     // Both the table and card-list views render a link, so use .first() to avoid
     // strict-mode violation (2 matching elements).

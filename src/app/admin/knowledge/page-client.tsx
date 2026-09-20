@@ -35,16 +35,17 @@ export function KnowledgePageClient({ initialSources }: KnowledgePageClientProps
         throw new Error(data.error || "Upload failed");
       }
       const data = await res.json();
-      setUploadSuccess(`Uploaded "${data.title}" (ID: ${data.id})`);
-      e.currentTarget.reset();
-      if (fileInputRef.current) fileInputRef.current.value = "";
-      // Refresh the list
-      const updated = await fetch("/admin/knowledge", { method: "GET" }).catch(() => null);
-      if (updated) {
-        window.location.reload();
-      } else {
-        window.location.reload();
+      setUploadSuccess(`Uploaded source (ID: ${data.id})`);
+      // Reset form fields — wrapped so a reset() edge-case can never block
+      // the page reload that refreshes the source list.
+      try {
+        if (fileInputRef.current) fileInputRef.current.value = "";
+        e.currentTarget.reset();
+      } catch {
+        /* reset is best-effort; reload below refreshes the list */
       }
+      // Reload to show the updated source list
+      window.location.reload();
     } catch (err) {
       setUploadError((err as Error).message);
     } finally {
