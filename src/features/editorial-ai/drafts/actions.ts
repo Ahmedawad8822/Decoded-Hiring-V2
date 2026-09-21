@@ -18,6 +18,7 @@ import {
   sendBack,
   approve,
   rejectDraft,
+  recoverRejected,
   publishDraft,
 } from "./service";
 import type { GenerateDraftInput, UpdateDraftInput, ReviewNoteInput } from "./types";
@@ -78,6 +79,14 @@ export async function approveAction(id: string) {
 export async function rejectDraftAction(id: string, input?: ReviewNoteInput) {
   const session = await requireAdmin();
   const draft = await rejectDraft(id, session.user.id, input?.note);
+  revalidatePath(`/admin/editorial/${id}`);
+  revalidatePath("/admin/editorial");
+  return draft;
+}
+
+export async function recoverRejectedAction(id: string, input?: ReviewNoteInput) {
+  const session = await requireAdmin();
+  const draft = await recoverRejected(id, session.user.id, input?.note);
   revalidatePath(`/admin/editorial/${id}`);
   revalidatePath("/admin/editorial");
   return draft;

@@ -45,7 +45,7 @@ src/features/editorial-ai/
 │   └── types.ts         # Constants, KnowledgeSourceType
 ├── drafts/
 │   ├── service.ts       # Core domain: generateDraft, transitionDraft, publishing
-│   ├── actions.ts       # Server Actions (generate, update, submit, approve, reject, publish)
+│   ├── actions.ts       # Server Actions (generate, update, submit, approve, reject, recover, publish)
 │   └── types.ts         # DraftStatus, GenerateDraftInput, DraftSummary, etc.
 ├── providers/
 │   ├── index.ts         # resolveProvider(), LLMProvider interface
@@ -107,7 +107,7 @@ Visitor reads at /guides/{slug} or /field-notes/{slug}
 | `DRAFT`      | Initial state after generation. Editable.           |
 | `IN_REVIEW`  | Submitted to approvers. Read-only.                  |
 | `APPROVED`   | Approved; can be published. Read-only.              |
-| `REJECTED`   | Rejected by approver. **Terminal.**                 |
+| `REJECTED`   | Rejected by approver. Recoverable to DRAFT.         |
 | `PUBLISHED`  | Published as Guide/Field Note. **Terminal.**        |
 
 ### 2.2 Allowed Transitions
@@ -116,13 +116,14 @@ Visitor reads at /guides/{slug} or /field-notes/{slug}
 DRAFT     → IN_REVIEW   (submit for review)
 IN_REVIEW → DRAFT       (send back for edits)
 IN_REVIEW → APPROVED    (approve)
-IN_REVIEW → REJECTED    (reject — terminal)
+IN_REVIEW → REJECTED    (reject — recoverable)
+REJECTED  → DRAFT       (recover for edits)
 APPROVED  → PUBLISHED   (publish)
 ```
 
 All other transitions are **rejected** with an error.
-`PUBLISHED` and `REJECTED` are terminal — no further lifecycle actions are
-available (UI hides all action buttons).
+Only `PUBLISHED` is terminal; `REJECTED` is recoverable to `DRAFT` via
+`recoverRejectedAction`.
 
 ### 2.3 Transition Rules in Code
 
@@ -254,7 +255,9 @@ publishDraft(id, actorId)
   2. If existing publication with entityId → finalizeOwnedPublication()
      (idempotent re-publish / crash recovery by exact entity ID)
   3. If existing reservation (entityId NULL) → waitForPublication()
-     (another concurrent publish is finalizing)
+     (another concurrent publish is finalizing; times out after ~2 s)
+     → on timeout: delete orphaned reservation, fall through to step 4
+     (crash after reservation but before target creation — scenario B)
   4. Verify draft.status === "APPROVED"
   5. INSERT editorial_publications (id, draftId, entityType, entityId=NULL,
      createdAt)  — UNIQUE(draftId) serializes concurrent publishes
@@ -341,11 +344,16 @@ END;
 -- Editorial memory seeds (corrected — no compiler/GCC/AVOID contamination)
 INSERT OR IGNORE INTO editorial_memory (id, category, content, active, created_by, created_at, updated_at)
 VALUES
-  ('mem_001', 'POSITIONING', 'Decoded teaches hiring leaders to build signal, not noise.', 1, 'system', strftime('%s','now'), strftime('%s','now')),
-  ('mem_002', 'VOICE', 'Write as a practitioner addressing practitioners — no jargon, no fluff.', 1, 'system', strftime('%s','now'), strftime('%s','now')),
-  ('mem_003', 'METHODOLOGY', 'Prefer evidence-backed claims; cite the source chunk in context.', 1, 'system', strftime('%s','now'), strftime('%s','now')),
-  ('mem_004', 'AVOID', 'Avoid overstating claims; flag uncertainty with citations.', 1, 'system', strftime('%s','now'), strftime('%s','now')),
-  ('mem_005', 'EDITORIAL_NOTE', 'Use the "Decoded Hiring" brand voice consistently.', 1, 'system', strftime('%s','now'), strftime('%s','now'));
+  ('mem_001', 'POSITIONING', 'Decoded teaches hiring leaders to build signal, not noise. Every insight must lead to an action the reader can take in their hiring process today.', 1, 'system', strftime('%s','now'), strftime('%s','now')),
+  ('mem_002', 'POSITIONING', 'Decoded verifies every claim against real hiring situations and recruitment practice before publication — never documentation alone.', 1, 'system', strftime('%s','now'), strftime('%s','now')),
+  ('mem_003', 'VOICE', 'Write like a senior recruiter who has run the process they''re describing — confident, precise, never salesy. Assume deep domain knowledge; cite evidence by name.', 1, 'system', strftime('%s','now'), strftime('%s','now')),
+  ('mem_004', 'AUDIENCE', 'Audience: working recruiters and talent leaders operating real hiring processes. Assume deep domain knowledge but not familiarity with the specific problem space.', 1, 'system', strftime('%s','now'), strftime('%s','now')),
+  ('mem_005', 'METHODOLOGY', 'Aha Authority format: lead with an unexpected insight, ground every claim in evidence, then provide a concrete next step. Never lead with context-setting.', 1, 'system', strftime('%s','now'), strftime('%s','now')),
+  ('mem_006', 'EDITORIAL_RULE', 'Never embed raw Markdown, HTML, or code blocks in output — only structured content blocks (headings, paragraphs, blockquotes, callouts, lists).', 1, 'system', strftime('%s','now'), strftime('%s','now')),
+  ('mem_007', 'AVOID', 'Avoid: ''in today''s tutorial'', ''let''s build together'', filler phrases, promises about future content, and any instruction to ''imagine'' or ''pretend''.', 1, 'system', strftime('%s','now'), strftime('%s','now')),
+  ('mem_008', 'AVOID', 'Never reproduce full source material verbatim — summarize, paraphrase, and cite by name.', 1, 'system', strftime('%s','now'), strftime('%s','now')),
+  ('mem_009', 'EDITORIAL_NOTE', 'When writing about a specific hiring tool, assessment method, or market signal, reference the real version and data in use — not upstream documentation or memory.', 1, 'system', strftime('%s','now'), strftime('%s','now')),
+  ('mem_010', 'EDITORIAL_RULE', 'Callout blocks with tone ''evidence'' must cite the source title in the label field. Blockquote blocks are for direct paraphrase attribution.', 1, 'system', strftime('%s','now'), strftime('%s','now'));
 
 -- Publication record table (authoritative draft→target link)
 CREATE TABLE editorial_publications (
@@ -365,7 +373,7 @@ ON editorial_publications(entity_id);
 
 | Issue | Before | After |
 |---|---|---|
-| Memory seeds contamination | Seeds contained GCC/compiler/production-system terms | Seeds rewritten with clean Decoded Hiring positioning/voice/methodology |
+|| Memory seeds contamination | Seeds contained GCC/compiler/production-system terms AND residual "working engineers"/"codebase"/"senior engineer" contamination | Seeds rewritten with clean Decoded Hiring positioning/voice/methodology (0007 removed GCC/builder terms; 0009 corrected residual contamination) |
 
 ### migration 0008 — Identity correction: author defaults
 
@@ -381,6 +389,35 @@ ON editorial_publications(entity_id);
 (Generated by `drizzle-kit generate`; contains table-recreation + UPDATE
 statements to backfill existing rows.)
 
+### migration 0009 — Memory identity correction (residual contamination)
+
+Migration 0007 removed GCC/builder/production-system terms from memory
+seeds but left residual platform-contamination: "working engineers",
+"codebase", "senior engineer". Migration 0009 corrects the remaining
+`editorial_memory` rows to the clean Decoded Hiring identity (recruiters,
+hiring leaders, talent acquisition) matching the `SEEDED_MEMORY` constant
+in `memory/types.ts`.
+
+```sql
+UPDATE editorial_memory
+  SET content = 'Write like a senior recruiter who has run the process
+                 they''re describing — confident, precise, never salesy.
+                 Assume deep domain knowledge; cite evidence by name.'
+WHERE id = 'mem_003';
+
+UPDATE editorial_memory
+  SET content = 'Audience: working recruiters and talent leaders operating
+                 real hiring processes. Assume deep domain knowledge but not
+                 familiarity with the specific problem space.'
+WHERE id = 'mem_004';
+
+UPDATE editorial_memory
+  SET content = 'When writing about a specific hiring tool, assessment
+                 method, or market signal, reference the real version and
+                 data in use — not upstream documentation or memory.'
+WHERE id = 'mem_009';
+```
+
 ---
 
 ## 6. Identity & Ownership Guarantees
@@ -393,7 +430,9 @@ references, builder terminology, production-infra terms) into generated content.
 **Forbidden terms** (enforced in tests):
 
 ```
-builders, gcc, compiler, "production features", "production systems"
+builders, gcc, compiler, "production features", "production systems",
+"learning platform", "engineers", "ship better software", "codebase",
+"senior engineer", "tutorials", "working engineers", "recruitment platform"
 ```
 
 **Unit-level**: `tests/editorial-ai/identity-regression.test.ts` searches
@@ -420,6 +459,7 @@ the author from the actor's user row with a fallback to `"Decoded Editorial"`
 | `sendBack` | `requireAdmin()` — auth check; CAS on status |
 | `approve` | `requireAdmin()` — auth check; CAS on status |
 | `rejectDraft` | `requireAdmin()` — auth check; CAS on status |
+| `recoverRejected` | `requireAdmin()` — auth check; CAS on status |
 | `publishDraft` | `requireAdmin()` — auth check; `UNIQUE(draftId)` serializes publishes |
 
 ### 6.3 Publication Uniqueness
@@ -432,8 +472,11 @@ the author from the actor's user row with a fallback to `"Decoded Editorial"`
 
 A second publish attempt against the same draft finds the existing record
 and either finalizes it (idempotent) or waits for the concurrent publish to
-finish. An unrelated guide/field-note with the same slug makes target creation
-fail — the draft's publication record is cleaned up and the error propagates.
+finish. If the wait times out (orphaned reservation — a crashed publish
+left `entityId = NULL` before target creation), the reservation is deleted
+and the publish re-runs from reservation insertion. An unrelated
+guide/field-note with the same slug makes target creation fail — the draft's
+publication record is cleaned up and the error propagates.
 
 ---
 
@@ -534,7 +577,8 @@ includes full source provenance with chunk content.
 | Identity check | No forbidden platform terms in generated content |
 | Edit draft | Title change persists after reload |
 | Submit → IN_REVIEW | Status badge updates |
-| Reject → REJECTED | Terminal: no Publish/Approve/Send-Back buttons |
+| Reject → REJECTED | Recoverable: "Recover to DRAFT" button appears, no Publish button |
+| Recover → DRAFT | Status badge returns to DRAFT, Submit for Review button appears |
 | Generate 2nd draft | Fresh draft from same source |
 | Submit → Send Back → DRAFT | Non-terminal rejection works |
 | Edit & resubmit → IN_REVIEW | Edits saved, resubmission accepted |

@@ -1,16 +1,21 @@
 // ============================================================================
 // EDITORIAL AI — DRAFTS DOMAIN TYPES
 // ----------------------------------------------------------------------------
-// Types for the editorial draft lifecycle: DRAFT → IN_REVIEW → APPROVED/
-// REJECTED → PUBLISHED. Drafts are created by the LLM generation pipeline
-// and reviewed/approved by editors before being published as Guides or
-// Field Notes.
+// Types for the editorial draft lifecycle: DRAFT → IN_REVIEW → APPROVED
+// → PUBLISHED. REJECTED is recoverable (→ DRAFT). Drafts are created by the
+// LLM generation pipeline and reviewed/approved by editors before being
+// published as Guides or Field Notes.
 // ============================================================================
 
 import { z } from "zod";
 import type { LlmBlock } from "../skills/types";
 
-/** Draft status lifecycle: DRAFT → IN_REVIEW → APPROVED → PUBLISHED */
+/**
+ * Draft status lifecycle:
+ *   DRAFT → IN_REVIEW → APPROVED → PUBLISHED
+ *   DRAFT → IN_REVIEW → REJECTED → DRAFT  (edit → resubmit)
+ * Only PUBLISHED is terminal. REJECTED is recoverable.
+ */
 export const DRAFT_STATUSES = ["DRAFT", "IN_REVIEW", "APPROVED", "REJECTED", "PUBLISHED"] as const;
 export type DraftStatus = (typeof DRAFT_STATUSES)[number];
 
@@ -102,16 +107,18 @@ export type ReviewNoteInput = z.infer<typeof reviewNoteSchema>;
  *   DRAFT     → IN_REVIEW   (submit for review)
  *   IN_REVIEW → DRAFT       (send back for edits)
  *   IN_REVIEW → APPROVED    (approve)
- *   IN_REVIEW → REJECTED    (reject — terminal)
+ *   IN_REVIEW → REJECTED    (reject — recoverable)
+ *   REJECTED  → DRAFT       (recover for edits — edit → resubmit)
  *   APPROVED  → PUBLISHED   (publish to guide/field-note)
  *
- * All other transitions are rejected. PUBLISHED and REJECTED are terminal.
+ * All other transitions are rejected. Only PUBLISHED is terminal.
  */
 export const ALLOWED_DRAFT_TRANSITIONS: ReadonlyArray<{ from: DraftStatus; to: DraftStatus; action: string }> = [
   { from: "DRAFT", to: "IN_REVIEW", action: "submit_for_review" },
   { from: "IN_REVIEW", to: "DRAFT", action: "send_back" },
   { from: "IN_REVIEW", to: "APPROVED", action: "approve" },
   { from: "IN_REVIEW", to: "REJECTED", action: "reject" },
+  { from: "REJECTED", to: "DRAFT", action: "recover_rejected" },
   { from: "APPROVED", to: "PUBLISHED", action: "publish" },
 ];
 

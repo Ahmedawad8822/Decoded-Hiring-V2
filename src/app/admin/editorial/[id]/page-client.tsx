@@ -7,6 +7,7 @@ import {
   sendBackAction,
   approveAction,
   rejectDraftAction,
+  recoverRejectedAction,
   publishDraftAction,
   updateDraftAction,
 } from "@/features/editorial-ai/drafts/actions";
@@ -243,6 +244,9 @@ export function DraftDetailClient({ draft }: DraftDetailClientProps) {
             <button onClick={() => runAction(approveAction, "Approved")} disabled={isPending} style={{ padding: "8px 16px", fontSize: "13px", background: "#10b981", color: "white", border: "none", borderRadius: "4px", cursor: "pointer" }}>Approve</button>
             <button onClick={() => runAction(rejectDraftAction, "Rejected")} disabled={isPending} style={{ padding: "8px 16px", fontSize: "13px", background: "#ef4444", color: "white", border: "none", borderRadius: "4px", cursor: "pointer" }}>Reject</button>
           </>
+        )}
+        {draft.status === "REJECTED" && (
+          <button onClick={() => runAction(recoverRejectedAction, "Recovered")} disabled={isPending} style={{ padding: "8px 16px", fontSize: "13px", background: "#3b82f6", color: "white", border: "none", borderRadius: "4px", cursor: "pointer" }}>Recover to DRAFT</button>
         )}
         {draft.status === "APPROVED" && (
           <button onClick={handlePublish} disabled={isPending} style={{ padding: "8px 16px", fontSize: "13px", background: "#8b5cf6", color: "white", border: "none", borderRadius: "4px", cursor: "pointer" }}>{isPending ? "Publishing..." : "Publish to Guide"}/Field Note</button>

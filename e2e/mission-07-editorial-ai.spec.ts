@@ -5,7 +5,7 @@
 //   upload mk -> ingest READY -> retrieve -> generate (FakeProvider) ->
 //   draft stored -> provenance -> edit -> submit -> approve -> publish ->
 //   verify public page
-// Also covers: IN_REVIEW -> REJECTED (terminal) and
+// Also covers: IN_REVIEW -> REJECTED (recoverable) and
 //   IN_REVIEW -> send-back -> DRAFT -> edit -> resubmit
 //
 // Identity guard: scan generated content + public page for accidental
@@ -205,19 +205,27 @@ test.describe("mission 07 editorial ai lifecycle", () => {
       timeout: 20_000,
     });
 
-    // === 10. REJECT -> REJECTED (TERMINAL) ===
+    // === 10. REJECT -> REJECTED (RECOVERABLE, not terminal) ===
     await clickReload(page, 'button:has-text("Reject")');
     await expect(page.locator("text=REJECTED").first()).toBeVisible({
       timeout: 15_000,
     });
-    // Verify terminal: no Publish/Approve/Send Back buttons
-    await expect(
-      page.locator(
-        'button:has-text("Publish"), button:has-text("Approve"), button:has-text("Send Back")',
-      ),
-    ).toHaveCount(0);
+    // REJECTED is recoverable: no Publish button, but "Recover to DRAFT" appears.
+    await expect(page.locator('button:has-text("Publish")')).toHaveCount(0);
+    await expect(page.locator('button:has-text("Recover to DRAFT")')).toBeVisible({
+      timeout: 10_000,
+    });
 
-    // === 11. GENERATE DRAFT 2 (FIELD_NOTE) - PUBLISH PATH ===
+    // === 11. RECOVER -> DRAFT, then re-submit and publish ===
+    await clickReload(page, 'button:has-text("Recover to DRAFT")');
+    await expect(page.locator("text=DRAFT").first()).toBeVisible({
+      timeout: 10_000,
+    });
+    // After recovery, the standard lifecycle buttons return.
+    await expect(page.locator('button:has-text("Submit for Review")')).toBeVisible();
+    await expect(page.locator('button:has-text("Recover to DRAFT")')).toHaveCount(0);
+
+    // === 12. GENERATE DRAFT 2 (FIELD_NOTE) - PUBLISH PATH ===
     await page.goto("/admin/editorial/new");
     await page.waitForLoadState("networkidle");
     await page.selectOption('select[name="contentType"]', "FIELD_NOTE");

@@ -31,12 +31,14 @@ import {
   submitForReview,
   approve,
   rejectDraft,
+  recoverRejected,
   publishDraft,
   sendBack,
   getDraft,
 } from "../../src/features/editorial-ai/drafts/service";
 import { FakeProvider } from "../../src/features/editorial-ai/providers/fake";
 import { createGuide, publishGuide, getPublicGuideBySlug } from "../../src/features/guides/service";
+import { createFieldNote, getPublicFieldNoteBySlug } from "../../src/features/field-notes/service";
 import type { ContentBlock } from "../../src/features/publishing/types";
 
 const createdDraftIds: string[] = [];
@@ -185,7 +187,8 @@ test("lifecycle: reject moves IN_REVIEW → REJECTED", async () => {
   assert.equal(rejected.status, "REJECTED");
   assert.ok(rejected.rejectedAt instanceof Date);
 
-  // REJECTED is terminal — cannot publish
+  // REJECTED is recoverable (not terminal) — but cannot publish directly.
+  // Must recover to DRAFT first.
   await assert.rejects(
     () => publishDraft(draft.id, "test-admin"),
     /not in APPROVED status/i,
@@ -434,4 +437,210 @@ test("publish: LLM blocks converted to ContentBlocks with id and anchor", async 
       assert.ok(block.level === 2 || block.level === 3, "heading level should be 2 or 3");
     }
   }
+});
+
+// ---------------------------------------------------------------------------
+// REJECTED → DRAFT recovery
+// ---------------------------------------------------------------------------
+test("lifecycle: REJECTED → DRAFT recovery (recoverRejected)", async () => {
+  const draft = await generateDraft(
+    { contentType: "GUIDE", topic: `recover-test-${Date.now()}` },
+    "test-admin",
+    { provider: new FakeProvider() },
+  );
+  createdDraftIds.push(draft.id);
+
+  await submitForReview(draft.id, "test-admin");
+  const rejected = await rejectDraft(draft.id, "test-admin", "Needs more evidence");
+  assert.equal(rejected.status, "REJECTED");
+
+  // REJECTED drafts can be recovered back to DRAFT for re-editing.
+  const recovered = await recoverRejected(draft.id, "test-admin", "Found more evidence");
+  assert.equal(recovered.status, "DRAFT");
+  assert.equal(recovered.reviewedBy, null);
+  assert.equal(recovered.rejectedAt, null);
+
+  // After recovery, the draft can be re-submitted for review.
+  await submitForReview(draft.id, "test-admin");
+});
+
+test("lifecycle: recoverRejected on non-REJECTED status throws", async () => {
+  const draft = await generateDraft(
+    { contentType: "GUIDE", topic: `recover-fail-test-${Date.now()}` },
+    "test-admin",
+    { provider: new FakeProvider() },
+  );
+  createdDraftIds.push(draft.id);
+
+  // Draft is in DRAFT status, not REJECTED — must throw.
+  await assert.rejects(
+    () => recoverRejected(draft.id, "test-admin"),
+    /not in REJECTED status/i,
+  );
+});
+
+test("lifecycle: PUBLISHED is terminal — recoverRejected rejected", async () => {
+  const topic = `recover-terminal-${Date.now()}`;
+  const approved = await prepareApprovedDraft(topic, "GUIDE");
+  await publishDraft(approved.id, "test-admin");
+
+  // PUBLISHED is terminal — even REJECTED recovery must not apply.
+  await assert.rejects(
+    () => recoverRejected(approved.id, "test-admin"),
+    /already PUBLISHED/i,
+  );
+});
+
+// ---------------------------------------------------------------------------
+// Publishing reliability — crash recovery (scenario B)
+// ---------------------------------------------------------------------------
+test("publish: crash after reservation before target creation — orphaned reservation is re-reserved and published", async () => {
+  // Simulate a crash between inserting the publication reservation
+  // (entityId = NULL) and creating the target entity. The next publishDraft
+  // call should detect the orphaned reservation, re-reserve, create the
+  // target, and finalize — without hanging or double-publishing.
+  const topic = `crash-orphaned-${Date.now()}`;
+  const approved = await prepareApprovedDraft(topic, "GUIDE");
+
+  const db = await getDb();
+
+  // Simulate the crashed state: reservation exists but entityId is NULL
+  // and no target guide was ever created.
+  await db.insert(editorial_publications).values({
+    id: `pub_orphan_${crypto.randomUUID().slice(0, 12)}`,
+    draftId: approved.id,
+    entityType: "guide",
+    entityId: null,
+    createdAt: new Date(),
+  });
+
+  // publishDraft should time out waiting (~2s), then delete the orphaned
+  // reservation, re-insert, create the target, and finalize.
+  const result = await publishDraft(approved.id, "test-admin");
+  assert.equal(result.entityType, "guide");
+  assert.ok(result.entityId, "should have created and published a new guide");
+
+  const finalized = await getDraft(approved.id);
+  assert.equal(finalized?.status, "PUBLISHED");
+  assert.equal(finalized?.publishedEntityId, result.entityId);
+});
+
+// ---------------------------------------------------------------------------
+// Publishing reliability — field-note slug collision (scenario F)
+// ---------------------------------------------------------------------------
+test("publish: unrelated field-note with same slug is NEVER claimed (ownership by entityId)", async () => {
+  const db = await getDb();
+  const collisionSlug = `fn-collision-${Date.now()}`;
+
+  // An UNRELATED field note occupies the draft's slug. Ownership is by
+  // entityId — so this field note must never be silently relinked.
+  const unrelated = await createFieldNote({
+    title: "Unrelated Existing Field Note",
+    slug: collisionSlug,
+    excerpt: "Pre-existing note occupying this slug.",
+    body: [
+      { id: "cb_seed", type: "paragraph", text: "Pre-existing content." },
+    ] as unknown as ContentBlock[],
+    author: "Decoded Editorial",
+    coverImage: null,
+  });
+
+  const approved = await prepareApprovedDraft(collisionSlug, "FIELD_NOTE");
+  assert.equal(approved.slug, collisionSlug, "draft slug collides with unrelated field note");
+
+  // createTarget → createFieldNote hits the slug collision → fails.
+  await assert.rejects(
+    () => publishDraft(approved.id, "test-admin"),
+    /already exists/i,
+  );
+
+  // The draft remains APPROVED and the unrelated field note is untouched.
+  const draft = await getDraft(approved.id);
+  assert.equal(draft?.status, "APPROVED");
+  assert.equal(draft?.publishedEntityId, null);
+
+  const unaffected = await db
+    .select()
+    .from(fieldNotes)
+    .where(eq(fieldNotes.id, unrelated.id))
+    .get();
+  assert.equal(unaffected?.slug, collisionSlug);
+
+  // The unrelated field note is a draft (not published) — it must NOT be
+  // publicly visible, proving the collision did not "claim" it.
+  const publicView = await getPublicFieldNoteBySlug(collisionSlug);
+  assert.equal(publicView, null, "unrelated field note must remain unpublished");
+
+  // No publication record was finalized for the draft's id.
+  const pub = await db
+    .select()
+    .from(editorial_publications)
+    .where(eq(editorial_publications.draftId, approved.id))
+    .get();
+  assert.equal(pub, undefined);
+});
+
+// ---------------------------------------------------------------------------
+// Publishing reliability — stale edit during publication (scenario G)
+// ---------------------------------------------------------------------------
+test("publish: stale edit during publication triggers CAS rollback — target is rolled back, draft unchanged", async () => {
+  // Simulate concurrent edit: after the target is created and published but
+  // BEFORE the draft is marked PUBLISHED, another actor edits the draft
+  // (APPROVED → DRAFT). The CAS guard must detect this, roll back the target
+  // (unpublish it), clean up the reservation, and throw — never silently
+  // marking a stale draft as PUBLISHED.
+  const topic = `stale-edit-${Date.now()}`;
+  const approved = await prepareApprovedDraft(topic, "GUIDE");
+
+  const db = await getDb();
+
+  // Create and publish the target (as the winning publish would have done).
+  const guide = await createGuide({
+    title: approved.title,
+    slug: approved.slug,
+    excerpt: approved.excerpt ?? undefined,
+    body: approved.body as unknown as ContentBlock[],
+    author: "Decoded Editorial",
+    coverImage: null,
+  });
+  await publishGuide(guide.id);
+
+  // Insert the publication reservation that OWNS the target by entityId.
+  await db.insert(editorial_publications).values({
+    id: `pub_stale_${crypto.randomUUID().slice(0, 12)}`,
+    draftId: approved.id,
+    entityType: "guide",
+    entityId: guide.id,
+    createdAt: new Date(),
+  });
+
+  // Simulate a concurrent edit: revert the draft from APPROVED → DRAFT
+  // (this is what updateDraft does when an APPROVED draft receives a content edit).
+  await db
+    .update(editorial_drafts)
+    .set({ status: "DRAFT", updatedAt: new Date() })
+    .where(eq(editorial_drafts.id, approved.id));
+
+  // publishDraft sees the reservation (entityId set) → finalizeOwnedPublication
+  // → CAS update WHERE status=APPROVED moves 0 rows → rollback + throw.
+  await assert.rejects(
+    () => publishDraft(approved.id, "test-admin"),
+    /stale publish.*modified.*during publication/i,
+  );
+
+  // The draft must NOT have been marked PUBLISHED (CAS guard held).
+  const after = await getDraft(approved.id);
+  assert.equal(after?.status, "DRAFT");
+
+  // The target must NOT be published (rolled back).
+  const published = await getPublicGuideBySlug(approved.slug);
+  assert.equal(published, null, "target should be unpublished after rollback");
+
+  // The publication record should be cleaned up.
+  const pub = await db
+    .select()
+    .from(editorial_publications)
+    .where(eq(editorial_publications.draftId, approved.id))
+    .get();
+  assert.equal(pub, undefined, "publication record should be cleaned up after rollback");
 });

@@ -64,19 +64,19 @@ export type UpdateMemoryInput = z.infer<typeof updateMemorySchema>;
 export const SEEDED_MEMORY: CreateMemoryInput[] = [
   {
     category: "POSITIONING",
-    content: "Decoded teaches working engineers to ship better software, not consume tutorials. Every insight must lead to an action the reader can take in their codebase today.",
+    content: "Decoded teaches hiring leaders to build signal, not noise. Every insight must lead to an action the reader can take in their hiring process today.",
   },
   {
     category: "POSITIONING",
-    content: "Decoded verifies every claim against the actual tools and systems in use before publication — never documentation alone.",
+    content: "Decoded verifies every claim against real hiring situations and recruitment practice before publication — never documentation alone.",
   },
   {
     category: "VOICE",
-    content: "Write like a senior engineer who has shipped the thing they're describing — confident, precise, never salesy. Avoid marketing fluff; cite evidence by name.",
+    content: "Write like a senior recruiter who has run the process they're describing — confident, precise, never salesy. Assume deep domain knowledge; cite evidence by name.",
   },
   {
     category: "AUDIENCE",
-    content: "Audience: working engineers building and operating real software. Assume deep technical knowledge but not familiarity with the specific problem space.",
+    content: "Audience: working recruiters and talent leaders operating real hiring processes. Assume deep domain knowledge but not familiarity with the specific problem space.",
   },
   {
     category: "METHODOLOGY",
@@ -96,7 +96,7 @@ export const SEEDED_MEMORY: CreateMemoryInput[] = [
   },
   {
     category: "EDITORIAL_NOTE",
-    content: "When writing about a specific tool, language, or runtime, reference the real version and source files in use — not upstream documentation or memory.",
+    content: "When writing about a specific hiring tool, assessment method, or market signal, reference the real version and data in use — not upstream documentation or memory.",
   },
   {
     category: "EDITORIAL_RULE",

@@ -445,7 +445,15 @@ export async function rejectDraft(id: string, actor: string, reason?: string): P
 }
 
 /**
- * APPROVED → PUBLISHED. Creates a Guide or Field Note, actually *publishes* it
+ * REJECTED → DRAFT (recover a rejected draft for re-editing).
+ * Uses the same CAS-protected transitionDraft() with expectedStatus="REJECTED".
+ * PUBLISHED remains terminal (guarded inside transitionDraft).
+ */
+export async function recoverRejected(id: string, actor: string, note?: string): Promise<EditorialDraftWithSources> {
+  return transitionDraft(id, "REJECTED", "DRAFT", actor, "draft_recovered", note ? { note } : undefined, ["rejectedAt", "reviewedBy"]);
+}
+
+/**
  * on the public resolver, verifies it, and records the authoritative draft→target
  * link in `editorial_publications`.
  *
@@ -500,9 +508,16 @@ export async function publishDraft(
         publishTargetFn,
       );
     }
-    // entityId is NULL → a concurrent publish reserved this draft but has
-    // not yet created its target. Wait for it to finish (or time out).
-    return await waitForPublication(db, draft.id);
+    // entityId is NULL → either a concurrent publish is in progress, or a
+    // crashed publish left an orphaned reservation (entityId never set).
+    try {
+      return await waitForPublication(db, draft.id);
+    } catch {
+      // Wait timed out — the reservation is likely orphaned (the owning
+      // publish crashed before target creation). Delete it so we can re-reserve
+      // and create the target from scratch. Fall through to step 2 below.
+      await deletePublicationByDraftId(db, draft.id);
+    }
   }
 
   if (draft.status !== "APPROVED") {
@@ -814,7 +829,8 @@ async function transitionDraft(
   newStatus: DraftStatus,
   actor: string,
   auditAction: string,
-  extraDetail?: Record<string, unknown>
+  extraDetail?: Record<string, unknown>,
+  clearFields?: (keyof typeof editorial_drafts.$inferInsert)[],
 ): Promise<EditorialDraftWithSources> {
   const draft = await getDraft(id);
   if (!draft) throw new Error(`Draft with id "${id}" not found`);
@@ -840,6 +856,16 @@ async function transitionDraft(
     updates.reviewedBy = actor;
     updates.approvedBy = actor;
     updates.approvedAt = now;
+  }
+
+  // Clear review/rejection metadata when reverting to DRAFT (e.g. REJECTED →
+  // DRAFT recovery). This makes the "reviewed by" / "rejected at" fields null
+  // so the recovered draft starts fresh, matching the semantics of updateDraft's
+  // APPROVED → DRAFT content-edit reset.
+  if (newStatus === "DRAFT" && clearFields) {
+    for (const field of clearFields) {
+      (updates as Record<string, unknown>)[field] = null;
+    }
   }
 
   // CAS: only advance if the draft is still in expectedStatus. A concurrent

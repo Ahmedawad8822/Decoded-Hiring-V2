@@ -64,6 +64,13 @@
       "when": 1789878068890,
       "tag": "0008_editorial_identity_correction",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "6",
+      "when": 1789900000000,
+      "tag": "0009_editorial_memory_identity",
+      "breakpoints": true
     }
   ]
 }

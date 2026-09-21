@@ -18,6 +18,7 @@ import type { LLMGenerateInput } from "../../src/features/editorial-ai/providers
 // Tokens that originated from the pre-R02 prototype voice and must never
 // appear in editorial identity content again.
 const FORBIDDEN = [
+  // Obvious prototype contamination (pre-R02)
   "builders",
   "gcc",
   "gcc-audited",
@@ -26,6 +27,23 @@ const FORBIDDEN = [
   "compiler",
   "production features",
   "production systems",
+  // Subtle contamination — software-engineering framing that must NOT
+  // describe Decoded Hiring as a "software engineering learning platform"
+  "learning platform that helps engineers",
+  "ship better software",
+  "codebase",
+  "working engineers",
+  "senior engineer",
+  "building and operating real software",
+  "language, or runtime",
+];
+
+// Positive assertions — the editorial identity MUST affirm the Decoded
+// Hiring recruitment / talent-acquisition brand.
+const REQUIRED_IDENTITY_TERMS = [
+  "talent acquisition",
+  "recruiter",
+  "hiring",
 ];
 
 function assertClean(text: string, label: string): void {
@@ -33,19 +51,36 @@ function assertClean(text: string, label: string): void {
   for (const term of FORBIDDEN) {
     assert.ok(
       !hay.includes(term.toLowerCase()),
-      `${label} contains forbidden prototype term "${term}"`
+      `${label} contains forbidden prototype term "${term}"`,
     );
   }
 }
 
+function assertHasIdentity(text: string, label: string): void {
+  const hay = (text || "").toLowerCase();
+  const found = REQUIRED_IDENTITY_TERMS.some((term) =>
+    hay.includes(term.toLowerCase()),
+  );
+  assert.ok(
+    found,
+    `${label} must include recruitment / Talent Acquisition identity — found none of: ${REQUIRED_IDENTITY_TERMS.join(", ")}`,
+  );
+}
+
 test("identity: AHA_AUTHORITY_V1 system prompt is free of prototype contamination", () => {
-  assertClean(buildSystemPrompt(), "AHA_AUTHORITY_V1 system prompt");
+  const prompt = buildSystemPrompt();
+  assertClean(prompt, "AHA_AUTHORITY_V1 system prompt");
+  assertHasIdentity(prompt, "AHA_AUTHORITY_V1 system prompt");
 });
 
 test("identity: SEEDED_MEMORY is free of prototype contamination", () => {
   for (const mem of SEEDED_MEMORY) {
     assertClean(mem.content, `seeded memory "${mem.content.slice(0, 40)}"`);
   }
+});
+
+test("identity: system prompt affirms Decoded Hiring recruitment identity", () => {
+  assertHasIdentity(buildSystemPrompt(), "AHA_AUTHORITY_V1 system prompt");
 });
 
 test("identity: FakeProvider sample output is free of prototype contamination", async () => {

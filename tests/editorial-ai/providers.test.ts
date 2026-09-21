@@ -133,3 +133,89 @@ test("migration: migration 0008 exists and backfills author identity", () => {
     "Migration 0008 must backfill existing 'Ahmed Awad' rows to the canonical identity",
   );
 });
+
+// ---------------------------------------------------------------------------
+// REGRESSION: Migration 0008 backfill must NOT erase legitimate authorship.
+// ---------------------------------------------------------------------------
+// "Ahmed Awad" was a personal name that leaked into production schema defaults
+// (migration 0000 set guides.author DEFAULT 'Ahmed Awad'; 0001 did the same
+// for field_notes). It was used as a fallback default — NOT as a real named
+// author on any seed or migration content. Migration 0008 backfills all rows
+// WHERE author = 'Ahmed Awad' → 'Decoded Editorial'. This is safe because:
+//
+//   (a) No migration (0000–0008) INSERTs seed data with author = 'Ahmed Awad'.
+//   (b) The current seed.ts uses author = 'Decoded Editorial' (changed at R02).
+//   (c) resolveAuthorName() falls back to DEFAULT_PUBLISH_AUTHOR = 'Decoded Editorial'.
+//   (d) The schema default is 'Decoded Editorial' (changed at R02).
+//
+// This test proves the backfill is scoped (has a WHERE clause) and that no
+// source code still defaults author to 'Ahmed Awad'.
+test("migration: 0008 backfill is scoped — WHERE author='Ahmed Awad' only (no blanket UPDATE)", () => {
+  const migrationsDir = path.resolve(
+    import.meta.dirname,
+    "../../drizzle/migrations",
+  );
+  const files = fs.readdirSync(migrationsDir);
+  const m0008 = files.find(
+    (f) => f.startsWith("0008_") && f.endsWith(".sql"),
+  );
+  assert.ok(m0008, "Migration 0008 must exist");
+
+  const sql = fs.readFileSync(path.join(migrationsDir, m0008), "utf-8");
+
+  // The backfill must use a WHERE clause limiting to author = 'Ahmed Awad'.
+  // A blanket "UPDATE ... SET author='Decoded Editorial'" (without WHERE)
+  // would erase legitimate authorship — that is forbidden.
+  const updateStatements = sql
+    .split(";")
+    .filter(
+      (s) =>
+        s.trim().toUpperCase().includes("UPDATE") && s.includes("'Ahmed Awad'"),
+    );
+
+  assert.ok(
+    updateStatements.length >= 2,
+    "Migration 0008 must backfill both guides and field_notes",
+  );
+
+  for (const stmt of updateStatements) {
+    const upper = stmt.toUpperCase();
+    assert.ok(
+      upper.includes("WHERE"),
+      `Backfill UPDATE must be scoped with a WHERE clause: ${stmt.trim().slice(0, 80)}`,
+    );
+    // WHERE clause must target ONLY author = 'Ahmed Awad' (backtick-quoted or bare).
+    assert.ok(
+      /WHERE\s+`?AUTHOR`?\s*=\s*'AHMED AWAD'/i.test(stmt),
+      `Backfill WHERE clause must target only author='Ahmed Awad': ${stmt.trim().slice(0, 80)}`,
+    );
+  }
+});
+
+test("migration: no source code uses 'Ahmed Awad' as an author default or fallback", () => {
+  const schemaSrc = fs.readFileSync(SCHEMA_PATH, "utf-8");
+  const servicePath = path.resolve(
+    import.meta.dirname,
+    "../../src/features/editorial-ai/drafts/service",
+  );
+
+  // Schema must default to 'Decoded Editorial', not a personal name.
+  assert.doesNotMatch(
+    schemaSrc,
+    /default\(["']Ahmed Awad["']/i,
+    "Schema must not default author to 'Ahmed Awad'",
+  );
+
+  // resolveAuthorName fallback (DEFAULT_PUBLISH_AUTHOR) must not be 'Ahmed Awad'.
+  // Check the service source for the constant.
+  const serviceSrc = fs.readFileSync(servicePath + ".ts", "utf-8");
+  assert.doesNotMatch(
+    serviceSrc,
+    /DEFAULT_PUBLISH_AUTHOR\s*=\s*["']Ahmed Awad["']/i,
+    "DEFAULT_PUBLISH_AUTHOR must not be 'Ahmed Awad'",
+  );
+  assert.ok(
+    serviceSrc.includes('DEFAULT_PUBLISH_AUTHOR = "Decoded Editorial"'),
+    "DEFAULT_PUBLISH_AUTHOR must be 'Decoded Editorial'",
+  );
+});
