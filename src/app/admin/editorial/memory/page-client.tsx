@@ -22,58 +22,66 @@ export function MemoryPageClient({ initialMemory }: MemoryPageClientProps) {
   const [createCategory, setCreateCategory] = useState<MemoryCategory>("POSITIONING");
   const [createContent, setCreateContent] = useState("");
 
-  const handleCreate = () => {
-    setActionError(null);
-    setActionSuccess(null);
-    startTransition(async () => {
-      try {
-        await createMemoryAction({ category: createCategory, content: createContent });
+  const handleCreate = async () => {
+    startTransition(() => {
+      setActionError(null);
+      setActionSuccess(null);
+    });
+    try {
+      await createMemoryAction({ category: createCategory, content: createContent });
+      startTransition(() => {
         setActionSuccess("Memory item created");
         setShowCreate(false);
         setCreateContent("");
-        window.location.reload();
-      } catch (err) {
+      });
+      window.location.reload();
+    } catch (err) {
+      startTransition(() => {
         setActionError((err as Error).message);
-      }
-    });
+      });
+    }
   };
 
-  const handleUpdate = (id: string) => {
-    setActionError(null);
-    setActionSuccess(null);
-    startTransition(async () => {
-      try {
-        await updateMemoryAction(id, { category: editCategory, content: editContent });
+  const handleUpdate = async (id: string) => {
+    startTransition(() => {
+      setActionError(null);
+      setActionSuccess(null);
+    });
+    try {
+      await updateMemoryAction(id, { category: editCategory, content: editContent });
+      startTransition(() => {
         setActionSuccess("Memory item updated");
         setEditingId(null);
-        window.location.reload();
-      } catch (err) {
+      });
+      window.location.reload();
+    } catch (err) {
+      startTransition(() => {
         setActionError((err as Error).message);
-      }
-    });
+      });
+    }
   };
 
-  const handleArchive = (id: string) => {
+  const handleArchive = async (id: string) => {
     if (!confirm("Archive this memory item? It will no longer be injected into generation prompts.")) return;
-    startTransition(async () => {
-      try {
-        await archiveMemoryAction(id);
-        window.location.reload();
-      } catch (err) {
+    try {
+      await archiveMemoryAction(id);
+      window.location.reload();
+    } catch (err) {
+      startTransition(() => {
         setActionError((err as Error).message);
-      }
-    });
+      });
+    }
   };
 
-  const handleUnarchive = (id: string) => {
-    startTransition(async () => {
-      try {
-        await unarchiveMemoryAction(id);
-        window.location.reload();
-      } catch (err) {
+  const handleUnarchive = async (id: string) => {
+    try {
+      await unarchiveMemoryAction(id);
+      window.location.reload();
+    } catch (err) {
+      startTransition(() => {
         setActionError((err as Error).message);
-      }
-    });
+      });
+    }
   };
 
   const activeCount = memory.filter((m) => m.active).length;

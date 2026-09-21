@@ -25,17 +25,21 @@ export function KnowledgeDetailClient({ source, chunks }: KnowledgeDetailClientP
   };
 
   async function runAction(fn: (id: string) => Promise<unknown>, label: string) {
-    setActionError(null);
-    setActionSuccess(null);
-    startTransition(async () => {
-      try {
-        await fn(source.id);
-        setActionSuccess(`${label} completed`);
-        window.location.reload();
-      } catch (err) {
-        setActionError((err as Error).message);
-      }
+    startTransition(() => {
+      setActionError(null);
+      setActionSuccess(null);
     });
+    try {
+      await fn(source.id);
+      startTransition(() => {
+        setActionSuccess(`${label} completed`);
+      });
+      window.location.reload();
+    } catch (err) {
+      startTransition(() => {
+        setActionError((err as Error).message);
+      });
+    }
   }
 
   return (

@@ -20,7 +20,9 @@ export function NewDraftClient({ sources }: NewDraftClientProps) {
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
-    setError(null);
+    startTransition(() => {
+      setError(null);
+    });
     setIsGenerating(true);
 
     const formData = new FormData(e.currentTarget);
@@ -37,16 +39,14 @@ export function NewDraftClient({ sources }: NewDraftClientProps) {
       sourceIds: selectedSourceIds.length > 0 ? selectedSourceIds : undefined,
     };
 
-    startTransition(async () => {
-      try {
-        const draft = await generateDraftAction(input);
-        router.push(`/admin/editorial/${draft.id}`);
-      } catch (err) {
-        setError((err as Error).message);
-      } finally {
-        setIsGenerating(false);
-      }
-    });
+    try {
+      const draft = await generateDraftAction(input);
+      router.push(`/admin/editorial/${draft.id}`);
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setIsGenerating(false);
+    }
   }
 
   const readySources = sources.filter((s) => s.status === "READY");

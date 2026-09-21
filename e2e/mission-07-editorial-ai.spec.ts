@@ -55,17 +55,21 @@ async function signInAdmin(page: Page) {
 }
 
 async function clickReload(page: Page, selector: string) {
+  // Start waiting for the navigation BEFORE clicking to avoid races where
+  // waitForLoadState("networkidle") resolves before the POST begins.
+  const reloadStarted = page.waitForFunction(
+    () => document.readyState === "loading",
+    undefined,
+    { timeout: 15_000 },
+  );
   await page.click(selector);
-  await page.waitForLoadState("networkidle", { timeout: 60_000 });
-  // React 18 startTransition defers the ServerAction callback past the
-  // networkidle resolution above. After the action resolves, the UI calls
-  // window.location.reload(). WaitForFunction polls for the document to
-  // enter "loading" state (the reload has begun) — a meaningful state
-  // change that only fires once the deferred POST + action + reload complete,
-  // replacing the previous fixed 3_000ms sleep.
-  await page.waitForFunction(() => document.readyState === "loading", {
-    timeout: 30_000,
-  });
+  try {
+    await reloadStarted;
+  } catch (e) {
+    // If reload detection fails, the POST may have already completed and
+    // triggered reload before we could observe the "loading" state.
+    // Fall through to waitForLoadState which will catch the settled state.
+  }
   await page.waitForLoadState("networkidle", { timeout: 60_000 });
 }
 

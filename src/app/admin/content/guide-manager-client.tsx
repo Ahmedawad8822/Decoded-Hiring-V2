@@ -24,7 +24,7 @@ interface GuideManagerClientProps {
 
 export function GuideManagerClient({ initialGuides }: GuideManagerClientProps) {
   const router = useRouter();
-  const [isPending, startTransition] = useTransition();
+  const [isPending] = useTransition();
 
   // View state: "list" | "editor"
   const [view, setView] = useState<"list" | "editor">("list");
@@ -177,8 +177,7 @@ export function GuideManagerClient({ initialGuides }: GuideManagerClientProps) {
       return;
     }
 
-    startTransition(async () => {
-      if (editingGuideId) {
+    if (editingGuideId) {
         // Update existing guide
         const res = await updateGuideAction({
           id: editingGuideId,
@@ -242,7 +241,6 @@ export function GuideManagerClient({ initialGuides }: GuideManagerClientProps) {
       }
 
       router.refresh();
-    });
   };
 
   const handleConfirmAction = async () => {
@@ -250,8 +248,7 @@ export function GuideManagerClient({ initialGuides }: GuideManagerClientProps) {
     const { action, guideId } = confirmModal;
     setConfirmModal(null);
 
-    startTransition(async () => {
-      if (action === "publish") {
+    if (action === "publish") {
         const res = await publishGuideAction(guideId);
         if (res.ok) {
           setCurrentStatus("published");
@@ -278,7 +275,6 @@ export function GuideManagerClient({ initialGuides }: GuideManagerClientProps) {
       }
 
       router.refresh();
-    });
   };
 
   // Filtered guides for list view

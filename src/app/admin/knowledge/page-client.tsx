@@ -54,53 +54,61 @@ export function KnowledgePageClient({ initialSources }: KnowledgePageClientProps
   }
 
   async function handleIngest(id: string) {
-    setActionError(null);
-    startTransition(async () => {
-      try {
-        await ingestKnowledgeAction(id);
-        window.location.reload();
-      } catch (err) {
-        setActionError((err as Error).message);
-      }
+    startTransition(() => {
+      setActionError(null);
     });
+    try {
+      await ingestKnowledgeAction(id);
+      window.location.reload();
+    } catch (err) {
+      startTransition(() => {
+        setActionError((err as Error).message);
+      });
+    }
   }
 
   async function handleArchive(id: string) {
     if (!confirm("Archive this knowledge source? It will be removed from retrieval.")) return;
-    setActionError(null);
-    startTransition(async () => {
-      try {
-        await archiveKnowledgeAction(id);
-        window.location.reload();
-      } catch (err) {
-        setActionError((err as Error).message);
-      }
+    startTransition(() => {
+      setActionError(null);
     });
+    try {
+      await archiveKnowledgeAction(id);
+      window.location.reload();
+    } catch (err) {
+      startTransition(() => {
+        setActionError((err as Error).message);
+      });
+    }
   }
 
   async function handleReingest(id: string) {
-    setActionError(null);
-    startTransition(async () => {
-      try {
-        await reingestKnowledgeAction(id);
-        window.location.reload();
-      } catch (err) {
-        setActionError((err as Error).message);
-      }
+    startTransition(() => {
+      setActionError(null);
     });
+    try {
+      await reingestKnowledgeAction(id);
+      window.location.reload();
+    } catch (err) {
+      startTransition(() => {
+        setActionError((err as Error).message);
+      });
+    }
   }
 
   async function handleDelete(id: string) {
     if (!confirm("Permanently delete this source? This cannot be undone.")) return;
-    setActionError(null);
-    startTransition(async () => {
-      try {
-        await deleteKnowledgeAction(id);
-        window.location.reload();
-      } catch (err) {
-        setActionError((err as Error).message);
-      }
+    startTransition(() => {
+      setActionError(null);
     });
+    try {
+      await deleteKnowledgeAction(id);
+      window.location.reload();
+    } catch (err) {
+      startTransition(() => {
+        setActionError((err as Error).message);
+      });
+    }
   }
 
   const statusColors: Record<string, string> = {

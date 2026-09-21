@@ -33,37 +33,47 @@ export function DraftDetailClient({ draft }: DraftDetailClientProps) {
   };
 
   async function runAction(fn: (id: string, input?: { note?: string }) => Promise<unknown>, label: string, input?: { note?: string }) {
-    setActionError(null);
-    setActionSuccess(null);
-    startTransition(async () => {
-      try {
-        await fn(draft.id, input);
-        setActionSuccess(`${label} completed`);
-        window.location.reload();
-      } catch (err) {
-        setActionError((err as Error).message);
-      }
+    startTransition(() => {
+      setActionError(null);
+      setActionSuccess(null);
     });
+    try {
+      await fn(draft.id, input);
+      startTransition(() => {
+        setActionSuccess(`${label} completed`);
+      });
+      window.location.reload();
+    } catch (err) {
+      startTransition(() => {
+        setActionError((err as Error).message);
+      });
+    }
   }
 
   async function handlePublish() {
-    setActionError(null);
-    setActionSuccess(null);
-    startTransition(async () => {
-      try {
-        const result = await publishDraftAction(draft.id);
-        setActionSuccess(`Published as ${result.entityType} (${result.entityId})`);
-        window.location.reload();
-      } catch (err) {
-        setActionError((err as Error).message);
-      }
+    startTransition(() => {
+      setActionError(null);
+      setActionSuccess(null);
     });
+    try {
+      const result = await publishDraftAction(draft.id);
+      startTransition(() => {
+        setActionSuccess(`Published as ${result.entityType} (${result.entityId})`);
+      });
+      window.location.reload();
+    } catch (err) {
+      startTransition(() => {
+        setActionError((err as Error).message);
+      });
+    }
   }
 
   async function handleEdit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
-    setActionError(null);
-    setActionSuccess(null);
+    startTransition(() => {
+      setActionError(null);
+      setActionSuccess(null);
+    });
     const formData = new FormData(e.currentTarget);
     const input: UpdateDraftInput = {
       title: (formData.get("title") as string) || undefined,
@@ -71,16 +81,18 @@ export function DraftDetailClient({ draft }: DraftDetailClientProps) {
       metaTitle: (formData.get("metaTitle") as string) || undefined,
       metaDescription: (formData.get("metaDescription") as string) || undefined,
     };
-    startTransition(async () => {
-      try {
-        await updateDraftAction(draft.id, input);
+    try {
+      await updateDraftAction(draft.id, input);
+      startTransition(() => {
         setActionSuccess("Draft updated");
         setIsEditing(false);
-        window.location.reload();
-      } catch (err) {
+      });
+      window.location.reload();
+    } catch (err) {
+      startTransition(() => {
         setActionError((err as Error).message);
-      }
-    });
+      });
+    }
   }
 
   return (

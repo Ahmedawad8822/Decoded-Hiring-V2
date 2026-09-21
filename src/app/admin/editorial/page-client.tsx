@@ -10,7 +10,7 @@ interface EditorialListClientProps {
 }
 
 export function EditorialListClient({ initialDrafts }: EditorialListClientProps) {
-  const [isPending, startTransition] = useTransition();
+  const [isPending] = useTransition();
 
   const statusColors: Record<string, string> = {
     DRAFT: "#6b7280",
@@ -20,23 +20,33 @@ export function EditorialListClient({ initialDrafts }: EditorialListClientProps)
     PUBLISHED: "#8b5cf6",
   };
 
-  function handleApprove(id: string) {
-    startTransition(async () => {
-      try { await approveAction(id); window.location.reload(); } catch (e) { alert((e as Error).message); }
-    });
+  async function handleApprove(id: string) {
+    try {
+      await approveAction(id);
+      window.location.reload();
+    } catch (e) {
+      alert((e as Error).message);
+    }
   }
 
-  function handlePublish(id: string) {
-    startTransition(async () => {
-      try { await publishDraftAction(id); window.location.reload(); } catch (e) { alert((e as Error).message); }
-    });
+  async function handlePublish(id: string) {
+    try {
+      await publishDraftAction(id);
+      window.location.reload();
+    } catch (e) {
+      alert((e as Error).message);
+    }
   }
 
-  function handleReject(id: string) {
+  async function handleReject(id: string) {
     const reason = prompt("Rejection reason (optional):");
-    startTransition(async () => {
-      try { await rejectDraftAction(id, { note: reason ?? undefined }); window.location.reload(); } catch (e) { alert((e as Error).message); }
-    });
+    if (reason === null) return;
+    try {
+      await rejectDraftAction(id, { note: reason || undefined });
+      window.location.reload();
+    } catch (e) {
+      alert((e as Error).message);
+    }
   }
 
   const pendingCount = initialDrafts.filter((d) => d.status === "IN_REVIEW").length;
