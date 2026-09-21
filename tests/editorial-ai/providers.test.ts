@@ -112,7 +112,25 @@ test("schema: author defaults are 'Decoded Editorial', not a personal name", () 
   );
 });
 
-test("migration: migration 0008 exists and backfills author identity", () => {
+// ---------------------------------------------------------------------------
+// REGRESSION: Migration 0008 must NOT erase legitimate authorship.
+// ---------------------------------------------------------------------------
+// Business rule (Mission 07 final handoff):
+//   - Existing legitimate Ahmed-authored content keeps "Ahmed Awad".
+//   - New Editorial AI publication uses an explicit editorial author.
+//   - Generic schema/Zod/service fallback may use "Decoded Editorial".
+//   - A migration may correct only rows that can be safely identified as bad
+//     defaults. Ahmed Awad is the founder/editor — his authored content is
+//     legitimate, so no row is a "bad default." Migration 0008 therefore
+//     corrects ONLY the column DEFAULT (for new rows) and preserves every
+//     existing author verbatim via the INSERT ... SELECT that copies the
+//     `author` column. There is NO backfill UPDATE.
+//
+// This test proves: an existing Ahmed-authored Guide and Field Note remain
+// "Ahmed Awad" after migration 0008 — i.e. there is no
+//   UPDATE <table> SET author = 'Decoded Editorial' WHERE author = 'Ahmed Awad'
+// backfill, and the table-copy INSERT selects the `author` column.
+test("migration: 0008 corrects the author DEFAULT but does NOT rewrite existing authors", () => {
   const migrationsDir = path.resolve(
     import.meta.dirname,
     "../../drizzle/migrations",
@@ -124,33 +142,19 @@ test("migration: migration 0008 exists and backfills author identity", () => {
   assert.ok(m0008, "Migration 0008 SQL file must exist in drizzle/migrations/");
 
   const sql = fs.readFileSync(path.join(migrationsDir, m0008), "utf-8");
+  // The DEFAULT for both tables must be corrected to the canonical identity.
   assert.ok(
-    sql.includes("Decoded Editorial"),
-    "Migration 0008 must reference 'Decoded Editorial' as the corrected identity",
+    sql.includes("DEFAULT 'Decoded Editorial'"),
+    "Migration 0008 must set the author column DEFAULT to 'Decoded Editorial'",
   );
+  // No personal-name DEFAULT may remain in the migration.
   assert.ok(
-    sql.includes("Ahmed Awad"),
-    "Migration 0008 must backfill existing 'Ahmed Awad' rows to the canonical identity",
+    !/DEFAULT\s+'Ahmed Awad'/.test(sql),
+    "Migration 0008 must not carry a personal-name 'Ahmed Awad' DEFAULT",
   );
 });
 
-// ---------------------------------------------------------------------------
-// REGRESSION: Migration 0008 backfill must NOT erase legitimate authorship.
-// ---------------------------------------------------------------------------
-// "Ahmed Awad" was a personal name that leaked into production schema defaults
-// (migration 0000 set guides.author DEFAULT 'Ahmed Awad'; 0001 did the same
-// for field_notes). It was used as a fallback default — NOT as a real named
-// author on any seed or migration content. Migration 0008 backfills all rows
-// WHERE author = 'Ahmed Awad' → 'Decoded Editorial'. This is safe because:
-//
-//   (a) No migration (0000–0008) INSERTs seed data with author = 'Ahmed Awad'.
-//   (b) The current seed.ts uses author = 'Decoded Editorial' (changed at R02).
-//   (c) resolveAuthorName() falls back to DEFAULT_PUBLISH_AUTHOR = 'Decoded Editorial'.
-//   (d) The schema default is 'Decoded Editorial' (changed at R02).
-//
-// This test proves the backfill is scoped (has a WHERE clause) and that no
-// source code still defaults author to 'Ahmed Awad'.
-test("migration: 0008 backfill is scoped — WHERE author='Ahmed Awad' only (no blanket UPDATE)", () => {
+test("migration: 0008 does NOT blanket-rewrite existing Ahmed Awad authorship", () => {
   const migrationsDir = path.resolve(
     import.meta.dirname,
     "../../drizzle/migrations",
@@ -163,31 +167,52 @@ test("migration: 0008 backfill is scoped — WHERE author='Ahmed Awad' only (no 
 
   const sql = fs.readFileSync(path.join(migrationsDir, m0008), "utf-8");
 
-  // The backfill must use a WHERE clause limiting to author = 'Ahmed Awad'.
-  // A blanket "UPDATE ... SET author='Decoded Editorial'" (without WHERE)
-  // would erase legitimate authorship — that is forbidden.
-  const updateStatements = sql
+  // There must be NO backfill that rewrites existing authors:
+  //   UPDATE <table> SET author = 'Decoded Editorial' [WHERE author = 'Ahmed Awad']
+  // The original migration did this for both guides and field_notes; it must
+  // be gone so legitimate Ahmed-authored content keeps "Ahmed Awad".
+  const backfillStatements = sql
     .split(";")
     .filter(
       (s) =>
-        s.trim().toUpperCase().includes("UPDATE") && s.includes("'Ahmed Awad'"),
+        /UPDATE/i.test(s) &&
+        /SET\s+`author`\s*=\s*'Decoded Editorial'/i.test(s),
     );
-
-  assert.ok(
-    updateStatements.length >= 2,
-    "Migration 0008 must backfill both guides and field_notes",
+  assert.equal(
+    backfillStatements.length,
+    0,
+    `Migration 0008 must not rewrite existing author values — found: ${backfillStatements.map((s) => s.trim().slice(0, 80)).join("; ")}`,
   );
+});
 
-  for (const stmt of updateStatements) {
-    const upper = stmt.toUpperCase();
+test("migration: 0008 preserves existing Ahmed-authored Guide and Field Note authors", () => {
+  const migrationsDir = path.resolve(
+    import.meta.dirname,
+    "../../drizzle/migrations",
+  );
+  const files = fs.readdirSync(migrationsDir);
+  const m0008 = files.find(
+    (f) => f.startsWith("0008_") && f.endsWith(".sql"),
+  );
+  assert.ok(m0008, "Migration 0008 must exist");
+
+  const sql = fs.readFileSync(path.join(migrationsDir, m0008), "utf-8");
+
+  // Each table rebuild must copy the existing `author` column verbatim via
+  // INSERT ... SELECT so an existing "Ahmed Awad" row stays "Ahmed Awad"
+  // (no NULL, no DEFAULT substitution, no rewrite).
+  for (const table of ["__new_guides", "__new_field_notes"]) {
+    const insertChunk = sql
+      .split(";")
+      .find(
+        (s) =>
+          s.includes("INSERT INTO `") &&
+          s.includes(table) &&
+          s.includes('"author"'),
+      );
     assert.ok(
-      upper.includes("WHERE"),
-      `Backfill UPDATE must be scoped with a WHERE clause: ${stmt.trim().slice(0, 80)}`,
-    );
-    // WHERE clause must target ONLY author = 'Ahmed Awad' (backtick-quoted or bare).
-    assert.ok(
-      /WHERE\s+`?AUTHOR`?\s*=\s*'AHMED AWAD'/i.test(stmt),
-      `Backfill WHERE clause must target only author='Ahmed Awad': ${stmt.trim().slice(0, 80)}`,
+      insertChunk,
+      `Migration 0008 must copy the \`author\` column when rebuilding ${table} so existing authors (incl. "Ahmed Awad") are preserved`,
     );
   }
 });

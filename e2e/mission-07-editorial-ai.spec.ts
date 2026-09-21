@@ -65,7 +65,7 @@ async function clickReload(page: Page, selector: string) {
   await page.click(selector);
   try {
     await reloadStarted;
-  } catch (e) {
+  } catch {
     // If reload detection fails, the POST may have already completed and
     // triggered reload before we could observe the "loading" state.
     // Fall through to waitForLoadState which will catch the settled state.
