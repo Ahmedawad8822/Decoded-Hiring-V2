@@ -1,5 +1,40 @@
 # Changelog
 
+## [Unreleased] — Mission 07 Post-Certification Release Review
+
+### Fixed
+- **Edit/review race closed.** Draft edits now use an authoritative
+  `WHERE id = ? AND status = 'DRAFT'` CAS. If review starts after the initial
+  read, the edit loses without mutating approved/reviewed content and without
+  emitting a false `draft_edited` audit event.
+- **Draft + provenance atomicity.** Generation persists the draft row and every
+  provenance link in one D1 `batch()` transaction. A missing/changed evidence
+  chunk rolls back the entire generated asset instead of leaving partial
+  provenance.
+- **Knowledge delete/ingest ownership.** Permanent deletion is limited to
+  UPLOADED, FAILED, or chunk-free ARCHIVED sources and uses a status+updatedAt
+  CAS. D1 metadata is deleted before the private R2 object so a lost race or FK
+  failure cannot strand a live source without its bytes.
+- **Editorial Memory runtime validation.** Create/update server actions and
+  service methods now parse the Zod schemas, preventing direct action/service
+  calls from bypassing category/content contracts.
+- **Truthful transition auditing.** Edit, submit/send-back/recover, approve and
+  reject audit events are emitted only after their authoritative CAS wins.
+- **Studio discoverability.** The admin rail now exposes Editorial Drafts,
+  Knowledge, and Editorial Memory with route-aware breadcrumbs.
+- **Residual identity copy.** Replaced the remaining software-engineering
+  knowledge-upload placeholder with hiring-native copy.
+
+### Tests
+- Added deterministic regressions for edit-vs-submit races, atomic
+  draft/provenance rollback, delete-vs-ingest races, direct memory-service
+  validation, Mission 07 admin identity, and Studio navigation discoverability.
+
+### Release status
+- The prior 179/179 unit-integration and 9/9 E2E certification applies to the
+  pre-remediation SHA only. Full local certification and independent release
+  re-review must be rerun on the new branch head before Ahmed's merge decision.
+
 ## [Unreleased] — Mission 07 Final Release-Review Remediation
 
 ### Fixed
