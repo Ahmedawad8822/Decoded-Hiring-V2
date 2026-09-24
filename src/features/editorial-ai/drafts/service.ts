@@ -27,12 +27,11 @@
 //     owned reservation; the next publishDraft resumes the EXACT target by ID
 //     — never a slug that could collide with an unrelated guide/field note.
 //
-// D1 transaction note: Drizzle 0.45.2's D1 session exposes db.transaction()
-// via BEGIN/COMMIT/ROLLBACK. However, createGuide/publishGuide/etc. each call
-// getDb() independently and cannot share a transaction context. The reservation
-// + CAS pattern below achieves equivalent atomicity at the application level:
-// UNIQUE(draft_id) serializes concurrent publishes, CAS on status detects
-// stale publishes, and finalizeOwnedPublication handles crash recovery by entityId.
+// D1 transaction note: ordinary interactive BEGIN/COMMIT transactions are
+// not available through the Workers D1 driver. Mission 07 therefore relies on
+// database-enforced uniqueness plus exact lease/CAS writes: UNIQUE(draft_id)
+// serializes publication ownership, the publication row id is the lease token,
+// and status/entity CAS checks make stale or crashed work fail closed.
 // ============================================================================
 
 import { getDb } from "@/lib/db";
