@@ -66,6 +66,7 @@ import type {
   DraftSourceProvenance,
   DraftSummary,
 } from "./types";
+import { generateDraftSchema, updateDraftSchema } from "./types";
 
 // ---------------------------------------------------------------------------
 // Generation
@@ -76,6 +77,7 @@ export async function generateDraft(
   actor: string,
   opts?: { provider?: LLMProvider }
 ): Promise<EditorialDraftWithSources> {
+  input = generateDraftSchema.parse(input);
   // Provider boundary (Mission 07 §3): use the injected provider when
   // supplied (tests/dev), otherwise resolve from env — which throws
   // EditorialProviderNotConfiguredError when unset (fail-closed, no fake).
@@ -323,6 +325,7 @@ export async function updateDraft(
   input: UpdateDraftInput,
   actor: string
 ): Promise<EditorialDraftWithSources> {
+  input = updateDraftSchema.parse(input);
   const db = await getDb();
   const now = new Date();
   const draft = await getDraft(id);
