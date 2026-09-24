@@ -263,7 +263,7 @@ test("publish: idempotent — publishing same draft twice returns same entity", 
   assert.equal(pub1.entityType, pub2.entityType);
 });
 
-test("publish: crash recovery — in-flight reservation with already-published target is recovered", async () => {
+test("publish: stale bound reservation with already-published target is recovered", async () => {
   // Simulate a crash during publishDraft: the reservation was inserted
   // (entityId NULL), the target guide was created and published, but the
   // process died before finalizing the publication record / marking the
@@ -292,7 +292,7 @@ test("publish: crash recovery — in-flight reservation with already-published t
     draftId: approved.id,
     entityType: "guide",
     entityId: guide.id,
-    createdAt: new Date(),
+    createdAt: new Date(Date.now() - 10 * 60 * 1000),
   });
 
   // Verify the target is already published before calling publishDraft.
@@ -302,7 +302,7 @@ test("publish: crash recovery — in-flight reservation with already-published t
 
   // publishDraft should recover: detect the in-flight reservation,
   // find the already-published target, finalize the record, mark PUBLISHED.
-  const result = await publishDraft(approved.id, "test-admin");
+  const result = await publishDraft(approved.id, "test-admin", { waitTimeoutMs: 25, staleReservationMs: 1_000 });
 
   assert.equal(result.entityType, "guide");
   assert.equal(result.entityId, guide.id);
@@ -323,7 +323,7 @@ test("publish: crash recovery — in-flight reservation with already-published t
   assert.equal(pub?.entityId, guide.id);
 });
 
-test("publish: crash recovery — in-flight reservation with created-but-unpublished target is resumed", async () => {
+test("publish: stale bound reservation with created-but-unpublished target is resumed", async () => {
   // Simulate a crash between target creation and target publishing: the guide
   // exists in "draft" status with a reservation (entityId NULL) but was never
   // published. The next publishDraft call should detect the existing target,
@@ -351,12 +351,12 @@ test("publish: crash recovery — in-flight reservation with created-but-unpubli
     draftId: approved.id,
     entityType: "guide",
     entityId: guide.id,
-    createdAt: new Date(),
+    createdAt: new Date(Date.now() - 10 * 60 * 1000),
   });
 
   // publishDraft should recover: detect the owned reservation, find the draft
   // guide by ID, publish it, finalize the record, and mark the draft PUBLISHED.
-  const result = await publishDraft(approved.id, "test-admin");
+  const result = await publishDraft(approved.id, "test-admin", { waitTimeoutMs: 25, staleReservationMs: 1_000 });
 
   assert.equal(result.entityType, "guide");
   assert.equal(result.entityId, guide.id);
@@ -565,7 +565,7 @@ test("publish: failure after target binding keeps exact ownership and retry resu
   const targetBeforeRetry = await db.select().from(guides).where(eq(guides.id, createdId!)).get();
   assert.equal(targetBeforeRetry?.status, "draft");
 
-  const result = await publishDraft(approved.id, "test-admin");
+  const result = await publishDraft(approved.id, "test-admin", { waitTimeoutMs: 25, staleReservationMs: 0 });
   assert.equal(result.entityId, createdId, "retry must resume the exact owned target");
   assert.equal((await getDraft(approved.id))?.status, "PUBLISHED");
 });
@@ -689,7 +689,7 @@ test("publish: stale edit during publication triggers CAS rollback — target is
     draftId: approved.id,
     entityType: "guide",
     entityId: guide.id,
-    createdAt: new Date(),
+    createdAt: new Date(Date.now() - 10 * 60 * 1000),
   });
 
   // Simulate a concurrent edit: revert the draft from APPROVED → DRAFT
@@ -702,7 +702,7 @@ test("publish: stale edit during publication triggers CAS rollback — target is
   // publishDraft sees the reservation (entityId set) → finalizeOwnedPublication
   // → CAS update WHERE status=APPROVED moves 0 rows → rollback + throw.
   await assert.rejects(
-    () => publishDraft(approved.id, "test-admin"),
+    () => publishDraft(approved.id, "test-admin", { waitTimeoutMs: 25, staleReservationMs: 1_000 }),
     /stale publish.*modified.*during publication/i,
   );
 
