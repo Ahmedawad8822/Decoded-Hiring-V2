@@ -257,6 +257,21 @@ export async function unpublishFieldNote(
   return draft;
 }
 
+/**
+ * Permanently discard a Field Note that never left draft state.
+ * Narrow internal primitive for Editorial AI compensation only: published or
+ * archived content is never deleted through this path.
+ */
+export async function discardFieldNoteDraft(id: string): Promise<void> {
+  const db = await getDb();
+  const current = await getAdminFieldNoteById(id);
+  if (!current) return;
+  if (current.status !== "draft") {
+    throw new Error(`Cannot discard field note "${id}" in "${current.status}" status.`);
+  }
+  await db.delete(fieldNotes).where(and(eq(fieldNotes.id, id), eq(fieldNotes.status, "draft")));
+}
+
 export async function archiveFieldNote(
   id: string,
   options?: { createdBy?: string | null }
