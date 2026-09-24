@@ -8,6 +8,7 @@
 // ============================================================================
 
 import { z } from "zod";
+import { llmBlockSchema } from "../skills/types";
 import type { LlmBlock } from "../skills/types";
 
 /**
@@ -31,7 +32,7 @@ export const generateDraftSchema = z.object({
   angle: z.string().max(500).optional(),
   objective: z.string().max(1000).optional(),
   notes: z.string().max(2000).optional(),
-  sourceIds: z.array(z.string().uuid()).optional(),
+  sourceIds: z.array(z.string().regex(/^ks_[a-z0-9-]{12}$/i, "Invalid knowledge source id")).max(50).optional(),
 });
 
 export type GenerateDraftInput = z.infer<typeof generateDraftSchema>;
@@ -41,7 +42,7 @@ export const updateDraftSchema = z.object({
   title: z.string().min(3).max(200).optional(),
   slug: z.string().min(3).max(100).regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/).optional(),
   excerpt: z.string().max(500).optional(),
-  body: z.array(z.any()).optional(), // LlmBlock[] — validated by service
+  body: z.array(llmBlockSchema).optional(),
   metaTitle: z.string().max(100).optional(),
   metaDescription: z.string().max(300).optional(),
 });
