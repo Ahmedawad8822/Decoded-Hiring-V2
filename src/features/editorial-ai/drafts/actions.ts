@@ -22,9 +22,11 @@ import {
   publishDraft,
 } from "./service";
 import type { GenerateDraftInput, UpdateDraftInput, ReviewNoteInput } from "./types";
+import { generateDraftSchema, updateDraftSchema, reviewNoteSchema } from "./types";
 
 export async function generateDraftAction(input: GenerateDraftInput) {
   const session = await requireAdmin();
+  const parsedInput = generateDraftSchema.parse(input);
   // EXPLICIT TEST-ONLY (Mission 07 §2): when EDITORIAL_FORCE_FAKE_PROVIDER=1
   // is set, inject FakeProvider so the E2E suite exercises the full generation
   // pipeline without real API credentials. Opt-in via env-var gate — there is
@@ -34,18 +36,19 @@ export async function generateDraftAction(input: GenerateDraftInput) {
     process.env.NODE_ENV !== "production"
   ) {
     const { FakeProvider } = await import("../providers/fake");
-    const draft = await generateDraft(input, session.user.id, { provider: new FakeProvider() });
+    const draft = await generateDraft(parsedInput, session.user.id, { provider: new FakeProvider() });
     revalidatePath("/admin/editorial");
     return draft;
   }
-  const draft = await generateDraft(input, session.user.id);
+  const draft = await generateDraft(parsedInput, session.user.id);
   revalidatePath("/admin/editorial");
   return draft;
 }
 
 export async function updateDraftAction(id: string, input: UpdateDraftInput) {
   const session = await requireAdmin();
-  const draft = await updateDraft(id, input, session.user.id);
+  const parsedInput = updateDraftSchema.parse(input);
+  const draft = await updateDraft(id, parsedInput, session.user.id);
   revalidatePath(`/admin/editorial/${id}`);
   revalidatePath("/admin/editorial");
   return draft;
@@ -61,7 +64,8 @@ export async function submitForReviewAction(id: string) {
 
 export async function sendBackAction(id: string, input?: ReviewNoteInput) {
   const session = await requireAdmin();
-  const draft = await sendBack(id, session.user.id, input?.note);
+  const parsedInput = reviewNoteSchema.parse(input ?? {});
+  const draft = await sendBack(id, session.user.id, parsedInput.note);
   revalidatePath(`/admin/editorial/${id}`);
   revalidatePath("/admin/editorial");
   return draft;
@@ -78,7 +82,8 @@ export async function approveAction(id: string) {
 
 export async function rejectDraftAction(id: string, input?: ReviewNoteInput) {
   const session = await requireAdmin();
-  const draft = await rejectDraft(id, session.user.id, input?.note);
+  const parsedInput = reviewNoteSchema.parse(input ?? {});
+  const draft = await rejectDraft(id, session.user.id, parsedInput.note);
   revalidatePath(`/admin/editorial/${id}`);
   revalidatePath("/admin/editorial");
   return draft;
@@ -86,7 +91,8 @@ export async function rejectDraftAction(id: string, input?: ReviewNoteInput) {
 
 export async function recoverRejectedAction(id: string, input?: ReviewNoteInput) {
   const session = await requireAdmin();
-  const draft = await recoverRejected(id, session.user.id, input?.note);
+  const parsedInput = reviewNoteSchema.parse(input ?? {});
+  const draft = await recoverRejected(id, session.user.id, parsedInput.note);
   revalidatePath(`/admin/editorial/${id}`);
   revalidatePath("/admin/editorial");
   return draft;
