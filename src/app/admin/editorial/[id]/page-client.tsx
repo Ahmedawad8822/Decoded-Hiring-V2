@@ -134,70 +134,73 @@ export function DraftDetailClient({ draft }: DraftDetailClientProps) {
         </div>
       )}
 
-      {/* Edit form (toggleable) */}
-      <div style={{ marginBottom: isEditing ? "8px" : "24px" }}>
-        <button
-          onClick={() => setIsEditing(!isEditing)}
-          type="button"
-          style={{
-            padding: "6px 12px", fontSize: "12px", background: isEditing ? "#ef4444" : "#6b7280",
-            color: "white", border: "none", borderRadius: "4px", cursor: "pointer",
-          }}
-        >
-          {isEditing ? "Cancel edit" : "Edit draft"}
-        </button>
-        {isEditing && (
-          <form id="edit-draft-form" onSubmit={handleEdit} style={{ marginTop: "12px", display: "grid", gap: "12px" }}>
-            <div>
-              <label style={{ display: "block", fontSize: "12px", fontWeight: 500, marginBottom: "2px" }}>Title</label>
-              <input
-                type="text" name="title" defaultValue={draft.title}
-                style={{ width: "100%", padding: "6px 8px", border: "1px solid #d1d5db", borderRadius: "4px", fontSize: "13px" }}
-              />
-            </div>
-            <div>
-              <label style={{ display: "block", fontSize: "12px", fontWeight: 500, marginBottom: "2px" }}>Excerpt</label>
-              <textarea
-                name="excerpt" rows={2} defaultValue={draft.excerpt ?? ""}
-                style={{ width: "100%", padding: "6px 8px", border: "1px solid #d1d5db", borderRadius: "4px", fontSize: "13px", resize: "vertical" }}
-              />
-            </div>
-            <div>
-              <label style={{ display: "block", fontSize: "12px", fontWeight: 500, marginBottom: "2px" }}>Meta Title</label>
-              <input
-                type="text" name="metaTitle" defaultValue={draft.metaTitle ?? ""}
-                style={{ width: "100%", padding: "6px 8px", border: "1px solid #d1d5db", borderRadius: "4px", fontSize: "13px" }}
-              />
-            </div>
-            <div>
-              <label style={{ display: "block", fontSize: "12px", fontWeight: 500, marginBottom: "2px" }}>Meta Description</label>
-              <textarea
-                name="metaDescription" rows={2} defaultValue={draft.metaDescription ?? ""}
-                style={{ width: "100%", padding: "6px 8px", border: "1px solid #d1d5db", borderRadius: "4px", fontSize: "13px", resize: "vertical" }}
-              />
-            </div>
-            <div style={{ display: "flex", gap: "8px" }}>
-              <button
-                type="submit"
-                disabled={isPending}
-                style={{ padding: "6px 12px", fontSize: "12px", background: "#10b981", color: "white", border: "none", borderRadius: "4px", cursor: "pointer" }}
-              >
-                {isPending ? "Saving..." : "Save changes"}
-              </button>
-              <button
-                type="button"
-                onClick={() => setIsEditing(false)}
-                style={{ padding: "6px 12px", fontSize: "12px", background: "#ef4444", color: "white", border: "none", borderRadius: "4px", cursor: "pointer" }}
-              >
-                Cancel
-              </button>
-            </div>
-            {actionError && <p style={{ color: "#ef4444", fontSize: "12px" }}>{actionError}</p>}
-            {actionSuccess && <p style={{ color: "#10b981", fontSize: "12px" }}>{actionSuccess}</p>}
-          </form>
-        )}
-      </div>
-
+      {/* Only DRAFT content is editable. Review/approved/published states are immutable. */}
+      {draft.status === "DRAFT" && (
+        {/* Edit form (toggleable) */}
+        <div style={{ marginBottom: isEditing ? "8px" : "24px" }}>
+          <button
+            onClick={() => setIsEditing(!isEditing)}
+            type="button"
+            style={{
+              padding: "6px 12px", fontSize: "12px", background: isEditing ? "#ef4444" : "#6b7280",
+              color: "white", border: "none", borderRadius: "4px", cursor: "pointer",
+            }}
+          >
+            {isEditing ? "Cancel edit" : "Edit draft"}
+          </button>
+          {isEditing && (
+            <form id="edit-draft-form" onSubmit={handleEdit} style={{ marginTop: "12px", display: "grid", gap: "12px" }}>
+              <div>
+                <label style={{ display: "block", fontSize: "12px", fontWeight: 500, marginBottom: "2px" }}>Title</label>
+                <input
+                  type="text" name="title" defaultValue={draft.title}
+                  style={{ width: "100%", padding: "6px 8px", border: "1px solid #d1d5db", borderRadius: "4px", fontSize: "13px" }}
+                />
+              </div>
+              <div>
+                <label style={{ display: "block", fontSize: "12px", fontWeight: 500, marginBottom: "2px" }}>Excerpt</label>
+                <textarea
+                  name="excerpt" rows={2} defaultValue={draft.excerpt ?? ""}
+                  style={{ width: "100%", padding: "6px 8px", border: "1px solid #d1d5db", borderRadius: "4px", fontSize: "13px", resize: "vertical" }}
+                />
+              </div>
+              <div>
+                <label style={{ display: "block", fontSize: "12px", fontWeight: 500, marginBottom: "2px" }}>Meta Title</label>
+                <input
+                  type="text" name="metaTitle" defaultValue={draft.metaTitle ?? ""}
+                  style={{ width: "100%", padding: "6px 8px", border: "1px solid #d1d5db", borderRadius: "4px", fontSize: "13px" }}
+                />
+              </div>
+              <div>
+                <label style={{ display: "block", fontSize: "12px", fontWeight: 500, marginBottom: "2px" }}>Meta Description</label>
+                <textarea
+                  name="metaDescription" rows={2} defaultValue={draft.metaDescription ?? ""}
+                  style={{ width: "100%", padding: "6px 8px", border: "1px solid #d1d5db", borderRadius: "4px", fontSize: "13px", resize: "vertical" }}
+                />
+              </div>
+              <div style={{ display: "flex", gap: "8px" }}>
+                <button
+                  type="submit"
+                  disabled={isPending}
+                  style={{ padding: "6px 12px", fontSize: "12px", background: "#10b981", color: "white", border: "none", borderRadius: "4px", cursor: "pointer" }}
+                >
+                  {isPending ? "Saving..." : "Save changes"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setIsEditing(false)}
+                  style={{ padding: "6px 12px", fontSize: "12px", background: "#ef4444", color: "white", border: "none", borderRadius: "4px", cursor: "pointer" }}
+                >
+                  Cancel
+                </button>
+              </div>
+              {actionError && <p style={{ color: "#ef4444", fontSize: "12px" }}>{actionError}</p>}
+              {actionSuccess && <p style={{ color: "#10b981", fontSize: "12px" }}>{actionSuccess}</p>}
+            </form>
+          )}
+        </div>
+  
+      )}
       {/* Body */}
       <div style={{ marginBottom: "24px" }}>
         <h2 style={{ fontSize: "16px", marginBottom: "12px" }}>Content</h2>
