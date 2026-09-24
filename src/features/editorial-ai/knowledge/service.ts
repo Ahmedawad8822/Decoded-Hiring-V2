@@ -13,6 +13,7 @@
 // ============================================================================
 
 import { getDb, knowledge_sources, knowledge_chunks, type KnowledgeSource } from "@/lib/db";
+import { getD1Database } from "@/lib/cloudflare/bindings";
 import { and, eq, isNull, ne } from "drizzle-orm";
 import { chunkText } from "./chunker";
 import { getKnowledgeObject } from "./storage";
@@ -27,6 +28,75 @@ function decodeText(body: Uint8Array): string {
     return new TextDecoder("utf-8").decode(body);
   } catch {
     return new TextDecoder("utf-8").decode(body);
+  }
+}
+
+function toSqliteTimestamp(date: Date): number {
+  // Drizzle integer({ mode: "timestamp" }) stores Unix seconds in SQLite.
+  return Math.floor(date.getTime() / 1000);
+}
+
+async function deleteChunksOwnedByLease(sourceId: string, claimTime: Date): Promise<void> {
+  const d1 = await getD1Database();
+  await d1
+    .prepare(
+      `DELETE FROM knowledge_chunks
+       WHERE source_id = ?1
+         AND EXISTS (
+           SELECT 1
+           FROM knowledge_sources
+           WHERE id = ?2
+             AND status = 'INGESTING'
+             AND updated_at = ?3
+         )`,
+    )
+    .bind(sourceId, sourceId, toSqliteTimestamp(claimTime))
+    .run();
+}
+
+async function insertChunkOwnedByLease(
+  sourceId: string,
+  claimTime: Date,
+  chunk: {
+    id: string;
+    ordinal: number;
+    heading: string | null;
+    content: string;
+    contentHash: string;
+    characterCount: number;
+    createdAt: Date;
+  },
+): Promise<void> {
+  const d1 = await getD1Database();
+  const result = await d1
+    .prepare(
+      `INSERT INTO knowledge_chunks
+        (id, source_id, ordinal, heading, content, content_hash, character_count, created_at)
+       SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8
+       WHERE EXISTS (
+         SELECT 1
+         FROM knowledge_sources
+         WHERE id = ?9
+           AND status = 'INGESTING'
+           AND updated_at = ?10
+       )`,
+    )
+    .bind(
+      chunk.id,
+      sourceId,
+      chunk.ordinal,
+      chunk.heading,
+      chunk.content,
+      chunk.contentHash,
+      chunk.characterCount,
+      toSqliteTimestamp(chunk.createdAt),
+      sourceId,
+      toSqliteTimestamp(claimTime),
+    )
+    .run();
+
+  if ((result.meta?.changes ?? 0) !== 1) {
+    throw new Error("Ingestion lease was lost before chunk insertion.");
   }
 }
 
@@ -109,15 +179,17 @@ export async function ingestKnowledgeSource(
       throw new Error("Source content produced zero chunks — nothing to index.");
     }
 
-    // 5. Replace this source's chunks while this caller exclusively owns the
-    // INGESTING lease. Other ingest/archive calls cannot enter concurrently.
-    await db.delete(knowledge_chunks).where(eq(knowledge_chunks.sourceId, sourceId));
+    // 5. Replace chunks with lease-conditional SQL. Every destructive write
+    // checks the exact INGESTING lease in the SAME SQL statement. If a stale
+    // worker wakes after another request has reclaimed the lease, its DELETE
+    // and INSERT statements become harmless no-ops instead of corrupting the
+    // winner's chunks/FTS rows.
+    await deleteChunksOwnedByLease(sourceId, claimTime);
 
     const now = new Date();
     for (const c of chunks) {
-      await db.insert(knowledge_chunks).values({
+      await insertChunkOwnedByLease(sourceId, claimTime, {
         id: `knc_${crypto.randomUUID().slice(0, 12)}`,
-        sourceId,
         ordinal: c.ordinal,
         heading: c.heading,
         content: c.content,
@@ -173,7 +245,7 @@ export async function ingestKnowledgeSource(
       owner?.status === "INGESTING" &&
       owner.updatedAt.getTime() === claimTime.getTime()
     ) {
-      await db.delete(knowledge_chunks).where(eq(knowledge_chunks.sourceId, sourceId));
+      await deleteChunksOwnedByLease(sourceId, claimTime);
       await db
         .update(knowledge_sources)
         .set({
