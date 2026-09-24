@@ -25,6 +25,7 @@ import { eq } from "drizzle-orm";
 import { uploadKnowledgeSource } from "../../src/features/editorial-ai/knowledge/storage";
 import { ingestKnowledgeSource } from "../../src/features/editorial-ai/knowledge/service";
 import { generateDraft } from "../../src/features/editorial-ai/drafts/service";
+import { generateDraftSchema, updateDraftSchema } from "../../src/features/editorial-ai/drafts/types";
 import { resolveProvider, EditorialProviderNotConfiguredError, isProviderNotConfigured } from "../../src/features/editorial-ai/providers";
 import { FakeProvider } from "../../src/features/editorial-ai/providers/fake";
 
@@ -87,6 +88,35 @@ test("isProviderNotConfigured: true for unconfigured error", () => {
   const err = new EditorialProviderNotConfiguredError();
   assert.equal(isProviderNotConfigured(err), true);
   assert.equal(isProviderNotConfigured(new Error("other")), false);
+});
+
+// ---------------------------------------------------------------------------
+// Runtime input contracts
+// ---------------------------------------------------------------------------
+test("draft schemas: accept real ks_ source ids and reject malformed content blocks", () => {
+  const parsed = generateDraftSchema.parse({
+    contentType: "GUIDE",
+    topic: "structured hiring intake",
+    sourceIds: ["ks_12345678-abc"],
+  });
+  assert.deepEqual(parsed.sourceIds, ["ks_12345678-abc"]);
+
+  assert.throws(
+    () =>
+      generateDraftSchema.parse({
+        contentType: "GUIDE",
+        topic: "structured hiring intake",
+        sourceIds: ["550e8400-e29b-41d4-a716-446655440000"],
+      }),
+    /Invalid knowledge source id/i,
+  );
+
+  assert.throws(
+    () =>
+      updateDraftSchema.parse({
+        body: [{ type: "script", text: "<script>alert(1)</script>" }],
+      }),
+  );
 });
 
 // ---------------------------------------------------------------------------
