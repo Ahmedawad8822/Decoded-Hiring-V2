@@ -316,9 +316,17 @@ test("ingest: zombie worker cannot mutate chunks after its stale lease is reclai
 
   await firstHasLease;
 
-  // Force stale recovery immediately for the test. The second worker receives
-  // a distinct monotonic lease version and completes the authoritative ingest.
-  const second = await ingestKnowledgeSource(src.id, "worker-two", { staleAfterMs: 0 });
+  // Simulate a genuinely stale/crashed lease while worker one is suspended.
+  // Changing updatedAt also invalidates worker one's exact lease token.
+  const db = await getDb();
+  await db
+    .update(knowledge_sources)
+    .set({ updatedAt: new Date(Date.now() - 10 * 60 * 1000) })
+    .where(eq(knowledge_sources.id, src.id));
+
+  // The second worker receives a distinct monotonic lease version and
+  // completes the authoritative ingest.
+  const second = await ingestKnowledgeSource(src.id, "worker-two", { staleAfterMs: 1_000 });
   assert.equal(second.status, "READY");
   const authoritative = await getChunkContents(src.id);
   assert.ok(authoritative.length > 0);
