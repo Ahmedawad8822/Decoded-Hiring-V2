@@ -21,7 +21,7 @@ export async function seedDatabase() {
   // 1. Seed initial admin from environment
   const adminEmail = process.env.ADMIN_INITIAL_EMAIL;
   const adminPassword = process.env.ADMIN_INITIAL_PASSWORD;
-  const adminName = process.env.ADMIN_INITIAL_NAME || "Ahmed Awad";
+  const adminName = process.env.ADMIN_INITIAL_NAME || "Decoded Editorial";
 
   if (!adminEmail || !adminPassword) {
     console.log("ℹ️ ADMIN_INITIAL_EMAIL or ADMIN_INITIAL_PASSWORD not configured. Skipping admin creation.");
@@ -172,12 +172,12 @@ export async function seedDatabase() {
       slug: "talent-acquisition-strategy",
       excerpt: "The real way to develop a talent acquisition strategy: start with the hiring situation, not the toolkit.",
       body: JSON.stringify(blocks),
-      author: "Ahmed Awad",
+      author: "Decoded Editorial",
       category: "Strategy",
       tags: "Strategy, Architecture, Leadership",
       status: "published",
       metaTitle: "Talent Acquisition Strategy Is Not a Hiring Plan",
-      metaDescription: "Start with the hiring situation, not the toolkit. The real way to develop a talent acquisition strategy from Ahmed Awad.",
+      metaDescription: "Start with the hiring situation, not the toolkit. The real way to develop a talent acquisition strategy from Decoded Editorial.",
       createdAt: now,
       updatedAt: now,
       publishedAt: now,

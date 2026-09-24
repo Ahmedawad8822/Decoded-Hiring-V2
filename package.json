@@ -11,7 +11,7 @@
     "start": "next start",
     "lint": "eslint . --max-warnings=0",
     "typecheck": "tsc --noEmit",
-    "test": "tsx tests/mission-04-publishing.test.ts && tsx tests/mission-05-field-notes.test.ts && tsx tests/mission-06-learning-platform.test.ts && tsx tests/mission-06-security-hardening.test.ts && tsx tests/foundation-remediation.test.ts",
+    "test": "tsx tests/mission-04-publishing.test.ts && tsx tests/mission-05-field-notes.test.ts && tsx tests/mission-06-learning-platform.test.ts && tsx tests/mission-06-security-hardening.test.ts && tsx tests/foundation-remediation.test.ts && tsx tests/editorial-ai/chunker.test.ts && tsx tests/editorial-ai/generation.test.ts && tsx tests/editorial-ai/publishing.test.ts && tsx tests/editorial-ai/retrieval.test.ts && tsx tests/editorial-ai/checksum-lifecycle.test.ts && tsx tests/editorial-ai/identity-regression.test.ts && tsx tests/editorial-ai/providers.test.ts",
     "test:e2e": "tsx scripts/e2e-bootstrap.ts && playwright test",
     "test:e2e:headed": "tsx scripts/e2e-bootstrap.ts && playwright test --headed",
     "db:generate": "drizzle-kit generate",

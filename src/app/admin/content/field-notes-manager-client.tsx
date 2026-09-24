@@ -46,7 +46,7 @@ function formatDate(value: Date | string): string {
 
 export function FieldNotesManagerClient({ initialNotes }: FieldNotesManagerClientProps) {
   const router = useRouter();
-  const [isPending, startTransition] = useTransition();
+  const [isPending] = useTransition();
 
   const [view, setView] = useState<"list" | "editor">("list");
   const notes = initialNotes;
@@ -151,8 +151,7 @@ export function FieldNotesManagerClient({ initialNotes }: FieldNotesManagerClien
       showToast("Validation Error", "Title and Slug are required.", "error");
       return;
     }
-    startTransition(async () => {
-      if (editingNoteId) {
+    if (editingNoteId) {
         const res = await updateFieldNoteAction({
           id: editingNoteId,
           title,
@@ -184,7 +183,7 @@ export function FieldNotesManagerClient({ initialNotes }: FieldNotesManagerClien
           title,
           slug,
           excerpt,
-          author: "Ahmed Awad",
+          author: "Decoded Editorial",
           coverImage: coverImage || null,
           metaTitle: metaTitle || title,
           metaDescription: metaDescription || excerpt,
@@ -209,15 +208,14 @@ export function FieldNotesManagerClient({ initialNotes }: FieldNotesManagerClien
         }
       }
       router.refresh();
-    });
   };
 
   const handleConfirmAction = async () => {
     if (!confirmModal) return;
     const { action, noteId } = confirmModal;
     setConfirmModal(null);
-    startTransition(async () => {
-      if (action === "publish") {
+
+    if (action === "publish") {
         const res = await publishFieldNoteAction(noteId);
         if (res.ok) {
           setCurrentStatus("published");
@@ -244,7 +242,6 @@ export function FieldNotesManagerClient({ initialNotes }: FieldNotesManagerClien
       }
       if (editingNoteId) loadRevisions(editingNoteId);
       router.refresh();
-    });
   };
 
   const filteredNotes = notes.filter((n) => {

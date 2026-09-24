@@ -76,7 +76,7 @@ export async function createGuide(input: CreateGuideInput): Promise<Guide> {
       excerpt: input.excerpt || null,
       body: JSON.stringify(input.body || []),
       coverImage: input.coverImage || null,
-      author: input.author || "Ahmed Awad",
+      author: input.author || "Decoded Editorial",
       category: input.category || null,
       tags: input.tags || null,
       status: "draft",
@@ -199,6 +199,21 @@ export async function unpublishGuide(id: string): Promise<Guide> {
     .where(eq(guides.id, id));
 
   return (await getAdminGuideById(id))!;
+}
+
+/**
+ * Permanently discard a Guide that never left draft state.
+ * Narrow internal primitive for Editorial AI compensation only: published or
+ * archived content is never deleted through this path.
+ */
+export async function discardGuideDraft(id: string): Promise<void> {
+  const db = await getDb();
+  const current = await getAdminGuideById(id);
+  if (!current) return;
+  if (current.status !== "draft") {
+    throw new Error(`Cannot discard guide "${id}" in "${current.status}" status.`);
+  }
+  await db.delete(guides).where(and(eq(guides.id, id), eq(guides.status, "draft")));
 }
 
 export async function archiveGuide(id: string): Promise<Guide> {

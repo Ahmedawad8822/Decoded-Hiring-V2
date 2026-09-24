@@ -75,7 +75,7 @@ export const guides = sqliteTable("guides", {
   excerpt: text("excerpt"),
   body: text("body").notNull(), // JSON-stringified GuideBlock[]
   coverImage: text("cover_image"),
-  author: text("author").notNull().default("Ahmed Awad"),
+  author: text("author").notNull().default("Decoded Editorial"),
   category: text("category"),
   tags: text("tags"),
   status: text("status").$type<GuideStatus>().notNull().default("draft"),
@@ -107,7 +107,7 @@ export const fieldNotes = sqliteTable("field_notes", {
   excerpt: text("excerpt"),
   body: text("body").notNull(), // JSON-stringified ContentBlock[]
   coverImage: text("cover_image"),
-  author: text("author").notNull().default("Ahmed Awad"),
+  author: text("author").notNull().default("Decoded Editorial"),
   status: text("status").$type<FieldNoteStatus>().notNull().default("draft"),
   metaTitle: text("meta_title"),
   metaDescription: text("meta_description"),
@@ -118,20 +118,24 @@ export const fieldNotes = sqliteTable("field_notes", {
 
 export type FieldNoteRevisionTrigger = "publish" | "update" | "unpublish" | "archive";
 
-export const fieldNoteRevisions = sqliteTable("field_note_revisions", {
-  id: text("id").primaryKey(),
-  fieldNoteId: text("field_note_id")
-    .notNull()
-    .references(() => fieldNotes.id, { onDelete: "cascade" }),
-  title: text("title").notNull(),
-  body: text("body").notNull(), // JSON-stringified ContentBlock[] snapshot
-  status: text("status").$type<FieldNoteStatus>().notNull(),
-  trigger: text("trigger").$type<FieldNoteRevisionTrigger>().notNull(),
-  createdBy: text("created_by"),
-  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
-}, (table) => [
-  index("field_note_revisions_note_idx").on(table.fieldNoteId),
-]);
+export const fieldNoteRevisions = sqliteTable(
+  "field_note_revisions",
+  {
+    id: text("id").primaryKey(),
+    fieldNoteId: text("field_note_id")
+      .notNull()
+      .references(() => fieldNotes.id, { onDelete: "cascade" }),
+    title: text("title").notNull(),
+    body: text("body").notNull(), // JSON-stringified ContentBlock[] snapshot
+    status: text("status").$type<FieldNoteStatus>().notNull(),
+    trigger: text("trigger").$type<FieldNoteRevisionTrigger>().notNull(),
+    createdBy: text("created_by"),
+    createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+  },
+  (table) => [
+    index("field_note_revisions_note_idx").on(table.fieldNoteId),
+  ]
+);
 
 // ============================================================================
 // MEDIA DOMAIN (Cloudflare R2 Metadata)
@@ -288,3 +292,235 @@ export type Lesson = typeof lessons.$inferSelect;
 export type LessonResource = typeof lessonResources.$inferSelect;
 export type Enrollment = typeof enrollments.$inferSelect;
 export type LessonProgress = typeof lessonProgress.$inferSelect;
+
+// ============================================================================
+// EDITORIAL AI DOMAIN (Mission 07 — website editorial AI foundation)
+// ----------------------------------------------------------------------------
+// Knowledge library (private, admin-only), editorial memory, structured draft
+// lifecycle, source provenance, and a narrow audit trail. FTS5 virtual table
+// (knowledge_chunks_fts) is created via custom SQL migration — see migration
+// 0006 — because Drizzle does not manage SQLite virtual-table semantics.
+// ============================================================================
+
+export type KnowledgeSourceStatus = "UPLOADED" | "INGESTING" | "READY" | "FAILED" | "ARCHIVED";
+export type KnowledgeSourceType = "text" | "markdown";
+
+export const knowledge_sources = sqliteTable(
+  "knowledge_sources",
+  {
+    id: text("id").primaryKey(),
+    title: text("title").notNull(),
+    sourceType: text("source_type").notNull(), // text | markdown
+    mimeType: text("mime_type").notNull(),
+    originalFilename: text("original_filename").notNull(),
+    // Server-generated R2 key. Never client-supplied.
+    r2Key: text("r2_key").notNull().unique(),
+    author: text("author"),
+    sourceLabel: text("source_label"),
+    notes: text("notes"),
+    status: text("status").notNull().default("UPLOADED"),
+    checksum: text("checksum").notNull(), // SHA-256 of original bytes
+    byteSize: integer("byte_size").notNull(),
+    chunkCount: integer("chunk_count").notNull().default(0),
+    createdBy: text("created_by").notNull(),
+    createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+    updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+    ingestedAt: integer("ingested_at", { mode: "timestamp" }),
+    error: text("error"),
+    archivedAt: integer("archived_at", { mode: "timestamp" }),
+  },
+  (table) => [
+    index("knowledge_sources_status_idx").on(table.status),
+    // UNIQUE (was a plain index) — concurrent identical uploads collide here;
+    // see storage.ts which converts this into the friendly duplicate error.
+    uniqueIndex("knowledge_sources_checksum_unique").on(table.checksum),
+  ]
+);
+
+export const knowledge_chunks = sqliteTable(
+  "knowledge_chunks",
+  {
+    id: text("id").primaryKey(),
+    sourceId: text("source_id")
+      .notNull()
+      .references(() => knowledge_sources.id, { onDelete: "cascade" }),
+    ordinal: integer("ordinal").notNull(),
+    heading: text("heading"),
+    content: text("content").notNull(),
+    contentHash: text("content_hash").notNull(),
+    characterCount: integer("character_count").notNull(),
+    createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+  },
+  (table) => [
+    index("knowledge_chunks_source_idx").on(table.sourceId),
+    // Deterministic per-source ordering backstop at the DB level.
+    uniqueIndex("knowledge_chunks_source_ordinal_unique").on(table.sourceId, table.ordinal),
+  ]
+);
+
+// NOTE: GCC_CONTEXT was removed from EditorialMemoryCategory during Mission 07
+// remediation — the compiler/toolchain vertical leaked into the editorial
+// memory seed and does not belong to the general website editorial AI. See
+// migration 0007.
+export type EditorialMemoryCategory =
+  | "POSITIONING"
+  | "VOICE"
+  | "AUDIENCE"
+  | "METHODOLOGY"
+  | "EDITORIAL_RULE"
+  | "AVOID"
+  | "EDITORIAL_NOTE";
+
+export const editorial_memory = sqliteTable(
+  "editorial_memory",
+  {
+    id: text("id").primaryKey(),
+    category: text("category").notNull(), // EditorialMemoryCategory
+    content: text("content").notNull(),
+    active: integer("active", { mode: "boolean" }).notNull().default(true),
+    createdBy: text("created_by").notNull(),
+    createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+    updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+    archivedAt: integer("archived_at", { mode: "timestamp" }),
+  },
+  (table) => [
+    index("editorial_memory_category_idx").on(table.category),
+    index("editorial_memory_active_idx").on(table.active),
+  ]
+);
+
+export type DraftContentType = "GUIDE" | "FIELD_NOTE";
+export type DraftStatus = "DRAFT" | "IN_REVIEW" | "APPROVED" | "REJECTED" | "PUBLISHED";
+
+export const editorial_drafts = sqliteTable(
+  "editorial_drafts",
+  {
+    id: text("id").primaryKey(),
+    contentType: text("content_type").notNull(), // GUIDE | FIELD_NOTE
+    title: text("title").notNull(),
+    slug: text("slug").notNull(),
+    excerpt: text("excerpt"),
+    body: text("body").notNull(), // JSON-stringified ContentBlock[]
+    metaTitle: text("meta_title"),
+    metaDescription: text("meta_description"),
+    status: text("status").notNull().default("DRAFT"),
+    skillId: text("skill_id").notNull(),
+    skillVersion: text("skill_version").notNull(),
+    provider: text("provider"),
+    model: text("model"),
+    createdBy: text("created_by").notNull(),
+    reviewedBy: text("reviewed_by"),
+    approvedBy: text("approved_by"),
+    createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+    updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+    submittedAt: integer("submitted_at", { mode: "timestamp" }),
+    approvedAt: integer("approved_at", { mode: "timestamp" }),
+    rejectedAt: integer("rejected_at", { mode: "timestamp" }),
+    publishedAt: integer("published_at", { mode: "timestamp" }),
+    publishedEntityId: text("published_entity_id"),
+    publishedEntityType: text("published_entity_type"),
+  },
+  (table) => [
+    // Idempotency backstop: one published entity per draft (UNIQUE on
+    // published_entity_id when NOT NULL). A second publish attempt against the
+    // same target raises a real DB error.
+    uniqueIndex("editorial_drafts_published_entity_unique").on(table.publishedEntityId),
+    index("editorial_drafts_status_idx").on(table.status),
+    index("editorial_drafts_content_type_idx").on(table.contentType),
+  ]
+);
+
+export const editorial_draft_sources = sqliteTable(
+  "editorial_draft_sources",
+  {
+    id: text("id").primaryKey(),
+    draftId: text("draft_id")
+      .notNull()
+      .references(() => editorial_drafts.id, { onDelete: "cascade" }),
+    sourceId: text("source_id")
+      .notNull()
+      .references(() => knowledge_sources.id),
+    chunkId: text("chunk_id")
+      .notNull()
+      .references(() => knowledge_chunks.id),
+    rank: integer("rank").notNull(),
+    createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+  },
+  (table) => [
+    index("editorial_draft_sources_draft_idx").on(table.draftId),
+    index("editorial_draft_sources_chunk_idx").on(table.chunkId),
+  ]
+);
+
+// ============================================================================
+// EDITORIAL AI — PUBLICATION RECORD (Mission 07 §6)
+// ----------------------------------------------------------------------------
+// Authoritative, draft-owned link between an APPROVED editorial draft and the
+// Guide/Field Note it produced. This is the single source of truth for
+// "has this draft been published and to which target?", replacing the old
+// slug-based relinking heuristic (which could not distinguish a draft's OWN
+// retry from an unrelated guide sharing a slug).
+//
+// Invariants:
+//  - One draft -> at most one publication record (UNIQUE draftId).
+//  - One finalized target -> at most one publication record (UNIQUE entityId;
+//    SQLite permits multiple NULL entityId rows, which is what lets a draft
+//    hold an in-flight CREATING reservation without colliding with other
+//    drafts' reservations).
+//  - An editorial draft is only marked PUBLISHED once its target is verified
+//    publicly visible.
+// ============================================================================
+
+export const editorial_publications = sqliteTable(
+  "editorial_publications",
+  {
+    id: text("id").primaryKey(),
+    // UNIQUE: one publication record per draft (prevents double-publish).
+    draftId: text("draft_id").notNull().unique(),
+    entityType: text("entity_type").notNull(), // 'guide' | 'field_note'
+    // NULL while a publish reservation is in flight (CREATING state);
+    // set to the target entity id once finalized (PUBLISHED).
+    entityId: text("entity_id"),
+    createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+  },
+  (table) => [
+    // One finalized target per publication record (backstop against two
+    // drafts both claiming the same guide/field-note).
+    uniqueIndex("editorial_publications_entity_unique").on(table.entityId),
+  ]
+);
+
+export type EditorialAuditAction =
+  | "knowledge_ingested"
+  | "knowledge_failed"
+  | "draft_generated"
+  | "draft_edited"
+  | "draft_submitted"
+  | "draft_approved"
+  | "draft_rejected"
+  | "draft_published";
+
+export const editorial_audit_log = sqliteTable(
+  "editorial_audit_log",
+  {
+    id: text("id").primaryKey(),
+    actor: text("actor").notNull(), // user id of the admin performing the action
+    entityType: text("entity_type").notNull(), // 'knowledge_source' | 'knowledge_chunk' | 'editorial_draft' | 'guide' | 'field_note'
+    entityId: text("entity_id").notNull(),
+    action: text("action").notNull(), // EditorialAuditAction
+    detail: text("detail"), // optional JSON with extra context
+    createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+  },
+  (table) => [
+    index("editorial_audit_log_entity_idx").on(table.entityType, table.entityId),
+    index("editorial_audit_log_actor_idx").on(table.actor),
+  ]
+);
+
+export type KnowledgeSource = typeof knowledge_sources.$inferSelect;
+export type KnowledgeChunk = typeof knowledge_chunks.$inferSelect;
+export type EditorialMemory = typeof editorial_memory.$inferSelect;
+export type EditorialDraft = typeof editorial_drafts.$inferSelect;
+export type EditorialDraftSource = typeof editorial_draft_sources.$inferSelect;
+export type EditorialPublication = typeof editorial_publications.$inferSelect;
+export type EditorialAuditLog = typeof editorial_audit_log.$inferSelect;
