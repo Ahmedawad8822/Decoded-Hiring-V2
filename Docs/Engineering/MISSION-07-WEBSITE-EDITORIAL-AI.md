@@ -159,17 +159,20 @@ layer (`requireAdmin`) enforces who gets to call the action.
 - Accepts `.md` and `.txt` files (MIME: `text/markdown`, `text/plain`)
 - Size limit: `MAX_KNOWLEDGE_FILE_SIZE` bytes (2 MiB / 2 × 1024 × 1024)
 - SHA-256 checksum computed server-side → verified and stored
-- **Checksum uniqueness**: a second upload of identical content returns
-  `409` with `{"duplicateOf": "ks_xxx"}` and creates no new source.
+- **Checksum uniqueness**: a second upload of identical content is rejected
+  with `409` and creates no new source. The domain error identifies the
+  existing source; the API returns that error message to the admin client.
   Enforced by the `knowledge_sources_checksum_unique` UNIQUE index
-  (migration 0006).
+  (migration 0007).
 - File stored in R2 under key `editorial/knowledge/{sourceId}/original.{ext}`
 - D1 row inserted with `status = 'UPLOADED'`, `chunk_count = 0`
 
 ### 3.2 Ingest
 
 - Server Action: `ingestKnowledgeAction(sourceId)`
-- Only `UPLOADED` sources can be ingested (error otherwise)
+- `UPLOADED`, `READY`, and `FAILED` sources can be ingested/re-ingested.
+  `ARCHIVED` is rejected; `INGESTING` is an exclusive CAS lease with stale
+  recovery for crashed workers.
 - Chunker splits content by Markdown headings (## = H2, ### = H3),
   producing chunks of ≤ 2 000 characters (`DEFAULT_MAX_CHARS`)
 - Each chunk gets a `content_hash` (SHA-256 of the chunk text)
@@ -206,13 +209,14 @@ retrieveKnowledge({ query, topK, sourceIds })
 
 ```typescript
 generateDraft(input, actorId, opts?)
-  1. requireAdmin() — auth check
+  1. Server Action performs requireAdmin(); service parses generateDraftSchema
   2. retrieveKnowledge({ query: topic, sourceIds?, topK: 8 })
   3. if (retrieval.length === 0) throw NoRelevantEvidenceError
   4. provider = opts?.provider ?? resolveProvider()
   5. llmOutput = provider.generateDraft({ skillId, context, params })
-  6. INSERT draft row (status: DRAFT, provider, model, skill, version)
-  7. INSERT provenance rows (draft_id → chunk_id, rank)
+  6. Build draft + provenance INSERT statements
+  7. Persist the draft and every provenance row in one D1 batch transaction
+     (all succeed or all roll back)
   8. return EditorialDraftWithSources (via getDraft)
 ```
 
@@ -244,10 +248,12 @@ updateDraft(id, input, actorId)
   4. Require status === DRAFT
      - IN_REVIEW / APPROVED / REJECTED / PUBLISHED are read-only
      - review-state content must explicitly return to DRAFT before editing
-  5. UPDATE validated title, excerpt, meta_title, meta_desc, body, slug
+  5. CAS UPDATE validated title, excerpt, meta_title, meta_desc, body, slug
+     WHERE id = ? AND status = 'DRAFT'
      (body accepts only the strict llmBlockSchema whitelist)
-  6. INSERT audit row (draft_edited)
-  7. return updated draft (via getDraft)
+  6. If the CAS loses to submit/review, reject the edit and emit no edit audit
+  7. INSERT audit row (draft_edited) only after the CAS wins
+  8. return the current draft (via getDraft)
 ```
 
 The server-side DRAFT-only rule is authoritative. The admin UI mirrors it by
@@ -341,7 +347,7 @@ Rules:
 
 ---
 
-## 5. Database Schema (migrations 0006–0008)
+## 5. Database Schema (migrations 0006–0009)
 
 ### migration 0006 — Foundation: Knowledge sources + FTS5
 
@@ -494,10 +500,10 @@ builders, gcc, compiler, "production features", "production systems",
 "senior engineer", "tutorials", "working engineers", "recruitment platform"
 ```
 
-**Unit-level**: `tests/editorial-ai/identity-regression.test.ts` searches
-every `ChunkerTest` chunk and `FakeProvider.generate()` output for forbidden
-terms, and asserts `resolveProvider()` throws in production mode with
-`EDITORIAL_FORCE_FAKE_PROVIDER=1`.
+**Unit-level**: `tests/editorial-ai/identity-regression.test.ts` scans the
+Mission 07 admin generation and knowledge surfaces plus the skill, seeded
+memory, and FakeProvider output for forbidden prototype terms. It also asserts
+that the Studio rail exposes Drafts, Knowledge, and Editorial Memory.
 
 **Integration-level** (E2E): `mission-07-editorial-ai.spec.ts` asserts
 the generated draft page and the public published page contain none of the
@@ -513,7 +519,7 @@ the author from the actor's user row with a fallback to `"Decoded Editorial"`
 | Action | Check |
 |--------|-------|
 | `generateDraft` | `requireAdmin()` + `generateDraftSchema.parse()`; `createdBy` set to `session.user.id` on INSERT |
-| `updateDraft` | `requireAdmin()` + `updateDraftSchema.parse()`; server enforces DRAFT-only editing |
+| `updateDraft` | `requireAdmin()` + `updateDraftSchema.parse()`; service repeats validation and uses a DRAFT-status CAS so review cannot race an edit |
 | `submitForReview` | `requireAdmin()` — auth check; CAS on status |
 | `sendBack` | `requireAdmin()` — auth check; CAS on status |
 | `approve` | `requireAdmin()` — auth check; CAS on status |
@@ -652,10 +658,11 @@ includes full source provenance with chunk content.
 
 ## 9. Verification Gates
 
-The earlier Mission 07 implementation passed its local gates before the final
-release-review remediation. Those results **do not certify the current head**
-because publication, ingestion, validation, UI lifecycle and regression tests
-have changed since then.
+The previous Mission 07 local certification was green, but the independent
+release review found additional integrity and product-surface gaps. Those
+results **do not certify the current head** because the post-review remediation
+changed draft persistence, lifecycle CAS behavior, knowledge deletion, memory
+validation, Studio navigation, identity copy, and regression tests.
 
 Before Ahmed gives merge approval, rerun all gates against the final branch head:
 
@@ -669,7 +676,11 @@ Before Ahmed gives merge approval, rerun all gates against the final branch head
 | Drizzle schema drift | `npm run db:generate` | **MUST RERUN; expect no unintended migration** |
 
 Release remains blocked until these gates are green and an independent
-`dh-release-review` re-review confirms the six final-review blockers are closed.
+`dh-release-review` re-review confirms the post-certification findings are
+closed. The remediation specifically covers edit-vs-review CAS integrity,
+atomic draft+provenance persistence, delete-vs-ingest ownership, runtime memory
+validation, Studio discoverability, residual identity copy, and audit-after-CAS
+truthfulness.
 
 ---
 
