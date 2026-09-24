@@ -10,17 +10,20 @@ import { revalidatePath } from "next/cache";
 import { requireAdmin } from "@/lib/auth";
 import { createMemory, updateMemory, archiveMemory, unarchiveMemory } from "./service";
 import type { CreateMemoryInput, UpdateMemoryInput } from "./types";
+import { createMemorySchema, updateMemorySchema } from "./types";
 
 export async function createMemoryAction(input: CreateMemoryInput) {
   const session = await requireAdmin();
-  const result = await createMemory(input, session.user.id);
+  const parsedInput = createMemorySchema.parse(input);
+  const result = await createMemory(parsedInput, session.user.id);
   revalidatePath("/admin/editorial/memory");
   return result;
 }
 
 export async function updateMemoryAction(id: string, input: UpdateMemoryInput) {
   const session = await requireAdmin();
-  const result = await updateMemory(id, input, session.user.id);
+  const parsedInput = updateMemorySchema.parse(input);
+  const result = await updateMemory(id, parsedInput, session.user.id);
   revalidatePath("/admin/editorial/memory");
   return result;
 }
