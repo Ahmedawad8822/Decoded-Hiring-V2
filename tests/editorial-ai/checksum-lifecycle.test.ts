@@ -263,6 +263,55 @@ test("ingest: FAILED source can be re-ingested", async () => {
   assert.ok(result.chunkCount > 0);
 });
 
+test("ingest: concurrent re-ingestion is serialized and archive cannot steal the lease", async () => {
+  const content = "## Exclusive Ingestion\n\n" + "evidence ".repeat(220);
+  const src = await upload(content, "Exclusive Ingestion");
+
+  let releaseClaim!: () => void;
+  let signalClaim!: () => void;
+  const claimHeld = new Promise<void>((resolve) => { releaseClaim = resolve; });
+  const claimStarted = new Promise<void>((resolve) => { signalClaim = resolve; });
+
+  const first = ingestKnowledgeSource(src.id, "test-admin", {
+    onClaim: async () => {
+      signalClaim();
+      await claimHeld;
+    },
+  });
+
+  await claimStarted;
+
+  await assert.rejects(
+    () => ingestKnowledgeSource(src.id, "test-admin"),
+    /already being ingested/i,
+  );
+
+  await assert.rejects(
+    () => archiveKnowledgeSource(src.id, "test-admin"),
+    /currently being ingested/i,
+  );
+
+  releaseClaim();
+  const completed = await first;
+  assert.equal(completed.status, "READY");
+  assert.equal((await getKnowledgeSource(src.id))?.status, "READY");
+});
+
+test("ingest: stale INGESTING lease can be reclaimed by exact version", async () => {
+  const content = "## Crash Recovery\n\n" + "recovered evidence ".repeat(120);
+  const src = await upload(content, "Stale Ingestion");
+  const db = await getDb();
+
+  await db
+    .update(knowledge_sources)
+    .set({ status: "INGESTING", updatedAt: new Date(Date.now() - 10 * 60 * 1000) })
+    .where(eq(knowledge_sources.id, src.id));
+
+  const result = await ingestKnowledgeSource(src.id, "test-admin", { staleAfterMs: 1_000 });
+  assert.equal(result.status, "READY");
+  assert.ok(result.chunkCount > 0);
+});
+
 test("ingest: zero-chunk source fails gracefully", async () => {
   // A source with only whitespace
   const content = "   \n\n  \n\t  ";
