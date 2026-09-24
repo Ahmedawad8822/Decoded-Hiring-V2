@@ -12,7 +12,7 @@
 
 import { getR2Bucket } from "@/lib/cloudflare/bindings";
 import { getDb, knowledge_sources, type KnowledgeSource } from "@/lib/db";
-import { eq, ne } from "drizzle-orm";
+import { and, eq, ne } from "drizzle-orm";
 import {
   isSupportedMimeType,
   MIME_TO_EXTENSION,
@@ -238,24 +238,60 @@ export async function listKnowledgeSources(): Promise<KnowledgeSource[]> {
 }
 
 /**
- * Permanent delete of a knowledge source: deletes R2 object + D1 row + chunks.
- * Only allowed for sources in terminal states (FAILED or UPLOADED) — READY
- * sources with indexed chunks are rejected to prevent orphans.
+ * Permanently delete a source that has no indexed evidence.
+ *
+ * Safety rules:
+ * - READY / INGESTING are never deletable.
+ * - ARCHIVED is deletable only when it has no chunks.
+ * - The D1 delete is a CAS on id + status + updatedAt, so an ingestion/archive
+ *   transition that starts after our read makes the delete lose safely.
+ * - D1 is deleted BEFORE the private R2 object. If a FK/dependency check or CAS
+ *   fails, the source bytes remain available and the source is not corrupted.
  */
-export async function deleteKnowledgeSource(id: string): Promise<void> {
+export async function deleteKnowledgeSource(
+  id: string,
+  opts?: {
+    /** Test seam: runs after validation and before the authoritative delete CAS. */
+    onValidated?: () => Promise<void>;
+  },
+): Promise<void> {
   const source = await getKnowledgeSourceById(id);
   if (!source) {
     throw new Error(`Knowledge source with id "${id}" not found`);
   }
 
-  if (source.status === "READY") {
-    throw new Error("Cannot delete a READY source. Archive it instead — READY sources have indexed chunks that must be cleaned up via archiving.");
+  const deletable =
+    source.status === "UPLOADED" ||
+    source.status === "FAILED" ||
+    (source.status === "ARCHIVED" && source.chunkCount === 0);
+
+  if (!deletable) {
+    throw new Error(
+      `Cannot delete a ${source.status} source. Only UPLOADED, FAILED, or chunk-free ARCHIVED sources can be permanently deleted.`,
+    );
   }
 
-  // Delete R2 object
-  await deleteKnowledgeObject(source.r2Key);
+  await opts?.onValidated?.();
 
   const db = await getDb();
-  // Delete metadata (chunks and FTS are handled by FK cascade and triggers)
-  await db.delete(knowledge_sources).where(eq(knowledge_sources.id, id));
+  const deleted = await db
+    .delete(knowledge_sources)
+    .where(
+      and(
+        eq(knowledge_sources.id, id),
+        eq(knowledge_sources.status, source.status),
+        eq(knowledge_sources.updatedAt, source.updatedAt),
+      ),
+    )
+    .returning({ id: knowledge_sources.id })
+    .get();
+
+  if (!deleted) {
+    throw new Error("Knowledge source changed while deletion was starting. Retry after the current operation finishes.");
+  }
+
+  // Only after the authoritative metadata delete succeeds do we remove the
+  // private source object. Orphaned R2 bytes are safer than a live DB row whose
+  // source bytes disappeared.
+  await deleteKnowledgeObject(source.r2Key);
 }
