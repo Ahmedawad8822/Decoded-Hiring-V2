@@ -136,7 +136,6 @@ export function DraftDetailClient({ draft }: DraftDetailClientProps) {
 
       {/* Only DRAFT content is editable. Review/approved/published states are immutable. */}
       {draft.status === "DRAFT" && (
-        {/* Edit form (toggleable) */}
         <div style={{ marginBottom: isEditing ? "8px" : "24px" }}>
           <button
             onClick={() => setIsEditing(!isEditing)}
@@ -264,7 +263,9 @@ export function DraftDetailClient({ draft }: DraftDetailClientProps) {
           <button onClick={() => runAction(recoverRejectedAction, "Recovered")} disabled={isPending} style={{ padding: "8px 16px", fontSize: "13px", background: "#3b82f6", color: "white", border: "none", borderRadius: "4px", cursor: "pointer" }}>Recover to DRAFT</button>
         )}
         {draft.status === "APPROVED" && (
-          <button onClick={handlePublish} disabled={isPending} style={{ padding: "8px 16px", fontSize: "13px", background: "#8b5cf6", color: "white", border: "none", borderRadius: "4px", cursor: "pointer" }}>{isPending ? "Publishing..." : "Publish to Guide"}/Field Note</button>
+          <button onClick={handlePublish} disabled={isPending} style={{ padding: "8px 16px", fontSize: "13px", background: "#8b5cf6", color: "white", border: "none", borderRadius: "4px", cursor: "pointer" }}>
+            {isPending ? "Publishing..." : `Publish to ${draft.contentType === "GUIDE" ? "Guide" : "Field Note"}`}
+          </button>
         )}
         {draft.status === "PUBLISHED" && draft.publishedEntityId && (
           <Link href={`/admin/content`} style={{ padding: "8px 16px", fontSize: "13px", background: "#8b5cf6", color: "white", textDecoration: "none", borderRadius: "4px" }}>View Published</Link>
