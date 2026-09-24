@@ -18,7 +18,9 @@
 - **Knowledge-ingestion serialization.** Ingestion owns an atomic CAS lease on
   `(id, status, updatedAt)`. Fresh INGESTING work cannot be stolen; stale
   crash recovery, READY finalization, failure cleanup, archive and restore are
-  all conditional on exact lifecycle ownership.
+  all conditional on exact lifecycle ownership. Chunk DELETE/INSERT statements
+  also verify the exact lease in SQL, preventing a resumed zombie worker from
+  corrupting the recovery winner's chunks or FTS index.
 - **Runtime validation.** Server actions now parse generation, update, and
   review inputs. Source filters accept the real `ks_...` ID format and draft
   body edits use the strict `llmBlockSchema` whitelist.
