@@ -259,15 +259,16 @@ PUBLISHED editorial record from drifting away from the public entity it represen
 ```typescript
 publishDraft(id, actorId)
   1. SELECT existing publication WHERE draftId = ?
-  2. If publication has entityId:
-       resume/finalize the EXACT owned target by entity ID
-  3. If publication has entityId = NULL:
-       wait for the concurrent publisher to fully finish
+  2. If the draft is already PUBLISHED and the exact target is public:
+       return the existing publication idempotently
+  3. Otherwise wait for the concurrent publisher to fully finish,
+     whether entityId is still NULL or has already been bound
+       - a bound entityId can still belong to a LIVE publisher
        - a short wait timeout is NOT proof of abandonment
-       - never delete a fresh reservation merely because polling timed out
-       - only an unbound reservation older than the stale-lease threshold
-         (default 5 minutes) may be reclaimed
-       - stale reclaim deletes by exact publication row id + draft id
+       - only a publication lease older than the stale threshold
+         (default 5 minutes) may enter crash recovery
+       - stale bound lease → resume the exact target by entity ID
+       - stale unbound lease → reclaim by exact row id + draft id
          + entityId IS NULL (CAS)
   4. Require draft.status === APPROVED
   5. INSERT editorial_publications reservation with a unique row id
@@ -296,13 +297,14 @@ row id plus `entityId`, never on slug.**
 
 - One draft → at most one publication record (`UNIQUE(draftId)`).
 - One finalized target → at most one publication record (`UNIQUE(entityId)`).
-- A fresh NULL reservation is treated as live even if another request's
-  bounded poll expires.
-- Only a sufficiently old, still-unbound reservation can be reclaimed, and
-  reclamation is conditional on the exact reservation identity.
+- A fresh publication lease is treated as live even if another request's
+  bounded poll expires, whether or not an `entityId` has already been bound.
+- Crash recovery starts only after the lease is sufficiently old. A stale
+  unbound lease may be reclaimed by exact identity; a stale bound lease resumes
+  the exact target by ID.
 - Once a target `entityId` is bound to a reservation, transient failures keep
-  that ownership record. A retry resumes that exact target rather than creating
-  another target or relying on slug.
+  that ownership record. A later stale-recovery retry resumes that exact target
+  rather than creating another target or relying on slug.
 - An unrelated Guide / Field Note sharing the slug can never be claimed as the
   draft's publication.
 - The editorial draft is marked PUBLISHED only after the exact target is
