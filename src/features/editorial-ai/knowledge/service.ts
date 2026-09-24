@@ -12,7 +12,7 @@
 //   - Duplicate checksum on upload → reject (handled in storage.ts).
 // ============================================================================
 
-import { getDb, knowledge_sources, knowledge_chunks, type KnowledgeSource } from "@/lib/db";
+import { getDb, knowledge_sources, type KnowledgeSource } from "@/lib/db";
 import { getD1Database } from "@/lib/cloudflare/bindings";
 import { and, eq, isNull, ne } from "drizzle-orm";
 import { chunkText } from "./chunker";
