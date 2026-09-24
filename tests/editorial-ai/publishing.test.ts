@@ -702,11 +702,10 @@ test("publish: unrelated field-note with same slug is NEVER claimed (ownership b
 // Publishing reliability — stale edit during publication (scenario G)
 // ---------------------------------------------------------------------------
 test("publish: stale edit during publication triggers CAS rollback — target is rolled back, draft unchanged", async () => {
-  // Simulate concurrent edit: after the target is created and published but
-  // BEFORE the draft is marked PUBLISHED, another actor edits the draft
-  // (APPROVED → DRAFT). The CAS guard must detect this, roll back the target
-  // (unpublish it), clean up the reservation, and throw — never silently
-  // marking a stale draft as PUBLISHED.
+  // Simulate a competing lifecycle mutation after the target is created and
+  // published but BEFORE the draft is marked PUBLISHED. The CAS guard must
+  // detect the draft is no longer APPROVED, roll back the target, clean up the
+  // reservation, and never mark stale content PUBLISHED.
   const topic = `stale-edit-${Date.now()}`;
   const approved = await prepareApprovedDraft(topic, "GUIDE");
 
@@ -732,8 +731,9 @@ test("publish: stale edit during publication triggers CAS rollback — target is
     createdAt: new Date(Date.now() - 10 * 60 * 1000),
   });
 
-  // Simulate a concurrent edit: revert the draft from APPROVED → DRAFT
-  // (this is what updateDraft does when an APPROVED draft receives a content edit).
+  // Force a stale lifecycle state directly. Production updateDraft is
+  // DRAFT-only; this direct DB mutation exercises publish finalization's
+  // defensive CAS against any competing status change.
   await db
     .update(editorial_drafts)
     .set({ status: "DRAFT", updatedAt: new Date() })
