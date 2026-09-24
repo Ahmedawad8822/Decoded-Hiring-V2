@@ -135,7 +135,7 @@ export function KnowledgePageClient({ initialSources }: KnowledgePageClientProps
             </div>
             <div>
               <label style={{ display: "block", fontSize: "13px", fontWeight: 500, marginBottom: "4px" }}>Title *</label>
-              <input type="text" name="title" placeholder="e.g. Build system optimization guide" required disabled={uploading} style={{ width: "100%", padding: "8px", border: "1px solid #d1d5db", borderRadius: "4px" }} />
+              <input type="text" name="title" placeholder="e.g. Structured interview evidence guide" required disabled={uploading} style={{ width: "100%", padding: "8px", border: "1px solid #d1d5db", borderRadius: "4px" }} />
             </div>
             <div>
               <label style={{ display: "block", fontSize: "13px", fontWeight: 500, marginBottom: "4px" }}>Author</label>
