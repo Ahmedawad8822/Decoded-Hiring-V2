@@ -9,6 +9,8 @@
  */
 import test from "node:test";
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import path from "node:path";
 
 import { buildSystemPrompt } from "../../src/features/editorial-ai/skills/aha-authority";
 import { SEEDED_MEMORY } from "../../src/features/editorial-ai/memory/types";
@@ -36,6 +38,8 @@ const FORBIDDEN = [
   "senior engineer",
   "building and operating real software",
   "language, or runtime",
+  "optimizing database queries",
+  "working react developers",
 ];
 
 // Positive assertions — the editorial identity MUST affirm the Decoded
@@ -67,6 +71,16 @@ function assertHasIdentity(text: string, label: string): void {
   );
 }
 
+test("identity: editorial admin generation UI contains only Decoded Hiring examples", () => {
+  const uiPath = path.resolve(
+    import.meta.dirname,
+    "../../src/app/admin/editorial/new/page-client.tsx",
+  );
+  const ui = fs.readFileSync(uiPath, "utf-8");
+  assertClean(ui, "editorial generation admin UI");
+  assertHasIdentity(ui, "editorial generation admin UI");
+});
+
 test("identity: AHA_AUTHORITY_V1 system prompt is free of prototype contamination", () => {
   const prompt = buildSystemPrompt();
   assertClean(prompt, "AHA_AUTHORITY_V1 system prompt");
@@ -90,8 +104,8 @@ test("identity: FakeProvider sample output is free of prototype contamination", 
     context: { retrievedChunks: [], memory: [], contextChars: 0 },
     params: {
       contentType: "GUIDE",
-      topic: "Evidence-Based Engineering",
-      audience: "working engineers",
+      topic: "Evidence-Based Hiring",
+      audience: "talent acquisition leaders",
       angle: "surfacing the unexpected",
     },
   };
