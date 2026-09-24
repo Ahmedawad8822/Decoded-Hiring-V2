@@ -4,10 +4,10 @@
 
 ### Fixed
 - **Publication lease ownership.** `editorial_publications.id` is now the
-  publication lease token. A bounded polling timeout never steals a fresh
-  NULL reservation; only a sufficiently stale, still-unbound exact lease can
-  be reclaimed. Target binding and cleanup are conditional on the exact
-  reservation identity.
+  publication lease token. A bounded polling timeout never takes over a fresh
+  lease, even after its `entityId` has been bound. Crash recovery begins only
+  after the lease is stale: stale bound leases resume the exact target by ID,
+  while stale unbound leases may be reclaimed by exact reservation identity.
 - **Partial-publication recovery.** Once an exact target `entityId` is bound,
   transient publish/verification failures keep the ownership record so retry
   resumes the same Guide / Field Note. Stale-draft failure compensates by
