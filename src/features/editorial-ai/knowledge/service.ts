@@ -39,7 +39,13 @@ function decodeText(body: Uint8Array): string {
  */
 export async function ingestKnowledgeSource(
   sourceId: string,
-  actor: string
+  actor: string,
+  opts?: {
+    /** Test hook invoked only after this caller atomically owns INGESTING. */
+    onClaim?: () => Promise<void>;
+    /** Age after which a crashed INGESTING lease may be reclaimed. */
+    staleAfterMs?: number;
+  },
 ): Promise<{ chunkCount: number; status: KnowledgeStatus }> {
   const db = await getDb();
 
@@ -51,16 +57,41 @@ export async function ingestKnowledgeSource(
   if (!source) {
     throw new Error(`Knowledge source with id "${sourceId}" not found`);
   }
-
   if (source.status === "ARCHIVED") {
     throw new Error("Cannot ingest an archived source. Unarchive first.");
   }
 
-  // 1. Mark INGESTING
-  await db
+  const claimTime = new Date();
+  const staleAfterMs = opts?.staleAfterMs ?? 5 * 60 * 1000;
+
+  // INGESTING is an exclusive lease. A fresh lease cannot be stolen; a stale
+  // one can only be reclaimed by CAS against the exact updatedAt version read
+  // above, so two recovery attempts cannot both win.
+  if (
+    source.status === "INGESTING" &&
+    claimTime.getTime() - source.updatedAt.getTime() < staleAfterMs
+  ) {
+    throw new Error("Knowledge source is already being ingested. Retry after the current ingestion finishes.");
+  }
+
+  const claimed = await db
     .update(knowledge_sources)
-    .set({ status: "INGESTING" as KnowledgeStatus, updatedAt: new Date() })
-    .where(eq(knowledge_sources.id, sourceId));
+    .set({ status: "INGESTING" as KnowledgeStatus, updatedAt: claimTime, error: null })
+    .where(
+      and(
+        eq(knowledge_sources.id, sourceId),
+        eq(knowledge_sources.status, source.status),
+        eq(knowledge_sources.updatedAt, source.updatedAt),
+      ),
+    )
+    .returning({ id: knowledge_sources.id })
+    .get();
+
+  if (!claimed) {
+    throw new Error("Knowledge source changed while ingestion was starting. Retry; another operation owns the source.");
+  }
+
+  await opts?.onClaim?.();
 
   try {
     // 2. Read original from R2
@@ -78,19 +109,15 @@ export async function ingestKnowledgeSource(
       throw new Error("Source content produced zero chunks — nothing to index.");
     }
 
-    // 5. Delete any existing chunks (idempotent re-ingestion). Triggers clean
-    //    the FTS index automatically.
+    // 5. Replace this source's chunks while this caller exclusively owns the
+    // INGESTING lease. Other ingest/archive calls cannot enter concurrently.
     await db.delete(knowledge_chunks).where(eq(knowledge_chunks.sourceId, sourceId));
 
-    // 6. Insert new chunks. D1 does not offer cross-statement atomicity for
-    //    ORM-level batch across the Drizzle wrapper, so we insert sequentially
-    //    inside a try/catch: on any failure, ALL chunks for this source are
-    //    purged (trigger removes FTS rows) and the source is marked FAILED.
     const now = new Date();
     for (const c of chunks) {
       await db.insert(knowledge_chunks).values({
         id: `knc_${crypto.randomUUID().slice(0, 12)}`,
-        sourceId: sourceId,
+        sourceId,
         ordinal: c.ordinal,
         heading: c.heading,
         content: c.content,
@@ -100,16 +127,29 @@ export async function ingestKnowledgeSource(
       });
     }
 
-    // 7. Transition to READY
-    await db
+    // 6. Finalize only if our exact INGESTING lease version still exists.
+    const finalized = await db
       .update(knowledge_sources)
       .set({
         status: "READY" as KnowledgeStatus,
         chunkCount: chunks.length,
         ingestedAt: now,
         updatedAt: now,
+        error: null,
       })
-      .where(eq(knowledge_sources.id, sourceId));
+      .where(
+        and(
+          eq(knowledge_sources.id, sourceId),
+          eq(knowledge_sources.status, "INGESTING"),
+          eq(knowledge_sources.updatedAt, claimTime),
+        ),
+      )
+      .returning({ id: knowledge_sources.id })
+      .get();
+
+    if (!finalized) {
+      throw new Error("Ingestion ownership changed before READY finalization.");
+    }
 
     await logAudit({
       actor,
@@ -121,12 +161,35 @@ export async function ingestKnowledgeSource(
 
     return { chunkCount: chunks.length, status: "READY" };
   } catch (err) {
-    // 8. Failure: clean up chunks inserted so far, mark FAILED.
-    await db.delete(knowledge_chunks).where(eq(knowledge_chunks.sourceId, sourceId));
-    await db
-      .update(knowledge_sources)
-      .set({ status: "FAILED" as KnowledgeStatus, updatedAt: new Date() })
-      .where(eq(knowledge_sources.id, sourceId));
+    // Failure cleanup is conditional on still owning the exact INGESTING
+    // lease. If ownership changed, never delete another operation's chunks.
+    const owner = await db
+      .select({ status: knowledge_sources.status, updatedAt: knowledge_sources.updatedAt })
+      .from(knowledge_sources)
+      .where(eq(knowledge_sources.id, sourceId))
+      .get();
+
+    if (
+      owner?.status === "INGESTING" &&
+      owner.updatedAt.getTime() === claimTime.getTime()
+    ) {
+      await db.delete(knowledge_chunks).where(eq(knowledge_chunks.sourceId, sourceId));
+      await db
+        .update(knowledge_sources)
+        .set({
+          status: "FAILED" as KnowledgeStatus,
+          chunkCount: 0,
+          error: (err as Error).message.slice(0, 1000),
+          updatedAt: new Date(),
+        })
+        .where(
+          and(
+            eq(knowledge_sources.id, sourceId),
+            eq(knowledge_sources.status, "INGESTING"),
+            eq(knowledge_sources.updatedAt, claimTime),
+          ),
+        );
+    }
 
     await logAudit({
       actor,
@@ -168,10 +231,22 @@ export async function archiveKnowledgeSource(sourceId: string, actor: string): P
   }
 
   const now = new Date();
-  await db
+  const archived = await db
     .update(knowledge_sources)
     .set({ status: "ARCHIVED" as KnowledgeStatus, archivedAt: now, updatedAt: now })
-    .where(eq(knowledge_sources.id, sourceId));
+    .where(
+      and(
+        eq(knowledge_sources.id, sourceId),
+        eq(knowledge_sources.status, source.status),
+        eq(knowledge_sources.updatedAt, source.updatedAt),
+      ),
+    )
+    .returning({ id: knowledge_sources.id })
+    .get();
+
+  if (!archived) {
+    throw new Error("Knowledge source changed while archiving. Retry after the current operation finishes.");
+  }
 
   await logAudit({
     actor,
@@ -210,10 +285,22 @@ export async function restoreKnowledgeSource(sourceId: string, actor: string): P
   }
 
   const now = new Date();
-  await db
+  const restoredRow = await db
     .update(knowledge_sources)
     .set({ status: "READY" as KnowledgeStatus, archivedAt: null, updatedAt: now })
-    .where(eq(knowledge_sources.id, sourceId));
+    .where(
+      and(
+        eq(knowledge_sources.id, sourceId),
+        eq(knowledge_sources.status, "ARCHIVED"),
+        eq(knowledge_sources.updatedAt, source.updatedAt),
+      ),
+    )
+    .returning({ id: knowledge_sources.id })
+    .get();
+
+  if (!restoredRow) {
+    throw new Error("Knowledge source changed while restoring. Retry.");
+  }
 
   await logAudit({
     actor,
