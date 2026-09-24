@@ -149,7 +149,6 @@ export async function generateDraft(
   // INSERT fails (for example because a retrieved chunk disappeared), the
   // draft INSERT rolls back too. This removes the crash/error window where a
   // usable-looking draft could exist with partial evidence history.
-  const db = await getDb();
   const d1 = await getD1Database();
   const now = new Date();
   const nowSec = Math.floor(now.getTime() / 1000);
