@@ -14,7 +14,7 @@ import { getR2Bucket } from "../../src/lib/cloudflare/bindings";
 import { getDb, knowledge_sources, knowledge_chunks } from "../../src/lib/db";
 import { eq } from "drizzle-orm";
 
-import { uploadKnowledgeSource } from "../../src/features/editorial-ai/knowledge/storage";
+import { uploadKnowledgeSource, deleteKnowledgeSource, getKnowledgeObject } from "../../src/features/editorial-ai/knowledge/storage";
 import {
   ingestKnowledgeSource,
   archiveKnowledgeSource,
@@ -261,6 +261,44 @@ test("ingest: FAILED source can be re-ingested", async () => {
   const result = await ingestKnowledgeSource(src.id, "test-admin");
   assert.equal(result.status, "READY");
   assert.ok(result.chunkCount > 0);
+});
+
+test("delete: stale delete cannot remove a source after ingestion claims it", async () => {
+  const content = "## Delete Race\n\n" + "structured hiring evidence ".repeat(160);
+  const src = await upload(content, "Delete Race");
+
+  let releaseClaim!: () => void;
+  let signalClaim!: () => void;
+  const holdClaim = new Promise<void>((resolve) => { releaseClaim = resolve; });
+  const claimStarted = new Promise<void>((resolve) => { signalClaim = resolve; });
+  let ingestion!: Promise<{ chunkCount: number; status: string }>;
+
+  await assert.rejects(
+    () =>
+      deleteKnowledgeSource(src.id, {
+        onValidated: async () => {
+          ingestion = ingestKnowledgeSource(src.id, "ingest-admin", {
+            onClaim: async () => {
+              signalClaim();
+              await holdClaim;
+            },
+          });
+          await claimStarted;
+        },
+      }),
+    /changed while deletion was starting/i,
+  );
+
+  const during = await getKnowledgeSource(src.id);
+  assert.equal(during?.status, "INGESTING");
+
+  const object = await getKnowledgeObject(src.r2Key);
+  assert.ok(object, "R2 bytes must remain when the delete CAS loses");
+
+  releaseClaim();
+  const completed = await ingestion;
+  assert.equal(completed.status, "READY");
+  assert.equal((await getKnowledgeSource(src.id))?.status, "READY");
 });
 
 test("ingest: concurrent re-ingestion is serialized and archive cannot steal the lease", async () => {
