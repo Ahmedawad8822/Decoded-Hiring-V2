@@ -173,7 +173,7 @@ test("generateDraft: creates a DRAFT with content blocks", async () => {
 
 test("generateDraft: draft and provenance persist atomically", async () => {
   const topic = `atomic provenance ${Date.now()}`;
-  await seedKnowledge(
+  const sourceId = await seedKnowledge(
     "## Atomic Provenance\n\nAtomic provenance protects hiring evidence from partial persistence when a source changes during generation.",
     "Atomic Provenance Test",
   );
@@ -186,6 +186,7 @@ test("generateDraft: draft and provenance persist atomically", async () => {
           contentType: "GUIDE",
           topic,
           audience: "talent acquisition leaders",
+          sourceIds: [sourceId],
         },
         "test-admin",
         {
