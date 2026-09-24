@@ -249,6 +249,46 @@ test("lifecycle: APPROVED content is read-only until explicitly returned to DRAF
   assert.equal(after?.title, approved.title);
 });
 
+test("lifecycle: DRAFT edit CAS cannot cross a concurrent submit boundary", async () => {
+  const topic = `edit-submit-race-${Date.now()}`;
+  const draft = await generateDraft(
+    { contentType: "GUIDE", topic, audience: "test audience" },
+    "test-admin",
+    { provider: new FakeProvider() },
+  );
+  createdDraftIds.push(draft.id);
+
+  await assert.rejects(
+    () =>
+      updateDraft(
+        draft.id,
+        { title: "This edit must lose" },
+        "editor-admin",
+        {
+          onValidated: async () => {
+            await submitForReview(draft.id, "review-admin");
+          },
+        },
+      ),
+    /status changed to "IN_REVIEW".*edit was being saved/i,
+  );
+
+  const after = await getDraft(draft.id);
+  assert.equal(after?.status, "IN_REVIEW");
+  assert.equal(after?.title, draft.title, "content must remain the reviewed version");
+
+  const db = await getDb();
+  const audit = await db
+    .select()
+    .from(editorial_audit_log)
+    .where(eq(editorial_audit_log.entityId, draft.id));
+  assert.equal(
+    audit.filter((entry) => entry.action === "draft_edited").length,
+    0,
+    "a lost edit CAS must not emit a draft_edited audit event",
+  );
+});
+
 // ---------------------------------------------------------------------------
 // Publishing idempotency
 // ---------------------------------------------------------------------------
