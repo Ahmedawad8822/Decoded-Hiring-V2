@@ -488,43 +488,49 @@ export async function publishDraft(
   // 1. Idempotency / crash recovery.
   const existing = await getPublicationByDraftId(db, draft.id);
   if (existing) {
-    if (existing.entityId) {
-      return await finalizeOwnedPublication(
-        db,
-        draft,
-        actor,
-        existing.id,
-        existing.entityType as "guide" | "field_note",
-        existing.entityId,
-        now,
-        publishTargetFn,
-      );
+    // A bound entityId is still potentially owned by a LIVE publisher that is
+    // between target creation and draft finalization. Always give the owner a
+    // bounded chance to finish before considering crash recovery.
+    if (
+      draft.status === "PUBLISHED" &&
+      existing.entityId &&
+      draft.publishedEntityId === existing.entityId &&
+      (await verifyTargetPublic(existing.entityType as "guide" | "field_note", existing.entityId))
+    ) {
+      return {
+        entityType: existing.entityType as "guide" | "field_note",
+        entityId: existing.entityId,
+      };
     }
 
     try {
       return await waitForCompletedPublication(db, draft.id, waitTimeoutMs);
     } catch (waitError) {
-      // A timeout is NOT proof of abandonment. Reclaim only an exact,
-      // still-unbound reservation whose lease age exceeds the stale window.
+      // A timeout is NOT proof of abandonment. Recovery is allowed only when
+      // the exact lease is old enough to be considered stale.
       const current = await getPublicationByDraftId(db, draft.id);
       if (!current) {
         // The owner cleaned up between our polls; continue and reserve below.
-      } else if (current.entityId) {
-        const ageMs = Date.now() - current.createdAt.getTime();
-        if (ageMs < staleReservationMs) throw waitError;
-        return await finalizeOwnedPublication(
-          db,
-          draft,
-          actor,
-          current.id,
-          current.entityType as "guide" | "field_note",
-          current.entityId,
-          new Date(),
-          publishTargetFn,
-        );
       } else {
         const ageMs = Date.now() - current.createdAt.getTime();
         if (ageMs < staleReservationMs) throw waitError;
+
+        if (current.entityId) {
+          // Stale BOUND lease: resume the exact target by ID.
+          return await finalizeOwnedPublication(
+            db,
+            draft,
+            actor,
+            current.id,
+            current.entityType as "guide" | "field_note",
+            current.entityId,
+            new Date(),
+            publishTargetFn,
+          );
+        }
+
+        // Stale UNBOUND lease: reclaim only if it is still the exact NULL
+        // reservation observed above.
         const reclaimed = await deletePublicationReservation(db, current.id, draft.id, true);
         if (!reclaimed) {
           throw new Error(`Publication reservation for draft ${draft.id} changed while stale recovery was attempted. Retry.`);
