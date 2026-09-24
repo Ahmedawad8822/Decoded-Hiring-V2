@@ -3,9 +3,10 @@
 Production engineering documentation for the editorial-ai publishing pipeline
 (Drafts → Guides / Field Notes) on the Decoded Hiring V2 website.
 
-This document is the authoritative reference for the Mission 07 remediation
-state at commit `3dda701`. Every code example, schema definition, env-var name,
-and migration reference below is verified against the source tree.
+This document is the authoritative reference for the Mission 07 final remediation
+state on branch `mission-07-website-editorial-ai`. Code and lifecycle descriptions
+below reflect the current source tree; release gates must be rerun after the latest
+remediation commits before merge approval.
 
 ---
 
@@ -238,49 +239,98 @@ publication layer via the `editorial_publications` UNIQUE(draftId) constraint.
 ```typescript
 updateDraft(id, input, actorId)
   1. requireAdmin()
-  2. SELECT draft WHERE id = ?
-  3. UPDATE title, excerpt, meta_title, meta_desc, body, slug
-     (body is JSON-stringified UpdateDraftInput.body)
-  4. If status was APPROVED and a content field changed →
-     revert to DRAFT, clear approval/publish fields
-  5. INSERT audit row (draft_edited)
-  6. return updated draft (via getDraft)
+  2. Parse UpdateDraftInput with updateDraftSchema
+  3. SELECT draft WHERE id = ?
+  4. Require status === DRAFT
+     - IN_REVIEW / APPROVED / REJECTED / PUBLISHED are read-only
+     - review-state content must explicitly return to DRAFT before editing
+  5. UPDATE validated title, excerpt, meta_title, meta_desc, body, slug
+     (body accepts only the strict llmBlockSchema whitelist)
+  6. INSERT audit row (draft_edited)
+  7. return updated draft (via getDraft)
 ```
+
+The server-side DRAFT-only rule is authoritative. The admin UI mirrors it by
+rendering the Edit control only for DRAFT content. This prevents an APPROVED or
+PUBLISHED editorial record from drifting away from the public entity it represents.
 
 ### 4.3 Publishing (publishDraft)
 
 ```typescript
 publishDraft(id, actorId)
   1. SELECT existing publication WHERE draftId = ?
-  2. If existing publication with entityId → finalizeOwnedPublication()
-     (idempotent re-publish / crash recovery by exact entity ID)
-  3. If existing reservation (entityId NULL) → waitForPublication()
-     (another concurrent publish is finalizing; times out after ~2 s)
-     → on timeout: delete orphaned reservation, fall through to step 4
-     (crash after reservation but before target creation — scenario B)
-  4. Verify draft.status === "APPROVED"
-  5. INSERT editorial_publications (id, draftId, entityType, entityId=NULL,
-     createdAt)  — UNIQUE(draftId) serializes concurrent publishes
-  6. CREATE target entity (createGuide / createFieldNote) with:
-     - author resolved from actor's user row, fallback to "Decoded Editorial"
-     - slug taken from the draft (NOT used for ownership)
-  7. OWN the reservation: UPDATE publications SET entityId = ? WHERE draftId = ?
-  8. Publish the target (publishGuide / publishFieldNote) → status: "published"
-  9. Verify by exact entity ID that target is public
- 10. CAS: UPDATE drafts SET status='PUBLISHED', publishedEntityId=?,
-     publishedEntityType=?, publishedAt=? WHERE id=? AND status='APPROVED'
- 11. If CAS moved 0 rows (stale publish) → rollback target, clean reservation,
-     throw StalePublishError
+  2. If publication has entityId:
+       resume/finalize the EXACT owned target by entity ID
+  3. If publication has entityId = NULL:
+       wait for the concurrent publisher to fully finish
+       - a short wait timeout is NOT proof of abandonment
+       - never delete a fresh reservation merely because polling timed out
+       - only an unbound reservation older than the stale-lease threshold
+         (default 5 minutes) may be reclaimed
+       - stale reclaim deletes by exact publication row id + draft id
+         + entityId IS NULL (CAS)
+  4. Require draft.status === APPROVED
+  5. INSERT editorial_publications reservation with a unique row id
+       - UNIQUE(draftId) serializes concurrent publishers
+       - the publication row id is the ownership / lease token
+  6. CREATE target Guide / Field Note
+  7. Bind target to the exact reservation with CAS:
+       WHERE publication.id = reservationId
+         AND draftId = ?
+         AND entityId IS NULL
+  8. If target binding loses:
+       safely discard only the unpublished target created by this request
+       and fail without publishing
+  9. Publish target and verify by exact entity ID
+ 10. CAS draft APPROVED → PUBLISHED
+ 11. If draft CAS loses:
+       unpublish + discard the exact owned target,
+       release the exact publication reservation,
+       and fail closed
  12. INSERT audit row (draft_published)
  13. return { entityType, entityId }
 ```
 
-**Idempotency & crash recovery** are anchored on `entityId`, never on slug:
-- One draft → at most one publication record (`UNIQUE(draftId)`)
-- One finalized target → at most one publication record (`UNIQUE(entityId)`)
-- A crashed publish leaves an owned reservation (entityId set after step 7);
-  the next `publishDraft` resumes the EXACT target by ID — never a slug that
-  could collide with an unrelated guide/field-note
+**Idempotency, concurrency and crash recovery are anchored on the publication
+row id plus `entityId`, never on slug.**
+
+- One draft → at most one publication record (`UNIQUE(draftId)`).
+- One finalized target → at most one publication record (`UNIQUE(entityId)`).
+- A fresh NULL reservation is treated as live even if another request's
+  bounded poll expires.
+- Only a sufficiently old, still-unbound reservation can be reclaimed, and
+  reclamation is conditional on the exact reservation identity.
+- Once a target `entityId` is bound to a reservation, transient failures keep
+  that ownership record. A retry resumes that exact target rather than creating
+  another target or relying on slug.
+- An unrelated Guide / Field Note sharing the slug can never be claimed as the
+  draft's publication.
+- The editorial draft is marked PUBLISHED only after the exact target is
+  verified public.
+
+### 4.4 Knowledge ingestion concurrency
+
+Knowledge ingestion uses the same ownership principle at the source-state level:
+
+```text
+UPLOADED / READY / FAILED
+       ↓ CAS on (id, status, updatedAt)
+   INGESTING lease
+       ↓
+replace chunks + FTS rows
+       ↓ CAS on exact INGESTING updatedAt lease
+      READY
+```
+
+Rules:
+
+- A fresh `INGESTING` source cannot be ingested again or archived.
+- A crashed `INGESTING` lease can be reclaimed only after the stale threshold
+  and only by CAS against the exact `updatedAt` version that was read.
+- Failure cleanup deletes chunks and marks FAILED only when the caller still
+  owns that exact INGESTING lease.
+- Archive and restore also use CAS against status + `updatedAt`, preventing
+  lifecycle operations from overwriting a concurrently-started ingestion.
 
 ---
 
@@ -455,8 +505,8 @@ the author from the actor's user row with a fallback to `"Decoded Editorial"`
 
 | Action | Check |
 |--------|-------|
-| `generateDraft` | `requireAdmin()` — auth check; `createdBy` set to `session.user.id` on INSERT |
-| `updateDraft` | `requireAdmin()` — auth check; draft found by `id` |
+| `generateDraft` | `requireAdmin()` + `generateDraftSchema.parse()`; `createdBy` set to `session.user.id` on INSERT |
+| `updateDraft` | `requireAdmin()` + `updateDraftSchema.parse()`; server enforces DRAFT-only editing |
 | `submitForReview` | `requireAdmin()` — auth check; CAS on status |
 | `sendBack` | `requireAdmin()` — auth check; CAS on status |
 | `approve` | `requireAdmin()` — auth check; CAS on status |
@@ -473,12 +523,13 @@ the author from the actor's user row with a fallback to `"Decoded Editorial"`
 | One guide/field-note per slug | `UNIQUE(slug)` on `guides` / `field_notes` |
 
 A second publish attempt against the same draft finds the existing record
-and either finalizes it (idempotent) or waits for the concurrent publish to
-finish. If the wait times out (orphaned reservation — a crashed publish
-left `entityId = NULL` before target creation), the reservation is deleted
-and the publish re-runs from reservation insertion. An unrelated
-guide/field-note with the same slug makes target creation fail — the draft's
-publication record is cleaned up and the error propagates.
+and either finalizes the exact owned target (idempotent/crash recovery) or
+waits for the concurrent publisher to fully finish. A bounded wait timeout by
+itself never deletes a reservation. Reclamation is permitted only for a
+sufficiently old, still-unbound reservation and only through an exact
+reservation-identity CAS. Once an `entityId` is bound, the record is retained
+through transient failures so a retry resumes the same target. An unrelated
+Guide/Field Note with the same slug can never be claimed.
 
 ---
 
@@ -594,14 +645,24 @@ includes full source provenance with chunk content.
 
 ## 9. Verification Gates
 
-| Gate | Command | Status |
-|------|---------|--------|
-| Unit + integration tests | `npm test` | 100% green |
-| Drizzle — schema unchanged | `npm run db:generate` (no output) | ✅ |
-| E2E suite | `npm run test:e2e` | ✅ |
-| TypeScript | `npm run typecheck` | ✅ |
-| Lint | `npm run lint` | ✅ |
-| Production build | `npm run build` | ✅ |
+The earlier Mission 07 implementation passed its local gates before the final
+release-review remediation. Those results **do not certify the current head**
+because publication, ingestion, validation, UI lifecycle and regression tests
+have changed since then.
+
+Before Ahmed gives merge approval, rerun all gates against the final branch head:
+
+| Gate | Command | Current post-remediation status |
+|------|---------|---------------------------------|
+| Unit + integration tests | `npm test` | **MUST RERUN** |
+| E2E suite | `npm run test:e2e` | **MUST RERUN** |
+| TypeScript | `npm run typecheck` | **MUST RERUN** |
+| Lint | `npm run lint` | **MUST RERUN** |
+| Production build | `npm run build` | **MUST RERUN** |
+| Drizzle schema drift | `npm run db:generate` | **MUST RERUN; expect no unintended migration** |
+
+Release remains blocked until these gates are green and an independent
+`dh-release-review` re-review confirms the six final-review blockers are closed.
 
 ---
 
