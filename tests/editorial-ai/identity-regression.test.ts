@@ -40,6 +40,7 @@ const FORBIDDEN = [
   "language, or runtime",
   "optimizing database queries",
   "working react developers",
+  "build system optimization",
 ];
 
 // Positive assertions — the editorial identity MUST affirm the Decoded
@@ -79,6 +80,31 @@ test("identity: editorial admin generation UI contains only Decoded Hiring examp
   const ui = fs.readFileSync(uiPath, "utf-8");
   assertClean(ui, "editorial generation admin UI");
   assertHasIdentity(ui, "editorial generation admin UI");
+});
+
+test("identity: knowledge admin UI contains only Decoded Hiring examples", () => {
+  const uiPath = path.resolve(
+    import.meta.dirname,
+    "../../src/app/admin/knowledge/page-client.tsx",
+  );
+  const ui = fs.readFileSync(uiPath, "utf-8");
+  assertClean(ui, "knowledge admin UI");
+  assertHasIdentity(ui, "knowledge admin UI");
+});
+
+test("discoverability: Studio navigation exposes all Mission 07 admin surfaces", () => {
+  const shellPath = path.resolve(
+    import.meta.dirname,
+    "../../src/app/admin/studio-shell.tsx",
+  );
+  const shell = fs.readFileSync(shellPath, "utf-8");
+  for (const href of [
+    'href="/admin/editorial"',
+    'href="/admin/knowledge"',
+    'href="/admin/editorial/memory"',
+  ]) {
+    assert.ok(shell.includes(href), `Studio navigation missing ${href}`);
+  }
 });
 
 test("identity: AHA_AUTHORITY_V1 system prompt is free of prototype contamination", () => {
