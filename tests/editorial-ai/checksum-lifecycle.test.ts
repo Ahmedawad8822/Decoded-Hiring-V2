@@ -297,6 +297,46 @@ test("ingest: concurrent re-ingestion is serialized and archive cannot steal the
   assert.equal((await getKnowledgeSource(src.id))?.status, "READY");
 });
 
+test("ingest: zombie worker cannot mutate chunks after its stale lease is reclaimed", async () => {
+  const content = "## Zombie Safety\n\n" + "hiring evidence ".repeat(180);
+  const src = await upload(content, "Zombie Safety");
+
+  let releaseFirst!: () => void;
+  let firstClaimed!: () => void;
+  const holdFirst = new Promise<void>((resolve) => { releaseFirst = resolve; });
+  const firstHasLease = new Promise<void>((resolve) => { firstClaimed = resolve; });
+
+  const first = ingestKnowledgeSource(src.id, "worker-one", {
+    staleAfterMs: 0,
+    onClaim: async () => {
+      firstClaimed();
+      await holdFirst;
+    },
+  });
+
+  await firstHasLease;
+
+  // Force stale recovery immediately for the test. The second worker receives
+  // a distinct monotonic lease version and completes the authoritative ingest.
+  const second = await ingestKnowledgeSource(src.id, "worker-two", { staleAfterMs: 0 });
+  assert.equal(second.status, "READY");
+  const authoritative = await getChunkContents(src.id);
+  assert.ok(authoritative.length > 0);
+
+  // Wake the old worker after ownership moved. Its lease-conditional DELETE /
+  // INSERT statements must not alter worker-two's chunks.
+  releaseFirst();
+  await assert.rejects(first, /lease was lost|ownership changed/i);
+
+  const afterZombie = await getChunkContents(src.id);
+  assert.deepEqual(
+    afterZombie.map((c) => c.contentHash),
+    authoritative.map((c) => c.contentHash),
+    "stale worker must not delete or append chunks after lease takeover",
+  );
+  assert.equal((await getKnowledgeSource(src.id))?.status, "READY");
+});
+
 test("ingest: stale INGESTING lease can be reclaimed by exact version", async () => {
   const content = "## Crash Recovery\n\n" + "recovered evidence ".repeat(120);
   const src = await upload(content, "Stale Ingestion");
