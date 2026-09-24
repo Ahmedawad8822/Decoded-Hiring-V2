@@ -1015,10 +1015,9 @@ async function transitionDraft(
     updates.approvedAt = now;
   }
 
-  // Clear review/rejection metadata when reverting to DRAFT (e.g. REJECTED →
-  // DRAFT recovery). This makes the "reviewed by" / "rejected at" fields null
-  // so the recovered draft starts fresh, matching the semantics of updateDraft's
-  // APPROVED → DRAFT content-edit reset.
+  // Clear review/rejection metadata when reverting to DRAFT (for example
+  // REJECTED → DRAFT recovery) so the recovered draft starts a fresh review
+  // cycle. updateDraft itself is DRAFT-only and never revokes approval.
   if (newStatus === "DRAFT" && clearFields) {
     for (const field of clearFields) {
       (updates as Record<string, unknown>)[field] = null;
