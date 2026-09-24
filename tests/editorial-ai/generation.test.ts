@@ -28,6 +28,7 @@ import { generateDraft } from "../../src/features/editorial-ai/drafts/service";
 import { generateDraftSchema, updateDraftSchema } from "../../src/features/editorial-ai/drafts/types";
 import { resolveProvider, EditorialProviderNotConfiguredError, isProviderNotConfigured } from "../../src/features/editorial-ai/providers";
 import { FakeProvider } from "../../src/features/editorial-ai/providers/fake";
+import { createMemory, updateMemory } from "../../src/features/editorial-ai/memory/service";
 
 const createdDraftIds: string[] = [];
 const createdSourceIds: string[] = [];
@@ -119,6 +120,25 @@ test("draft schemas: accept real ks_ source ids and reject malformed content blo
   );
 });
 
+test("editorial memory service enforces runtime schemas", async () => {
+  await assert.rejects(
+    () =>
+      createMemory(
+        { category: "GCC_CONTEXT", content: "compiler contamination" } as never,
+        "test-admin",
+      ),
+  );
+
+  await assert.rejects(
+    () =>
+      updateMemory(
+        "mem_001",
+        { content: "x" } as never,
+        "test-admin",
+      ),
+  );
+});
+
 // ---------------------------------------------------------------------------
 // Generation pipeline
 // ---------------------------------------------------------------------------
@@ -149,6 +169,53 @@ test("generateDraft: creates a DRAFT with content blocks", async () => {
   }
   assert.ok(draft.skillId);
   assert.ok(draft.skillVersion);
+});
+
+test("generateDraft: draft and provenance persist atomically", async () => {
+  const topic = `atomic provenance ${Date.now()}`;
+  await seedKnowledge(
+    "## Atomic Provenance\n\nAtomic provenance protects hiring evidence from partial persistence when a source changes during generation.",
+    "Atomic Provenance Test",
+  );
+
+  let attemptedDraftId = "";
+  await assert.rejects(
+    () =>
+      generateDraft(
+        {
+          contentType: "GUIDE",
+          topic,
+          audience: "talent acquisition leaders",
+        },
+        "test-admin",
+        {
+          provider: new FakeProvider(),
+          onBeforePersist: async ({ draftId, chunkIds }) => {
+            attemptedDraftId = draftId;
+            assert.ok(chunkIds.length > 0);
+            const db = await getDb();
+            // Invalidate one provenance FK after retrieval but before the
+            // atomic batch. The batch must roll back the draft INSERT too.
+            await db.delete(knowledge_chunks).where(eq(knowledge_chunks.id, chunkIds[0]!));
+          },
+        },
+      ),
+  );
+
+  assert.ok(attemptedDraftId);
+  const db = await getDb();
+  const draftRow = await db
+    .select()
+    .from(editorial_drafts)
+    .where(eq(editorial_drafts.id, attemptedDraftId))
+    .get();
+  assert.equal(draftRow, undefined, "failed provenance batch must not leave a draft");
+
+  const sourceRows = await db
+    .select()
+    .from(editorial_draft_sources)
+    .where(eq(editorial_draft_sources.draftId, attemptedDraftId));
+  assert.equal(sourceRows.length, 0, "failed provenance batch must leave no partial source links");
 });
 
 test("generateDraft: records source provenance", async () => {
