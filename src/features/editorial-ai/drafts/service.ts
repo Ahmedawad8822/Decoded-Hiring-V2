@@ -45,7 +45,7 @@ import {
   knowledge_chunks,
   users,
 } from "@/lib/db";
-import { eq, desc, and, inArray } from "drizzle-orm";
+import { eq, desc, and, inArray, isNull } from "drizzle-orm";
 import type { LlmBlock, ContextChunk } from "../skills/types";
 import type { LLMProvider } from "../providers";
 import type { ContentBlock } from "@/features/publishing/types";
@@ -53,8 +53,8 @@ import { resolveProvider } from "../providers";
 import { retrieveKnowledge } from "../knowledge/retrieval";
 import { getActiveMemory } from "../memory/service";
 import { logAudit } from "../audit/service";
-import { createGuide, getAdminGuideById, publishGuide, unpublishGuide } from "@/features/guides/service";
-import { createFieldNote, getAdminFieldNoteById, publishFieldNote, unpublishFieldNote } from "@/features/field-notes/service";
+import { createGuide, discardGuideDraft, getAdminGuideById, publishGuide, unpublishGuide } from "@/features/guides/service";
+import { createFieldNote, discardFieldNoteDraft, getAdminFieldNoteById, publishFieldNote, unpublishFieldNote } from "@/features/field-notes/service";
 import { isUniqueConstraintError } from "@/lib/db/sqlite-errors";
 import { AHA_AUTHORITY_V1, SKILL_VERSION, NoRelevantEvidenceError } from "../skills/aha-authority";
 import type {
@@ -327,6 +327,9 @@ export async function updateDraft(
   const now = new Date();
   const draft = await getDraft(id);
   if (!draft) throw new Error(`Draft with id "${id}" not found`);
+  if (draft.status !== "DRAFT") {
+    throw new Error(`Cannot edit draft in "${draft.status}" status. Only DRAFT content can be edited; return it to DRAFT before changing content.`);
+  }
 
   const updates: Partial<typeof editorial_drafts.$inferInsert> = { updatedAt: now };
   if (input.title !== undefined) updates.title = input.title;
@@ -336,20 +339,6 @@ export async function updateDraft(
   if (input.metaTitle !== undefined) updates.metaTitle = input.metaTitle;
   if (input.metaDescription !== undefined) updates.metaDescription = input.metaDescription;
 
-  // A meaningful content edit to an APPROVED draft invalidates its approval:
-  // the content must flow through review again, so revert to DRAFT and clear
-  // the approval/published fields. A no-op or absent-field patch does NOT revoke.
-  const contentFields = ["title", "slug", "excerpt", "body", "metaTitle", "metaDescription"];
-  const isContentEdit = contentFields.some((f) => (input as Record<string, unknown>)[f] !== undefined);
-  if (draft.status === "APPROVED" && isContentEdit) {
-    updates.status = "DRAFT" as DraftStatus;
-    updates.approvedBy = null;
-    updates.approvedAt = null;
-    updates.reviewedBy = null;
-    updates.publishedEntityId = null;
-    updates.publishedEntityType = null;
-    updates.publishedAt = null;
-  }
 
   await db.update(editorial_drafts).set(updates).where(eq(editorial_drafts.id, id));
 
@@ -478,8 +467,12 @@ export async function publishDraft(
   opts?: {
     /** Publish the target entity (defaults to publishGuide/publishFieldNote). */
     publishTarget?: (entityType: "guide" | "field_note", entityId: string) => Promise<unknown>;
-    /** Hook invoked after the target entity is created, before it is published. */
+    /** Hook invoked after the target entity is bound to the publication lease. */
     onCreateTarget?: (entityType: "guide" | "field_note", entityId: string) => Promise<void>;
+    /** Test hook: bounded wait for a concurrent publisher. */
+    waitTimeoutMs?: number;
+    /** Test hook: age after which an unbound reservation may be reclaimed. */
+    staleReservationMs?: number;
   },
 ): Promise<{ entityType: "guide" | "field_note"; entityId: string }> {
   const db = await getDb();
@@ -489,34 +482,54 @@ export async function publishDraft(
   const entityType = entityTypeFor(draft.contentType);
   const now = new Date();
   const publishTargetFn = opts?.publishTarget ?? defaultPublishTarget;
+  const waitTimeoutMs = opts?.waitTimeoutMs ?? 2000;
+  const staleReservationMs = opts?.staleReservationMs ?? 5 * 60 * 1000;
 
-  // 1. Idempotency / crash recovery: a publication record already exists.
-  //    Ownership is anchored on entityId — NEVER on slug — so an unrelated
-  //    guide/field note sharing the draft's slug can never be claimed.
+  // 1. Idempotency / crash recovery.
   const existing = await getPublicationByDraftId(db, draft.id);
   if (existing) {
     if (existing.entityId) {
-      // Owned by an exact target → resume/finalize by ID (covers both
-      // idempotent re-publish and crash recovery).
       return await finalizeOwnedPublication(
         db,
         draft,
         actor,
+        existing.id,
         existing.entityType as "guide" | "field_note",
         existing.entityId,
         now,
         publishTargetFn,
       );
     }
-    // entityId is NULL → either a concurrent publish is in progress, or a
-    // crashed publish left an orphaned reservation (entityId never set).
+
     try {
-      return await waitForPublication(db, draft.id);
-    } catch {
-      // Wait timed out — the reservation is likely orphaned (the owning
-      // publish crashed before target creation). Delete it so we can re-reserve
-      // and create the target from scratch. Fall through to step 2 below.
-      await deletePublicationByDraftId(db, draft.id);
+      return await waitForCompletedPublication(db, draft.id, waitTimeoutMs);
+    } catch (waitError) {
+      // A timeout is NOT proof of abandonment. Reclaim only an exact,
+      // still-unbound reservation whose lease age exceeds the stale window.
+      const current = await getPublicationByDraftId(db, draft.id);
+      if (!current) {
+        // The owner cleaned up between our polls; continue and reserve below.
+      } else if (current.entityId) {
+        const ageMs = Date.now() - current.createdAt.getTime();
+        if (ageMs < staleReservationMs) throw waitError;
+        return await finalizeOwnedPublication(
+          db,
+          draft,
+          actor,
+          current.id,
+          current.entityType as "guide" | "field_note",
+          current.entityId,
+          new Date(),
+          publishTargetFn,
+        );
+      } else {
+        const ageMs = Date.now() - current.createdAt.getTime();
+        if (ageMs < staleReservationMs) throw waitError;
+        const reclaimed = await deletePublicationReservation(db, current.id, draft.id, true);
+        if (!reclaimed) {
+          throw new Error(`Publication reservation for draft ${draft.id} changed while stale recovery was attempted. Retry.`);
+        }
+      }
     }
   }
 
@@ -524,55 +537,83 @@ export async function publishDraft(
     throw new Error(`Cannot publish draft in "${draft.status}" status. Not in APPROVED status.`);
   }
 
-  // 2. Reserve a publication record (authoritative, draft-owned identity).
-  //    UNIQUE(draft_id) serializes concurrent publishes of the SAME draft.
+  // 2. Reserve a publication row. Its row id is the lease/ownership token.
+  const reservationId = `pub_${crypto.randomUUID().slice(0, 12)}`;
   try {
-    await db
-      .insert(editorial_publications)
-      .values({
-        id: `pub_${crypto.randomUUID().slice(0, 12)}`,
-        draftId: draft.id,
-        entityType,
-        entityId: null,
-        createdAt: now,
-      });
+    await db.insert(editorial_publications).values({
+      id: reservationId,
+      draftId: draft.id,
+      entityType,
+      entityId: null,
+      createdAt: now,
+    });
   } catch (err) {
     if (!isUniqueConstraintError(err)) throw err;
-    // Another publish already reserved/owns this draft's publication.
-    return await waitForPublication(db, draft.id);
+    // A concurrent publisher owns the row. Never delete or take over a fresh
+    // lease merely because our bounded wait expires.
+    return await waitForCompletedPublication(db, draft.id, waitTimeoutMs);
   }
 
+  let createdEntityId: string | null = null;
+  let targetBoundToLease = false;
+
   try {
-    // 3. Create the target entity (fails fast on an unrelated slug collision).
+    // 3. Create the target entity (fails fast on unrelated slug collision).
     const authorName = await resolveAuthorName(actor);
-    const { entityId } = await createTarget(draft, authorName);
+    const created = await createTarget(draft, authorName);
+    createdEntityId = created.entityId;
 
-    // OWN the reservation with the exact target identity IMMEDIATELY — slug is
-    // never used for ownership. If we crash after this, the next publishDraft
-    // recovers THIS exact target by entityId, never a slug-colliding one.
-    await db
+    // Bind the exact target to OUR exact reservation. If this CAS loses, we
+    // must not publish a target that this request no longer owns.
+    const bound = await db
       .update(editorial_publications)
-      .set({ entityId })
-      .where(eq(editorial_publications.draftId, draft.id));
+      .set({ entityId: createdEntityId })
+      .where(
+        and(
+          eq(editorial_publications.id, reservationId),
+          eq(editorial_publications.draftId, draft.id),
+          isNull(editorial_publications.entityId),
+        ),
+      )
+      .returning({ id: editorial_publications.id })
+      .get();
 
-    // (test hook) observe the freshly-created target before publishing it.
-    await opts?.onCreateTarget?.(entityType, entityId);
+    if (!bound) {
+      await abandonOwnedTarget(entityType, createdEntityId);
+      createdEntityId = null;
+      throw new Error(`Publication lease for draft ${draft.id} was lost before target ownership could be recorded.`);
+    }
+    targetBoundToLease = true;
 
-    // 4. Actually publish the target so it is genuinely public.
-    await publishTargetFn(entityType, entityId);
+    await opts?.onCreateTarget?.(entityType, createdEntityId);
 
-    // 5. Verify by exact ID (NOT slug) that the target is public.
-    if (!(await verifyTargetPublic(entityType, entityId))) {
+    // 4. Publish the target and verify it by exact ID.
+    await publishTargetFn(entityType, createdEntityId);
+    if (!(await verifyTargetPublic(entityType, createdEntityId))) {
       throw new Error("Publication verification failed: target is not publicly visible after publish.");
     }
 
-    // 6. CAS the draft to PUBLISHED and audit-log (entityId already bound).
-    return await markDraftPublished(db, draft, actor, entityType, entityId, now);
+    // 5. CAS the draft to PUBLISHED. The bound reservation remains the
+    // authoritative crash-recovery record until finalization succeeds.
+    return await markDraftPublished(
+      db,
+      draft,
+      actor,
+      reservationId,
+      entityType,
+      createdEntityId,
+      now,
+    );
   } catch (err) {
-    // Creation/verification failed (unrelated slug collision, verification
-    // failure, etc.): clean up our reservation so the draft stays truthful
-    // (APPROVED) and a retry can proceed cleanly. Do NOT mark PUBLISHED.
-    await deletePublicationByDraftId(db, draft.id);
+    if (!targetBoundToLease) {
+      // No authoritative target ownership exists. Release only OUR reservation.
+      await deletePublicationReservation(db, reservationId, draft.id, false);
+      if (createdEntityId) {
+        await abandonOwnedTarget(entityType, createdEntityId);
+      }
+    }
+    // If targetBoundToLease is true, KEEP the exact reservation + entityId.
+    // A retry resumes that same target after publish/verify/transient failure.
     throw err;
   }
 }
@@ -592,7 +633,7 @@ async function resolveAuthorName(actor: string): Promise<string> {
     .from(users)
     .where(eq(users.id, actor))
     .get();
-  return user?.name ?? actor ?? DEFAULT_PUBLISH_AUTHOR;
+  return user?.name?.trim() || DEFAULT_PUBLISH_AUTHOR;
 }
 
 /** Create the target publishing entity (Guide/Field Note) from the draft. */
@@ -635,16 +676,25 @@ async function defaultPublishTarget(entityType: "guide" | "field_note", entityId
   return publishFieldNote(entityId);
 }
 
-/** Roll back a published target (undo publish) — used on stale-publish. */
-async function rollbackPublication(entityType: "guide" | "field_note", entityId: string): Promise<void> {
+/** Undo and discard a target that this editorial publication owns.
+ * Used only when publication is deliberately abandoned (e.g. stale draft CAS).
+ * It never deletes published content without first unpublishing it. */
+async function abandonOwnedTarget(entityType: "guide" | "field_note", entityId: string): Promise<void> {
   try {
-    if (entityType === "guide") {
-      await unpublishGuide(entityId);
-    } else {
-      await unpublishFieldNote(entityId);
+    const target = await getTargetById(entityType, entityId);
+    if (!target) return;
+    if (target.status === "published") {
+      if (entityType === "guide") await unpublishGuide(entityId);
+      else await unpublishFieldNote(entityId);
+    }
+
+    const after = await getTargetById(entityType, entityId);
+    if (after?.status === "draft") {
+      if (entityType === "guide") await discardGuideDraft(entityId);
+      else await discardFieldNoteDraft(entityId);
     }
   } catch {
-    // Best-effort rollback; the draft is already left truthful (not PUBLISHED).
+    // Best effort. The draft itself remains fail-closed (not PUBLISHED).
   }
 }
 
@@ -680,13 +730,29 @@ async function getPublicationByDraftId(
     .get();
 }
 
-/** Delete a draft's publication record (reservation or finalized). */
-async function deletePublicationByDraftId(db: Database, draftId: string): Promise<void> {
-  await db.delete(editorial_publications).where(eq(editorial_publications.draftId, draftId));
+/** Delete only the exact publication lease this caller intends to release. */
+async function deletePublicationReservation(
+  db: Database,
+  reservationId: string,
+  draftId: string,
+  onlyIfUnbound: boolean,
+): Promise<boolean> {
+  const conditions = [
+    eq(editorial_publications.id, reservationId),
+    eq(editorial_publications.draftId, draftId),
+  ];
+  if (onlyIfUnbound) conditions.push(isNull(editorial_publications.entityId));
+
+  const deleted = await db
+    .delete(editorial_publications)
+    .where(and(...conditions))
+    .returning({ id: editorial_publications.id })
+    .get();
+  return !!deleted;
 }
 
-/** Poll (bounded) for a concurrent publish to finalize its publication record. */
-async function waitForPublication(
+/** Poll for a concurrent publisher to fully finish, not merely bind an entityId. */
+async function waitForCompletedPublication(
   db: Database,
   draftId: string,
   timeoutMs = 2000,
@@ -695,8 +761,18 @@ async function waitForPublication(
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
     const pub = await getPublicationByDraftId(db, draftId);
-    if (pub && pub.entityId) {
-      return { entityType: pub.entityType as "guide" | "field_note", entityId: pub.entityId };
+    if (pub?.entityId) {
+      const currentDraft = await getDraft(draftId);
+      if (
+        currentDraft?.status === "PUBLISHED" &&
+        currentDraft.publishedEntityId === pub.entityId &&
+        (await verifyTargetPublic(pub.entityType as "guide" | "field_note", pub.entityId))
+      ) {
+        return {
+          entityType: pub.entityType as "guide" | "field_note",
+          entityId: pub.entityId,
+        };
+      }
     }
     await new Promise((resolve) => setTimeout(resolve, intervalMs));
   }
@@ -714,6 +790,7 @@ async function finalizeOwnedPublication(
   db: Database,
   draft: EditorialDraftWithSources,
   actor: string,
+  reservationId: string,
   entityType: "guide" | "field_note",
   entityId: string,
   now: Date,
@@ -738,7 +815,7 @@ async function finalizeOwnedPublication(
     });
     return { entityType, entityId };
   }
-  return await markDraftPublished(db, draft, actor, entityType, entityId, now);
+  return await markDraftPublished(db, draft, actor, reservationId, entityType, entityId, now);
 }
 
 /**
@@ -751,15 +828,21 @@ async function markDraftPublished(
   db: Database,
   draft: EditorialDraftWithSources,
   actor: string,
+  reservationId: string,
   entityType: "guide" | "field_note",
   entityId: string,
   now: Date,
 ): Promise<{ entityType: "guide" | "field_note"; entityId: string }> {
-  // Finalize the publication record (set entityId).
-  await db
-    .update(editorial_publications)
-    .set({ entityId })
-    .where(eq(editorial_publications.draftId, draft.id));
+  // Verify exact lease ownership before changing the draft.
+  const ownership = await getPublicationByDraftId(db, draft.id);
+  if (
+    !ownership ||
+    ownership.id !== reservationId ||
+    ownership.entityId !== entityId ||
+    ownership.entityType !== entityType
+  ) {
+    throw new Error(`Publication ownership for draft ${draft.id} changed before finalization.`);
+  }
 
   // CAS: mark draft PUBLISHED only if still APPROVED.
   // If a concurrent edit moved the draft off APPROVED, this matches nothing
@@ -779,8 +862,8 @@ async function markDraftPublished(
   if (after?.status !== "PUBLISHED") {
     // Stale publish: the draft was edited/rejected while we were publishing.
     // The target was made public — roll it back so we fail closed.
-    await rollbackPublication(entityType, entityId);
-    await deletePublicationByDraftId(db, draft.id);
+    await abandonOwnedTarget(entityType, entityId);
+    await deletePublicationReservation(db, reservationId, draft.id, false);
     throw new Error(`Stale publish: draft "${draft.id}" was modified (status="${after?.status ?? "unknown"}") during publication. Re-approve and retry.`);
   }
 
