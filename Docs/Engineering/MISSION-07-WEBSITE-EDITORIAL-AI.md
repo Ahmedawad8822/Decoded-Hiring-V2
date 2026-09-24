@@ -329,6 +329,11 @@ Rules:
 - A fresh `INGESTING` source cannot be ingested again or archived.
 - A crashed `INGESTING` lease can be reclaimed only after the stale threshold
   and only by CAS against the exact `updatedAt` version that was read.
+- Every chunk DELETE and INSERT is lease-conditional in the same SQL statement,
+  so a stale worker that wakes after takeover cannot mutate the winner's chunks
+  or FTS rows.
+- Lease versions are monotonic at SQLite's stored one-second timestamp
+  precision, preventing same-second claims from sharing a version.
 - Failure cleanup deletes chunks and marks FAILED only when the caller still
   owns that exact INGESTING lease.
 - Archive and restore also use CAS against status + `updatedAt`, preventing
