@@ -70,7 +70,7 @@ export function NewDraftClient({ sources }: NewDraftClientProps) {
 
         <div>
           <label style={{ display: "block", fontSize: "13px", fontWeight: 500, marginBottom: "4px" }}>Topic *</label>
-          <input type="text" name="topic" placeholder="e.g. Optimizing database queries" required disabled={isGenerating} style={{ width: "100%", padding: "8px", border: "1px solid #d1d5db", borderRadius: "4px", fontSize: "14px" }} />
+          <input type="text" name="topic" placeholder="e.g. Why structured intake improves hiring signal" required disabled={isGenerating} style={{ width: "100%", padding: "8px", border: "1px solid #d1d5db", borderRadius: "4px", fontSize: "14px" }} />
           <p style={{ color: "#9ca3af", fontSize: "11px", marginTop: "2px" }}>The central subject for the draft. This drives knowledge retrieval.</p>
         </div>
 
@@ -81,12 +81,12 @@ export function NewDraftClient({ sources }: NewDraftClientProps) {
 
         <div>
           <label style={{ display: "block", fontSize: "13px", fontWeight: 500, marginBottom: "4px" }}>Audience</label>
-          <input type="text" name="audience" placeholder="e.g. Working React developers building dashboards" disabled={isGenerating} style={{ width: "100%", padding: "8px", border: "1px solid #d1d5db", borderRadius: "4px", fontSize: "14px" }} />
+          <input type="text" name="audience" placeholder="e.g. Talent acquisition leaders building evidence-based hiring processes" disabled={isGenerating} style={{ width: "100%", padding: "8px", border: "1px solid #d1d5db", borderRadius: "4px", fontSize: "14px" }} />
         </div>
 
         <div>
           <label style={{ display: "block", fontSize: "13px", fontWeight: 500, marginBottom: "4px" }}>Angle</label>
-          <input type="text" name="angle" placeholder="e.g. Why standard approaches miss this pattern" disabled={isGenerating} style={{ width: "100%", padding: "8px", border: "1px solid #d1d5db", borderRadius: "4px", fontSize: "14px" }} />
+          <input type="text" name="angle" placeholder="e.g. Why experience alone can hide weak hiring evidence" disabled={isGenerating} style={{ width: "100%", padding: "8px", border: "1px solid #d1d5db", borderRadius: "4px", fontSize: "14px" }} />
         </div>
 
         <div>
