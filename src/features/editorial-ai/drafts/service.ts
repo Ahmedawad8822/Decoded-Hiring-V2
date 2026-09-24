@@ -35,6 +35,7 @@
 // ============================================================================
 
 import { getDb } from "@/lib/db";
+import { getD1Database } from "@/lib/cloudflare/bindings";
 import type { Database, EditorialPublication } from "@/lib/db";
 import {
   editorial_drafts,
@@ -74,7 +75,11 @@ import { generateDraftSchema, updateDraftSchema } from "./types";
 export async function generateDraft(
   input: GenerateDraftInput,
   actor: string,
-  opts?: { provider?: LLMProvider }
+  opts?: {
+    provider?: LLMProvider;
+    /** Test seam: runs after retrieval/generation but before the atomic D1 persist batch. */
+    onBeforePersist?: (context: { draftId: string; chunkIds: string[] }) => Promise<void>;
+  }
 ): Promise<EditorialDraftWithSources> {
   input = generateDraftSchema.parse(input);
   // Provider boundary (Mission 07 §3): use the injected provider when
@@ -137,42 +142,71 @@ export async function generateDraft(
     },
   });
 
-  // 7. Save draft + provenance
+  // 7. Save draft + provenance atomically.
+  //
+  // A draft without its complete provenance is not a valid generated asset.
+  // D1 batch() executes the statements as one transaction: if any provenance
+  // INSERT fails (for example because a retrieved chunk disappeared), the
+  // draft INSERT rolls back too. This removes the crash/error window where a
+  // usable-looking draft could exist with partial evidence history.
   const db = await getDb();
+  const d1 = await getD1Database();
   const now = new Date();
+  const nowSec = Math.floor(now.getTime() / 1000);
   const draftId = `draft_${crypto.randomUUID().slice(0, 12)}`;
 
-  await db.insert(editorial_drafts).values({
-    id: draftId,
-    contentType: input.contentType,
-    title: "Draft: " + llmOutput.title,
-    slug: llmOutput.slugSuggestion,
-    excerpt: llmOutput.excerpt,
-    body: JSON.stringify(llmOutput.contentBlocks),
-    metaTitle: llmOutput.metaTitle,
-    metaDescription: llmOutput.metaDescription,
-    status: "DRAFT" as DraftStatus,
-    skillId: AHA_AUTHORITY_V1.id,
-    skillVersion: SKILL_VERSION,
-    provider: provider.name,
-    model: process.env.EDITORIAL_MODEL_NAME ?? "fake",
-    createdBy: actor,
-    createdAt: now,
-    updatedAt: now,
-  });
+  const statements = [
+    d1
+      .prepare(
+        `INSERT INTO editorial_drafts
+          (id, content_type, title, slug, excerpt, body, meta_title, meta_description,
+           status, skill_id, skill_version, provider, model, created_by, created_at, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 'DRAFT', ?9, ?10, ?11, ?12, ?13, ?14, ?15)`,
+      )
+      .bind(
+        draftId,
+        input.contentType,
+        "Draft: " + llmOutput.title,
+        llmOutput.slugSuggestion,
+        llmOutput.excerpt ?? null,
+        JSON.stringify(llmOutput.contentBlocks),
+        llmOutput.metaTitle ?? null,
+        llmOutput.metaDescription ?? null,
+        AHA_AUTHORITY_V1.id,
+        SKILL_VERSION,
+        provider.name,
+        process.env.EDITORIAL_MODEL_NAME ?? "fake",
+        actor,
+        nowSec,
+        nowSec,
+      ),
+  ];
 
-  // Save source provenance (chunk → source mapping with rank)
   for (let i = 0; i < retrievedChunks.length; i++) {
     const chunk = retrievedChunks[i]!;
-    await db.insert(editorial_draft_sources).values({
-      id: `eds_${crypto.randomUUID().slice(0, 12)}`,
-      draftId,
-      sourceId: chunk.sourceId,
-      chunkId: chunk.chunkId,
-      rank: i,
-      createdAt: now,
-    });
+    statements.push(
+      d1
+        .prepare(
+          `INSERT INTO editorial_draft_sources
+            (id, draft_id, source_id, chunk_id, rank, created_at)
+           VALUES (?1, ?2, ?3, ?4, ?5, ?6)`,
+        )
+        .bind(
+          `eds_${crypto.randomUUID().slice(0, 12)}`,
+          draftId,
+          chunk.sourceId,
+          chunk.chunkId,
+          i,
+          nowSec,
+        ),
+    );
   }
+
+  await opts?.onBeforePersist?.({
+    draftId,
+    chunkIds: retrievedChunks.map((chunk) => chunk.chunkId),
+  });
+  await d1.batch(statements);
 
   await logAudit({
     actor,
@@ -322,7 +356,11 @@ export async function listDrafts(opts?: {
 export async function updateDraft(
   id: string,
   input: UpdateDraftInput,
-  actor: string
+  actor: string,
+  opts?: {
+    /** Test seam used to force a lifecycle transition after validation and before the CAS write. */
+    onValidated?: () => Promise<void>;
+  },
 ): Promise<EditorialDraftWithSources> {
   input = updateDraftSchema.parse(input);
   const db = await getDb();
@@ -342,7 +380,24 @@ export async function updateDraft(
   if (input.metaDescription !== undefined) updates.metaDescription = input.metaDescription;
 
 
-  await db.update(editorial_drafts).set(updates).where(eq(editorial_drafts.id, id));
+  await opts?.onValidated?.();
+
+  // The status check above is advisory for a clear error message. This CAS is
+  // authoritative: if submission/review wins after the read, the edit moves
+  // zero rows and cannot mutate content that is already under review.
+  const written = await db
+    .update(editorial_drafts)
+    .set(updates)
+    .where(and(eq(editorial_drafts.id, id), eq(editorial_drafts.status, "DRAFT")))
+    .returning({ id: editorial_drafts.id })
+    .get();
+
+  if (!written) {
+    const current = await getDraft(id);
+    throw new Error(
+      `Cannot edit draft — status changed to "${current?.status ?? "unknown"}" while the edit was being saved. Return it to DRAFT and retry.`,
+    );
+  }
 
   await logAudit({
     actor,
@@ -380,7 +435,7 @@ export async function approve(id: string, actor: string): Promise<EditorialDraft
   const now = new Date();
   // CAS: only advance IN_REVIEW → APPROVED. A concurrent state change (e.g. a
   // send-back/reject) moves 0 rows, which the re-check below detects.
-  await db
+  const approved = await db
     .update(editorial_drafts)
     .set({
       status: "APPROVED" as DraftStatus,
@@ -389,14 +444,20 @@ export async function approve(id: string, actor: string): Promise<EditorialDraft
       approvedAt: now,
       updatedAt: now,
     })
-    .where(and(eq(editorial_drafts.id, id), eq(editorial_drafts.status, "IN_REVIEW")));
+    .where(and(eq(editorial_drafts.id, id), eq(editorial_drafts.status, "IN_REVIEW")))
+    .returning({ id: editorial_drafts.id })
+    .get();
 
+  if (!approved) {
+    const current = await getDraft(id);
+    throw new Error(`Cannot approve draft — status changed to "${current?.status ?? "unknown"}" during approval.`);
+  }
+
+  // Audit only a transition this caller actually won.
   await logAudit({ actor, entityType: "editorial_draft", entityId: id, action: "draft_approved" });
 
   const updated = await getDraft(id);
-  if (!updated || updated.status !== "APPROVED") {
-    throw new Error(`Cannot approve draft — status was "${updated?.status ?? "unknown"}" during approval (concurrent modification).`);
-  }
+  if (!updated) throw new Error("Approved draft disappeared after transition.");
   return updated;
 }
 
@@ -410,7 +471,7 @@ export async function rejectDraft(id: string, actor: string, reason?: string): P
   const db = await getDb();
   const now = new Date();
   // CAS: only advance IN_REVIEW → REJECTED.
-  await db
+  const rejected = await db
     .update(editorial_drafts)
     .set({
       status: "REJECTED" as DraftStatus,
@@ -418,7 +479,14 @@ export async function rejectDraft(id: string, actor: string, reason?: string): P
       rejectedAt: now,
       updatedAt: now,
     })
-    .where(and(eq(editorial_drafts.id, id), eq(editorial_drafts.status, "IN_REVIEW")));
+    .where(and(eq(editorial_drafts.id, id), eq(editorial_drafts.status, "IN_REVIEW")))
+    .returning({ id: editorial_drafts.id })
+    .get();
+
+  if (!rejected) {
+    const current = await getDraft(id);
+    throw new Error(`Cannot reject draft — status changed to "${current?.status ?? "unknown"}" during rejection.`);
+  }
 
   await logAudit({
     actor,
@@ -429,9 +497,7 @@ export async function rejectDraft(id: string, actor: string, reason?: string): P
   });
 
   const updated = await getDraft(id);
-  if (!updated || updated.status !== "REJECTED") {
-    throw new Error(`Cannot reject draft — status was "${updated?.status ?? "unknown"}" during rejection (concurrent modification).`);
-  }
+  if (!updated) throw new Error("Rejected draft disappeared after transition.");
   return updated;
 }
 
@@ -961,11 +1027,21 @@ async function transitionDraft(
 
   // CAS: only advance if the draft is still in expectedStatus. A concurrent
   // transition moves 0 rows, which the re-check below detects.
-  await db
+  const transitioned = await db
     .update(editorial_drafts)
     .set(updates)
-    .where(and(eq(editorial_drafts.id, id), eq(editorial_drafts.status, expectedStatus)));
+    .where(and(eq(editorial_drafts.id, id), eq(editorial_drafts.status, expectedStatus)))
+    .returning({ id: editorial_drafts.id })
+    .get();
 
+  if (!transitioned) {
+    const current = await getDraft(id);
+    throw new Error(
+      `Cannot ${auditAction} draft — status changed to "${current?.status ?? "unknown"}" during transition.`,
+    );
+  }
+
+  // Audit only after the authoritative CAS confirms this caller won.
   await logAudit({
     actor,
     entityType: "editorial_draft",
@@ -975,9 +1051,7 @@ async function transitionDraft(
   });
 
   const updated = await getDraft(id);
-  if (!updated || updated.status !== newStatus) {
-    throw new Error(`Cannot ${auditAction} draft — status was "${updated?.status ?? "unknown"}" during transition (concurrent modification).`);
-  }
+  if (!updated) throw new Error("Draft disappeared after lifecycle transition.");
   return updated;
 }
 
