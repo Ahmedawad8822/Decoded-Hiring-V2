@@ -95,7 +95,10 @@ async function insertChunkOwnedByLease(
     )
     .run();
 
-  if ((result.meta?.changes ?? 0) !== 1) {
+  // D1/Miniflare may include FTS trigger side-effects in meta.changes, so
+  // successful insertion can report >1 changes. Zero remains the authoritative
+  // signal that the lease-gated INSERT ... SELECT inserted no chunk row.
+  if ((result.meta?.changes ?? 0) < 1) {
     throw new Error("Ingestion lease was lost before chunk insertion.");
   }
 }
