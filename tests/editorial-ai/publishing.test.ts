@@ -35,6 +35,7 @@ import {
   publishDraft,
   sendBack,
   getDraft,
+  updateDraft,
 } from "../../src/features/editorial-ai/drafts/service";
 import { FakeProvider } from "../../src/features/editorial-ai/providers/fake";
 import { createGuide, publishGuide, getPublicGuideBySlug } from "../../src/features/guides/service";
@@ -230,6 +231,22 @@ test("lifecycle: PUBLISHED is terminal — no further transitions", async () => 
   assert.equal(row?.status, "PUBLISHED");
   assert.ok(row?.publishedEntityId);
   assert.equal(row?.publishedEntityType, "guide");
+
+  await assert.rejects(
+    () => updateDraft(approved.id, { title: "Must not change" }, "test-admin"),
+    /Only DRAFT content can be edited/i,
+  );
+});
+
+test("lifecycle: APPROVED content is read-only until explicitly returned to DRAFT", async () => {
+  const approved = await prepareApprovedDraft(`approved-readonly-${Date.now()}`, "GUIDE");
+  await assert.rejects(
+    () => updateDraft(approved.id, { title: "Late mutation" }, "test-admin"),
+    /Only DRAFT content can be edited/i,
+  );
+  const after = await getDraft(approved.id);
+  assert.equal(after?.status, "APPROVED");
+  assert.equal(after?.title, approved.title);
 });
 
 // ---------------------------------------------------------------------------
@@ -492,9 +509,71 @@ test("lifecycle: PUBLISHED is terminal — recoverRejected rejected", async () =
 });
 
 // ---------------------------------------------------------------------------
+// Publishing reliability — lease ownership and partial failure
+// ---------------------------------------------------------------------------
+test("publish: fresh NULL reservation is never stolen after a short wait", async () => {
+  const approved = await prepareApprovedDraft(`fresh-lease-${Date.now()}`, "GUIDE");
+  const db = await getDb();
+  const reservationId = `pub_fresh_${crypto.randomUUID().slice(0, 12)}`;
+
+  await db.insert(editorial_publications).values({
+    id: reservationId,
+    draftId: approved.id,
+    entityType: "guide",
+    entityId: null,
+    createdAt: new Date(),
+  });
+
+  await assert.rejects(
+    () => publishDraft(approved.id, "test-admin", { waitTimeoutMs: 25, staleReservationMs: 60_000 }),
+    /still in progress/i,
+  );
+
+  const reservation = await db
+    .select()
+    .from(editorial_publications)
+    .where(eq(editorial_publications.draftId, approved.id))
+    .get();
+  assert.equal(reservation?.id, reservationId, "fresh lease must remain owned by the original publisher");
+  assert.equal(reservation?.entityId, null);
+});
+
+test("publish: failure after target binding keeps exact ownership and retry resumes same target", async () => {
+  const approved = await prepareApprovedDraft(`bound-retry-${Date.now()}`, "GUIDE");
+  const db = await getDb();
+  let createdId: string | null = null;
+
+  await assert.rejects(
+    () =>
+      publishDraft(approved.id, "test-admin", {
+        onCreateTarget: async (_type, entityId) => {
+          createdId = entityId;
+          throw new Error("synthetic post-bind failure");
+        },
+      }),
+    /synthetic post-bind failure/,
+  );
+  assert.ok(createdId);
+
+  const reservation = await db
+    .select()
+    .from(editorial_publications)
+    .where(eq(editorial_publications.draftId, approved.id))
+    .get();
+  assert.equal(reservation?.entityId, createdId, "bound target ownership must survive a transient failure");
+
+  const targetBeforeRetry = await db.select().from(guides).where(eq(guides.id, createdId!)).get();
+  assert.equal(targetBeforeRetry?.status, "draft");
+
+  const result = await publishDraft(approved.id, "test-admin");
+  assert.equal(result.entityId, createdId, "retry must resume the exact owned target");
+  assert.equal((await getDraft(approved.id))?.status, "PUBLISHED");
+});
+
+// ---------------------------------------------------------------------------
 // Publishing reliability — crash recovery (scenario B)
 // ---------------------------------------------------------------------------
-test("publish: crash after reservation before target creation — orphaned reservation is re-reserved and published", async () => {
+test("publish: stale crash reservation before target creation is safely reclaimed", async () => {
   // Simulate a crash between inserting the publication reservation
   // (entityId = NULL) and creating the target entity. The next publishDraft
   // call should detect the orphaned reservation, re-reserve, create the
@@ -511,12 +590,11 @@ test("publish: crash after reservation before target creation — orphaned reser
     draftId: approved.id,
     entityType: "guide",
     entityId: null,
-    createdAt: new Date(),
+    createdAt: new Date(Date.now() - 10 * 60 * 1000),
   });
 
-  // publishDraft should time out waiting (~2s), then delete the orphaned
-  // reservation, re-insert, create the target, and finalize.
-  const result = await publishDraft(approved.id, "test-admin");
+  // Only a genuinely stale unbound lease may be reclaimed; a fresh lease is never stolen.
+  const result = await publishDraft(approved.id, "test-admin", { waitTimeoutMs: 25, staleReservationMs: 1_000 });
   assert.equal(result.entityType, "guide");
   assert.ok(result.entityId, "should have created and published a new guide");
 
