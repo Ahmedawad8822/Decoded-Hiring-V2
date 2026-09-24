@@ -131,7 +131,12 @@ export async function ingestKnowledgeSource(
     throw new Error("Cannot ingest an archived source. Unarchive first.");
   }
 
-  const claimTime = new Date();
+  const nowMs = Date.now();
+  const previousVersionSec = Math.floor(source.updatedAt.getTime() / 1000);
+  const claimVersionSec = Math.max(Math.floor(nowMs / 1000), previousVersionSec + 1);
+  // SQLite timestamp mode stores seconds, so force every lease version to a
+  // distinct stored second even when two lifecycle operations happen quickly.
+  const claimTime = new Date(claimVersionSec * 1000);
   const staleAfterMs = opts?.staleAfterMs ?? 5 * 60 * 1000;
 
   // INGESTING is an exclusive lease. A fresh lease cannot be stolen; a stale
@@ -139,7 +144,7 @@ export async function ingestKnowledgeSource(
   // above, so two recovery attempts cannot both win.
   if (
     source.status === "INGESTING" &&
-    claimTime.getTime() - source.updatedAt.getTime() < staleAfterMs
+    nowMs - source.updatedAt.getTime() < staleAfterMs
   ) {
     throw new Error("Knowledge source is already being ingested. Retry after the current ingestion finishes.");
   }
