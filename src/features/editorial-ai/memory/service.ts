@@ -9,6 +9,7 @@ import { getDb, editorial_memory, type EditorialMemory } from "@/lib/db";
 import { eq, and, isNull, desc } from "drizzle-orm";
 import type { ActiveMemoryItem } from "../skills/types";
 import type { CreateMemoryInput, UpdateMemoryInput } from "./types";
+import { createMemorySchema, updateMemorySchema } from "./types";
 import { logAudit } from "../audit/service";
 
 /**
@@ -44,6 +45,7 @@ export async function getMemory(id: string): Promise<EditorialMemory | null> {
 }
 
 export async function createMemory(input: CreateMemoryInput, actor: string): Promise<EditorialMemory> {
+  input = createMemorySchema.parse(input);
   const db = await getDb();
   const now = new Date();
   const id = `mem_${crypto.randomUUID().slice(0, 12)}`;
@@ -72,6 +74,7 @@ export async function createMemory(input: CreateMemoryInput, actor: string): Pro
 }
 
 export async function updateMemory(id: string, input: UpdateMemoryInput, actor: string): Promise<EditorialMemory> {
+  input = updateMemorySchema.parse(input);
   const db = await getDb();
   const now = new Date();
 
