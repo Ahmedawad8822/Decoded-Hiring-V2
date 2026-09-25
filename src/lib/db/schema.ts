@@ -524,3 +524,104 @@ export type EditorialDraft = typeof editorial_drafts.$inferSelect;
 export type EditorialDraftSource = typeof editorial_draft_sources.$inferSelect;
 export type EditorialPublication = typeof editorial_publications.$inferSelect;
 export type EditorialAuditLog = typeof editorial_audit_log.$inferSelect;
+
+// ============================================================================
+// SCHEDULING DOMAIN (Mission 08.1 — Booking Types, Availability, Slot Holds)
+// ----------------------------------------------------------------------------
+// Booking types define a service's availability policy: duration, buffers,
+// notice/horizon windows, a presentation timezone, confirmation/access/meeting
+// policies, and weekly availability windows.
+//
+// Slots are canonical (deterministic identity). A short-lived "hold" lease
+// reserves one canonical slot for a single owning token at a time.
+// ============================================================================
+
+export type ConfirmationPolicy = "AUTO_CONFIRM" | "AHMED_APPROVAL" | "REQUEST_ONLY";
+export type BookingAccessMode = "FREE" | "PAID_SESSION" | "MANUAL_INVOICE" | "PAYMENT_DISABLED";
+export type MeetingMethod = "GOOGLE_MEET" | "EXTERNAL_LINK" | "PHONE" | "IN_PERSON" | "TO_BE_CONFIRMED";
+export type SlotHoldStatus = "HELD" | "CONSUMED" | "RELEASED";
+
+export const bookingTypes = sqliteTable(
+  "booking_types",
+  {
+    id: text("id").primaryKey(),
+    slug: text("slug").notNull().unique(),
+    title: text("title").notNull(),
+    description: text("description"),
+    durationMinutes: integer("duration_minutes").notNull(),
+    bufferBeforeMinutes: integer("buffer_before_minutes").notNull().default(0),
+    bufferAfterMinutes: integer("buffer_after_minutes").notNull().default(0),
+    minimumNoticeMinutes: integer("minimum_notice_minutes").notNull().default(0),
+    bookingHorizonDays: integer("booking_horizon_days").notNull(),
+    timezone: text("timezone").notNull(),
+    confirmationPolicy: text("confirmation_policy")
+      .$type<ConfirmationPolicy>()
+      .notNull()
+      .default("AUTO_CONFIRM"),
+    accessMode: text("access_mode")
+      .$type<BookingAccessMode>()
+      .notNull()
+      .default("FREE"),
+    meetingMethod: text("meeting_method")
+      .$type<MeetingMethod>()
+      .notNull()
+      .default("TO_BE_CONFIRMED"),
+    attendeeLimit: integer("attendee_limit").notNull().default(1),
+    active: integer("active", { mode: "boolean" }).notNull().default(true),
+    createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+    updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+  },
+  (table) => [index("idx_booking_types_active").on(table.active)]
+);
+
+export const bookingAvailabilityWindows = sqliteTable(
+  "booking_availability_windows",
+  {
+    id: text("id").primaryKey(),
+    bookingTypeId: text("booking_type_id")
+      .notNull()
+      .references(() => bookingTypes.id, { onDelete: "cascade" }),
+    weekday: integer("weekday").notNull(),
+    startMinute: integer("start_minute").notNull(),
+    endMinute: integer("end_minute").notNull(),
+    createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+  },
+  (table) => [
+    index("idx_booking_windows_type").on(table.bookingTypeId),
+    uniqueIndex("idx_booking_windows_unique").on(
+      table.bookingTypeId,
+      table.weekday,
+      table.startMinute,
+      table.endMinute,
+    ),
+  ]
+);
+
+export const slotHolds = sqliteTable(
+  "slot_holds",
+  {
+    id: text("id").primaryKey(),
+    bookingTypeId: text("booking_type_id")
+      .notNull()
+      .references(() => bookingTypes.id, { onDelete: "cascade" }),
+    slotKey: text("slot_key").notNull().unique(),
+    startAt: integer("start_at", { mode: "timestamp" }).notNull(),
+    endAt: integer("end_at", { mode: "timestamp" }).notNull(),
+    ownerToken: text("owner_token").notNull(),
+    status: text("status").$type<SlotHoldStatus>().notNull().default("HELD"),
+    expiresAt: integer("expires_at", { mode: "timestamp" }).notNull(),
+    consumedAt: integer("consumed_at", { mode: "timestamp" }),
+    releasedAt: integer("released_at", { mode: "timestamp" }),
+    createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+    updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+  },
+  (table) => [
+    index("idx_slot_holds_booking_type").on(table.bookingTypeId),
+    index("idx_slot_holds_expires_at").on(table.expiresAt),
+    index("idx_slot_holds_owner").on(table.ownerToken),
+  ]
+);
+
+export type BookingType = typeof bookingTypes.$inferSelect;
+export type BookingAvailabilityWindow = typeof bookingAvailabilityWindows.$inferSelect;
+export type SlotHold = typeof slotHolds.$inferSelect;

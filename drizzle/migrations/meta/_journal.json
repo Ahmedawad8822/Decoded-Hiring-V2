@@ -71,6 +71,13 @@
       "when": 1789900000000,
       "tag": "0009_editorial_memory_identity",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "6",
+      "when": 1790310133719,
+      "tag": "0010_old_nuke",
+      "breakpoints": true
     }
   ]
 }
