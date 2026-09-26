@@ -144,17 +144,16 @@ export interface CalendarProvider {
 // -- Payment ------------------------------------------------------------------
 
 /**
- * Provider-neutral internal state produced by a payment adapter.
+ * Provider-neutral payment state produced by an external payment adapter.
  *
- * FULFILLED is included because the Mission 08 business contract uses one
- * normalized order/payment state family. Persistence/orchestration of these
- * states arrives in later slices.
+ * Deliberately excludes FULFILLED. A provider may prove payment, cancellation
+ * or refund, but only Decoded Hiring's internal orchestration may mark an order
+ * fulfilled / grant durable product access.
  */
 export type NormalizedPaymentState =
   | "PENDING"
   | "REQUIRES_ACTION"
   | "PAID"
-  | "FULFILLED"
   | "CANCELLED"
   | "FAILED"
   | "REFUNDED";
