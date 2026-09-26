@@ -834,6 +834,55 @@ test("COMMERCE 08.5: refund after fulfillment revokes only access owned by that 
   assert.equal(revoked?.accessSource, `order:${paid.id}`);
 });
 
+test("COMMERCE 08.5: paid standalone PRODUCT stays PAID when no fulfillment strategy exists", async () => {
+  const offer = await createOffer({
+    kind: "PRODUCT",
+    title: "Future Paid Product",
+    slug: slug("future-paid-product"),
+    accessMode: "PAID_ONE_TIME",
+    currency: "USD",
+    amountMinor: 9900,
+  });
+  const order = await createOrder({
+    offerId: offer.id,
+    requestKey: crypto.randomUUID(),
+    customerEmail: "product@example.com",
+    now: NOW,
+  });
+
+  const paid = await applyVerifiedPaymentCallback(
+    verifiedGateway({
+      amountMinor: 9900,
+      eventId: "event-product-no-fulfillment",
+    }),
+    {
+      orderId: order.id,
+      callbackKey: "callback-product-no-fulfillment",
+      callbackPayload: "opaque",
+      provider: "test-pay",
+      now: NOW,
+    },
+  );
+  assert.equal(paid.status, "PAID");
+
+  const db = await getDb();
+  const fulfillment = await db
+    .select()
+    .from(orchestrationEffects)
+    .where(eq(orchestrationEffects.subjectId, paid.id))
+    .all()
+    .then((rows) => rows.find((row) => row.effectType === "ORDER_FULFILL"));
+  assert.ok(fulfillment);
+
+  const blocked = await processOrchestrationEffect({
+    effectId: fulfillment.id,
+    now: new Date(NOW.getTime() + 1000),
+  });
+  assert.equal(blocked.status, "BLOCKED");
+  assert.equal(blocked.lastErrorCode, "FULFILLMENT_NOT_CONFIGURED");
+  assert.equal((await __commerceTestOnly!.getOrder(order.id))?.status, "PAID");
+});
+
 test("COMMERCE 08.5: payment checkout side effect is retry-safe and transitions order to REQUIRES_ACTION", async () => {
   const setup = await createPaidCourseOrder();
   const effect = await enqueuePaymentCheckout({
