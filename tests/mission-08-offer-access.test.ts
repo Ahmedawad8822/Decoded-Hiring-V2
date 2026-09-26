@@ -480,6 +480,7 @@ test("OFFER 08.3: public product pages are wired to Offer lookup with safe fallb
   assert.ok(mission01.includes('"COURSE"'));
   assert.ok(aiRecruiterOs.includes("PUBLIC_OFFER_SLUGS.aiRecruiterOs"));
   assert.ok(aiRecruiterOs.includes('"PRODUCT"'));
+  assert.ok(aiRecruiterOs.includes("{!isUnavailable && ("));
   assert.ok(coaching.includes('getOfferBySlugForKind(PUBLIC_OFFER_SLUGS.coaching, "COACHING")'));
   assert.ok(workshop.includes('getOfferBySlugForKind(PUBLIC_OFFER_SLUGS.workshop, "WORKSHOP")'));
   assert.ok(coursePage.includes("getEffectiveCourseAccessPolicy(course)"));
