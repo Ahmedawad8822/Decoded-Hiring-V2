@@ -55,10 +55,14 @@ function id(prefix: string): string {
   return `${prefix}_${seq++}`;
 }
 
+function validSlug(prefix: string): string {
+  return `${prefix}-${seq++}`;
+}
+
 async function createPublishedCourse(accessMode: CourseAccessMode = "FREE") {
   const db = await getDb();
   const courseId = id("course");
-  const slug = id("course-slug");
+  const slug = validSlug("course");
   await db.insert(courses).values({
     id: courseId,
     title: `Course ${seq}`,
@@ -131,7 +135,7 @@ test("OFFER 08.3: linked Offer becomes authoritative over legacy course mode", a
     kind: "COURSE",
     courseId: course.id,
     title: "Paid course offer",
-    slug: id("offer"),
+    slug: validSlug("offer"),
     accessMode: "PAID_ONE_TIME",
     currency: "USD",
     amountMinor: 9900,
@@ -153,7 +157,7 @@ test("OFFER 08.3: paid Offer blocks FREE enrollment even when legacy course says
     kind: "COURSE",
     courseId: course.id,
     title: "Paid override",
-    slug: id("offer"),
+    slug: validSlug("offer"),
     accessMode: "PAID_ONE_TIME",
     currency: "USD",
     amountMinor: 4900,
@@ -173,7 +177,7 @@ test("OFFER 08.3: FREE Offer can open enrollment for legacy paid course", async 
     kind: "COURSE",
     courseId: course.id,
     title: "Free launch offer",
-    slug: id("offer"),
+    slug: validSlug("offer"),
     accessMode: "FREE",
   });
 
@@ -190,7 +194,7 @@ test("OFFER 08.3: inactive linked Offer fails closed instead of falling back", a
     kind: "COURSE",
     courseId: course.id,
     title: "Paused offer",
-    slug: id("offer"),
+    slug: validSlug("offer"),
     accessMode: "FREE",
     active: false,
   });
@@ -209,7 +213,7 @@ test("OFFER 08.3: one course cannot acquire two primary Offers", async () => {
     kind: "COURSE",
     courseId: course.id,
     title: "First offer",
-    slug: id("offer"),
+    slug: validSlug("offer"),
     accessMode: "FREE",
   });
 
@@ -218,7 +222,7 @@ test("OFFER 08.3: one course cannot acquire two primary Offers", async () => {
       kind: "COURSE",
       courseId: course.id,
       title: "Second offer",
-      slug: id("offer"),
+      slug: validSlug("offer"),
       accessMode: "FREE",
     }),
     /already has a primary offer/i,
@@ -231,7 +235,7 @@ test("OFFER 08.3: one course cannot acquire two primary Offers", async () => {
 
 test("OFFER 08.3: booking type also has one primary Offer backstop", async () => {
   const bookingType = await createBookingType({
-    slug: id("booking-type"),
+    slug: validSlug("booking-type"),
     title: "Coaching slot",
     durationMinutes: 60,
     bufferBeforeMinutes: 0,
@@ -249,7 +253,7 @@ test("OFFER 08.3: booking type also has one primary Offer backstop", async () =>
     kind: "COACHING",
     bookingTypeId: bookingType.id,
     title: "Coaching offer",
-    slug: id("offer"),
+    slug: validSlug("offer"),
     accessMode: "PAYMENT_DISABLED",
     alternativeCtaLabel: "Send a decision brief",
     alternativeCtaUrl: "#hg-coaching-brief",
@@ -260,7 +264,7 @@ test("OFFER 08.3: booking type also has one primary Offer backstop", async () =>
       kind: "COACHING",
       bookingTypeId: bookingType.id,
       title: "Duplicate coaching offer",
-      slug: id("offer"),
+      slug: validSlug("offer"),
       accessMode: "PAYMENT_DISABLED",
       alternativeCtaLabel: "Contact",
       alternativeCtaUrl: "/contact",
@@ -276,7 +280,7 @@ test("OFFER 08.3: COURSE cannot use PAID_SESSION", async () => {
       kind: "COURSE",
       courseId: course.id,
       title: "Invalid session course",
-      slug: id("offer"),
+      slug: validSlug("offer"),
       accessMode: "PAID_SESSION",
       currency: "USD",
       amountMinor: 1000,
@@ -292,7 +296,7 @@ test("OFFER 08.3: provider-paid modes require price + currency", async () => {
       kind: "COURSE",
       courseId: course.id,
       title: "Unpriced paid offer",
-      slug: id("offer"),
+      slug: validSlug("offer"),
       accessMode: "PAID_ONE_TIME",
     }),
     /require a currency and a positive amountMinor/i,
@@ -304,7 +308,7 @@ test("OFFER 08.3: disabled/coming-soon modes require a usable alternative CTA", 
     createOffer({
       kind: "PRODUCT",
       title: "Disabled product",
-      slug: id("offer"),
+      slug: validSlug("offer"),
       accessMode: "PAYMENT_DISABLED",
     }),
     /require an alternative CTA/i,
@@ -314,7 +318,7 @@ test("OFFER 08.3: disabled/coming-soon modes require a usable alternative CTA", 
     createOfferSchema.safeParse({
       kind: "PRODUCT",
       title: "Unsafe CTA",
-      slug: id("offer"),
+      slug: validSlug("offer"),
       accessMode: "COMING_SOON",
       alternativeCtaLabel: "Join",
       alternativeCtaUrl: "javascript:alert(1)",
@@ -329,7 +333,7 @@ test("OFFER 08.3: paid presentation fails closed to alternative/contact, never c
     kind: "COURSE",
     courseId: course.id,
     title: "Paid offer",
-    slug: id("offer"),
+    slug: validSlug("offer"),
     accessMode: "PAID_ONE_TIME",
     currency: "USD",
     amountMinor: 12500,
@@ -351,7 +355,7 @@ test("OFFER 08.3: price formatting respects zero-decimal currencies", async () =
   const offer = await createOffer({
     kind: "PRODUCT",
     title: "JPY product",
-    slug: id("offer"),
+    slug: validSlug("offer"),
     accessMode: "PAID_ONE_TIME",
     currency: "JPY",
     amountMinor: 12500,
@@ -367,7 +371,7 @@ test("OFFER 08.3: PAYMENT_DISABLED presentation uses configured alternative path
   const offer = await createOffer({
     kind: "PRODUCT",
     title: "Waitlisted product",
-    slug: id("offer"),
+    slug: validSlug("offer"),
     accessMode: "PAYMENT_DISABLED",
     alternativeCtaLabel: "Join the list",
     alternativeCtaUrl: "/ai-recruiter-os",
@@ -387,7 +391,7 @@ test("OFFER 08.3: updating a linked Offer changes effective access without mutat
     kind: "COURSE",
     courseId: course.id,
     title: "Launch offer",
-    slug: id("offer"),
+    slug: validSlug("offer"),
     accessMode: "FREE",
   });
 
@@ -410,7 +414,7 @@ test("OFFER 08.3: inactive Offer presentation exposes no CTA or price", async ()
   const offer = await createOffer({
     kind: "PRODUCT",
     title: "Inactive priced product",
-    slug: id("offer"),
+    slug: validSlug("offer"),
     accessMode: "PAID_ONE_TIME",
     currency: "USD",
     amountMinor: 5000,
