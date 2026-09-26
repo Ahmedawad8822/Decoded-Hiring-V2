@@ -176,6 +176,15 @@ function verifiedGateway(params: {
       valid: true,
       providerEventId: params.eventId ?? "webhook-event",
     }),
+    verifyWebhookPayment: async (input) => ({
+      verified: true,
+      orderId: input.orderId,
+      state: params.state ?? "PAID",
+      providerEventId: params.eventId ?? "webhook-event",
+      providerPaymentId: `payment-${input.orderId}`,
+      amountMinor: params.amountMinor ?? 12500,
+      currency: params.currency ?? "USD",
+    }),
     normalizePaymentState: async (input) => ({
       orderId: input.orderId,
       providerState: input.providerState,
@@ -506,14 +515,21 @@ test("COMMERCE 08.5: payment amount mismatch is rejected before persistence", as
   assert.equal((await getPaymentEvents(setup.order.id)).length, 0);
 });
 
-test("COMMERCE 08.5: webhook signature verification is mandatory before normalization", async () => {
+test("COMMERCE 08.5: webhook payment truth comes only from the verified signed-envelope boundary", async () => {
   const setup = await createPaidCourseOrder();
-  let normalized = 0;
+  let legacySplitCalls = 0;
   const gateway: PaymentGateway = {
     ...verifiedGateway(),
-    verifyWebhookSignature: async () => ({ valid: false }),
+    verifyWebhookPayment: async (input) => ({
+      verified: false,
+      orderId: input.orderId,
+    }),
+    verifyWebhookSignature: async () => {
+      legacySplitCalls += 1;
+      return { valid: true, providerEventId: "must-not-be-used" };
+    },
     normalizePaymentState: async (input) => {
-      normalized += 1;
+      legacySplitCalls += 1;
       return {
         orderId: input.orderId,
         providerState: input.providerState,
@@ -525,8 +541,7 @@ test("COMMERCE 08.5: webhook signature verification is mandatory before normaliz
   await assert.rejects(
     applyVerifiedPaymentWebhook(gateway, {
       orderId: setup.order.id,
-      providerState: "settled",
-      rawBody: '{"event":"payment"}',
+      rawBody: '{"event":"payment","state":"paid"}',
       signature: "invalid",
       provider: "test-pay",
       now: NOW,
@@ -536,8 +551,9 @@ test("COMMERCE 08.5: webhook signature verification is mandatory before normaliz
       error.code === "PAYMENT_EVIDENCE_INVALID",
   );
 
-  assert.equal(normalized, 0);
+  assert.equal(legacySplitCalls, 0);
   assert.equal((await __commerceTestOnly!.getOrder(setup.order.id))?.status, "PENDING");
+  assert.equal((await getPaymentEvents(setup.order.id)).length, 0);
 });
 
 test("COMMERCE 08.5: verified webhook dedupes by provider event identity", async () => {
@@ -545,10 +561,7 @@ test("COMMERCE 08.5: verified webhook dedupes by provider event identity", async
   const gateway = verifiedGateway({ eventId: "webhook-event-unique" });
   const input = {
     orderId: setup.order.id,
-    providerState: "settled",
-    amountMinor: 12500,
-    currency: "USD",
-    rawBody: '{"event":"same"}',
+    rawBody: '{"event":"same","state":"paid","amountMinor":12500,"currency":"USD"}',
     signature: "valid",
     provider: "test-pay",
     now: NOW,
