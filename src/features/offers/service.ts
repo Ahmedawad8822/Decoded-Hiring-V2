@@ -1,4 +1,4 @@
-import { and, desc, eq, ne } from "drizzle-orm";
+import { and, desc, eq, inArray, ne } from "drizzle-orm";
 
 import {
   bookingTypes,
@@ -157,6 +157,20 @@ export async function getPublicOfferBySlug(slug: string): Promise<Offer | null> 
 export async function getOfferForCourse(courseId: string): Promise<Offer | null> {
   const db = await getDb();
   return (await db.select().from(offers).where(eq(offers.courseId, courseId)).get()) ?? null;
+}
+
+export async function getOffersForCourses(courseIds: string[]): Promise<Map<string, Offer>> {
+  if (courseIds.length === 0) return new Map();
+  const db = await getDb();
+  const rows = await db
+    .select()
+    .from(offers)
+    .where(inArray(offers.courseId, courseIds));
+  return new Map(
+    rows
+      .filter((offer): offer is Offer & { courseId: string } => Boolean(offer.courseId))
+      .map((offer) => [offer.courseId, offer]),
+  );
 }
 
 export async function getOfferForBookingType(bookingTypeId: string): Promise<Offer | null> {
