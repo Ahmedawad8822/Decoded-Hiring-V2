@@ -33,19 +33,21 @@ import {
 } from "@/lib/db";
 import {
   CommerceDomainError,
-  __commerceTestOnly,
   applyVerifiedPaymentCallback,
   applyVerifiedPaymentWebhook,
   createOrder,
   enqueueBookingReminder,
   enqueuePaymentCheckout,
-  getOrderHistory,
   getOrchestrationEffect,
   getOrchestrationHistory,
-  getPaymentEvents,
   processOrchestrationEffect,
 } from "@/features/commerce";
 import { createOffer } from "@/features/offers/service";
+import {
+  __commerceTestOnly,
+  getOrderHistory,
+  getPaymentEvents,
+} from "@/features/commerce/orders";
 import {
   SchedulingProviderError,
   NullCalendarProvider,
