@@ -530,6 +530,54 @@ test("COMMERCE 08.5: provider event identity dedupes even when local callback ke
   assert.equal((await getPaymentEvents(first.id)).length, 1);
 });
 
+test("COMMERCE 08.5: concurrent same provider event collapses across different local callback keys", async () => {
+  const setup = await createPaidCourseOrder();
+  const gateway = verifiedGateway({ eventId: "provider-event-concurrent" });
+
+  const [a, b] = await Promise.all([
+    applyVerifiedPaymentCallback(gateway, {
+      orderId: setup.order.id,
+      callbackKey: "callback-concurrent-a",
+      callbackPayload: "opaque-a",
+      provider: "test-pay",
+      now: NOW,
+    }),
+    applyVerifiedPaymentCallback(gateway, {
+      orderId: setup.order.id,
+      callbackKey: "callback-concurrent-b",
+      callbackPayload: "opaque-b",
+      provider: "test-pay",
+      now: NOW,
+    }),
+  ]);
+
+  assert.equal(a.id, b.id);
+  assert.equal(a.status, "PAID");
+  assert.equal(b.status, "PAID");
+  assert.equal((await getPaymentEvents(a.id)).length, 1);
+});
+
+test("COMMERCE 08.5: callback provider metadata cannot contradict adapter identity", async () => {
+  const setup = await createPaidCourseOrder();
+  await assert.rejects(
+    applyVerifiedPaymentCallback(
+      verifiedGateway({ eventId: "provider-event-mismatch" }),
+      {
+        orderId: setup.order.id,
+        callbackKey: "callback-provider-mismatch",
+        callbackPayload: "opaque",
+        provider: "spoofed-provider",
+        now: NOW,
+      },
+    ),
+    (error: unknown) =>
+      error instanceof CommerceDomainError &&
+      error.code === "PAYMENT_EVIDENCE_INVALID",
+  );
+  assert.equal((await __commerceTestOnly!.getOrder(setup.order.id))?.status, "PENDING");
+  assert.equal((await getPaymentEvents(setup.order.id)).length, 0);
+});
+
 test("COMMERCE 08.5: manual invoice requires trusted admin transition and enqueues fulfillment", async () => {
   const setup = await createPaidCourseOrder("MANUAL_INVOICE");
   const paid = await __commerceTestOnly!.recordManualPayment({
