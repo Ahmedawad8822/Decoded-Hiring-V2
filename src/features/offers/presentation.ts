@@ -22,7 +22,7 @@ export function formatOfferPrice(offer: Pick<Offer, "currency" | "amountMinor">)
       style: "currency",
       currency: offer.currency,
     });
-    const fractionDigits = formatter.resolvedOptions().maximumFractionDigits;
+    const fractionDigits = formatter.resolvedOptions().maximumFractionDigits ?? 2;
     const amount = offer.amountMinor / 10 ** fractionDigits;
     return formatter.format(amount);
   } catch {
