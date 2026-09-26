@@ -82,7 +82,7 @@ function slug(prefix: string): string {
 
 async function createTestUser() {
   const db = await getDb();
-  const userId = id("user");
+  const userId = `user_${crypto.randomUUID().replaceAll("-", "").slice(0, 20)}`;
   await db.insert(users).values({
     id: userId,
     name: "Commerce Test User",
