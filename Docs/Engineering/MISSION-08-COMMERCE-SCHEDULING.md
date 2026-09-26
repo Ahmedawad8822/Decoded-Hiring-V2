@@ -602,11 +602,11 @@ Ahmed gave explicit GO and PR #9 was merged into canonical Mission 08 at `7a417f
 
 ## Slice 08.5 — Order / Payment Truth + Durable Orchestration
 
-Status: **IMPLEMENTED — SOURCE CERTIFIED; INDEPENDENT RELEASE REVIEW PENDING**
+Status: **RUNTIME CERTIFIED / INDEPENDENT REVIEW PASSED — AWAITING AHMED GO**
 
 Implementation branch: `mission-08.5-order-orchestration`  
 Accepted base: `7a417f67621c73de97bb1b6002ee70dfdf4c0202`  
-Source-certified head before this documentation sync: `fec9f8607cc1a59944777e1c0240c73b2c30c752`
+Source-certified head before this final documentation sync: `42fcc04aff6ea1d5d7451dddf832bd3e5f1c45c6`
 
 ### Scope implemented
 
@@ -626,7 +626,7 @@ Slice 08.5 closes the missing internal commerce truth and durability boundary re
 - immutable Offer/booking/user binding checks for duplicate requests
 - linked course and booking orders require quantity `1`
 - booking-linked Offers require the exact booking identity
-- Offer price/currency are snapshotted into the Order
+- the fulfillment contract is snapshotted into the Order: Offer kind, access mode, course id, booking-type id, amount/currency, booking/user identity and quantity
 - provider checkout/payment/event ids remain metadata, never business identity
 - append-only `order_history`
 - append-only/deduplicated `payment_events`
@@ -688,6 +688,8 @@ Durability/recovery behavior:
 - terminal failure state for non-retryable provider failures
 - provider-not-configured blocks can resume when configuration becomes available
 - invalid-configuration blocks do not auto-resume
+- dependency readiness is filtered in SQL before worker LIMIT, preventing stale dependent work from starving unrelated work
+- blocked recovery resolves configured provider kinds before LIMIT, preventing one unconfigured provider backlog from starving another provider
 - bounded worker discovery/processing entry point
 - stale/superseded booking calendar/message work resolves without sending stale communication
 
@@ -714,8 +716,9 @@ Drizzle journal/snapshot identity is unique and drift-free.
 
 ### Regression coverage
 
-Dedicated `tests/mission-08-order-orchestration.test.ts` contains **27 passing regressions**, including:
-- Order idempotency and request-key conflict
+Dedicated `tests/mission-08-order-orchestration.test.ts` contains **37 passing regressions**, including:
+- Order idempotency and request-key conflict, including quantity rebinding
+- immutable Order fulfillment snapshots across Offer course/access/booking drift
 - quantity and booking-link constraints
 - unverified callback fail-closed behavior
 - callback/webhook provider identity
@@ -729,7 +732,10 @@ Dedicated `tests/mission-08-order-orchestration.test.ts` contains **27 passing r
 - checkout retry safety
 - paid AUTO_CONFIRM orchestration
 - paid booking confirmation gate
+- already-paid booking survival across later Offer deactivation
 - atomic booking outbox dependencies
+- SQL-before-LIMIT dependency starvation protection
+- same-provider and cross-provider blocked-work starvation protection
 - blocked-provider recovery
 - invalid-configuration persistence
 - concurrent worker collapse
@@ -754,20 +760,37 @@ Provider activation, public scheduling/checkout routes, Studio control plane, ob
 
 ### Source runtime certification
 
-GitHub Actions run `36264573636` passed on source-certified head `fec9f8607cc1a59944777e1c0240c73b2c30c752`:
+GitHub Actions run `36271119436` passed on source-certified head `42fcc04aff6ea1d5d7451dddf832bd3e5f1c45c6`:
 
 - typecheck — PASS
 - lint with zero warnings — PASS
-- full `npm test` — **337 pass / 0 fail**
+- full sequential test chain — **347 pass / 0 fail**
 - 08.1 scheduling — **78 / 78**
 - 08.2 booking lifecycle — **18 / 18**
 - 08.3 Offer/access — **18 / 18**
 - 08.4 provider adapters — **11 / 11**
-- 08.5 Order/orchestration — **27 / 27**
+- 08.5 Order/orchestration — **37 / 37**
 - Drizzle drift — PASS: `No schema changes, nothing to migrate`
 - production build — PASS
 
-A final exact-head certification is required after this engineering-ledger synchronization, followed by independent `dh-release-review`.
+### Independent review
+
+PR #10 received multiple independent `dh-release-review` passes. Production-class findings were remediated and regressed, including:
+- split Offer / BookingType booking commercial authority
+- signed webhook evidence not bound to persisted payment truth
+- mutable Offer fulfillment identity after Order creation
+- provider error text persistence
+- free-form booking notes exported to calendar
+- manual-invoice checkout enqueue
+- low-level outbox controls in the public commerce barrel
+- test fixture identity collisions
+- dependency and blocked-work queue starvation
+
+Final re-review on source head `42fcc04aff6ea1d5d7451dddf832bd3e5f1c45c6` found no unresolved Critical or Major findings.
+
+Review verdict: **SAFE TO MERGE for Slice 08.5**, pending the documentation-only exact-head CI/spot-check and Ahmed explicit GO.
+
+A final exact-head certification is required after this engineering-ledger synchronization.
 
 ### Slice 08.5 stop rule
 
