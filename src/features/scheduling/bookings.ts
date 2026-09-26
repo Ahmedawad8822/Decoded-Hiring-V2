@@ -33,6 +33,7 @@ import { getDb } from "@/lib/db";
 import { getD1Database } from "@/lib/cloudflare/bindings";
 import { isUniqueConstraintError } from "@/lib/db/sqlite-errors";
 import { requireAdmin } from "@/lib/auth";
+import { getEffectiveBookingAccessPolicy } from "@/features/offers/service";
 import { SchedulingDomainError } from "./errors";
 import {
   bookingDecisionSchema,
@@ -276,6 +277,14 @@ export async function createBookingRequest(
     );
   }
 
+  const accessPolicy = await getEffectiveBookingAccessPolicy(bookingType);
+  if (!accessPolicy.available) {
+    throw new SchedulingDomainError(
+      "Booking is currently unavailable under its commercial Offer policy.",
+      "BOOKING_UNAVAILABLE",
+    );
+  }
+
   const hold = await db.select().from(slotHolds).where(eq(slotHolds.id, parsed.holdId)).get();
   if (!hold) {
     throw new SchedulingDomainError("Slot hold not found.", "HOLD_NOT_FOUND");
@@ -373,12 +382,12 @@ export async function createBookingRequest(
     throw new Error("Booking insert committed but row could not be re-read.");
   }
 
-  // AUTO_CONFIRM is allowed to cross the confirmation boundary only for FREE.
-  // Paid/manual/disabled modes stay REQUESTED until later commerce slices
-  // provide authoritative payment/manual-access state.
+  // AUTO_CONFIRM crosses the confirmation boundary only when the effective
+  // commercial policy is FREE. A linked Offer is authoritative; legacy
+  // BookingType.accessMode is fallback only when no Offer exists.
   if (
     bookingType.confirmationPolicy === "AUTO_CONFIRM" &&
-    bookingType.accessMode === "FREE"
+    accessPolicy.mode === "FREE"
   ) {
     return confirmBoundBooking(
       {
@@ -431,15 +440,17 @@ async function confirmBoundBooking(
     }
   }
 
-  if (bookingType.accessMode === "PAYMENT_DISABLED") {
+  const accessPolicy = await getEffectiveBookingAccessPolicy(bookingType);
+  if (!accessPolicy.available) {
     throw new SchedulingDomainError(
-      "Booking payment/access is disabled for this booking type.",
-      "PAYMENT_REQUIRED",
+      "Booking is currently unavailable under its commercial Offer policy.",
+      "BOOKING_UNAVAILABLE",
     );
   }
   if (
-    bookingType.accessMode === "PAID_SESSION" ||
-    bookingType.accessMode === "MANUAL_INVOICE"
+    accessPolicy.mode === "PAID_SESSION" ||
+    accessPolicy.mode === "PAID_ONE_TIME" ||
+    accessPolicy.mode === "MANUAL_INVOICE"
   ) {
     const paymentSatisfied = await hasSatisfiedBookingPayment(
       booking.id,
