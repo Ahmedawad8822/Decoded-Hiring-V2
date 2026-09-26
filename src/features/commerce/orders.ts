@@ -249,6 +249,10 @@ export async function createOrder(input: CreateOrderInput): Promise<Order> {
   const values = {
     id,
     offerId: offer.id,
+    offerKind: offer.kind,
+    accessMode: offer.accessMode,
+    courseId: offer.courseId,
+    bookingTypeId: offer.bookingTypeId,
     bookingId: parsed.bookingId ?? null,
     userId: parsed.userId ?? null,
     requestKey: parsed.requestKey,
@@ -812,10 +816,9 @@ async function recordManualPaymentAsActor(
       "CONCURRENT_MODIFICATION",
     );
   }
-  const offer = await db.select().from(offers).where(eq(offers.id, order.offerId)).get();
-  if (!offer || offer.accessMode !== "MANUAL_INVOICE") {
+  if (order.accessMode !== "MANUAL_INVOICE") {
     throw new CommerceDomainError(
-      "Only MANUAL_INVOICE orders may be marked paid manually.",
+      "Only Orders created under MANUAL_INVOICE may be marked paid manually.",
       "ORDER_NOT_ALLOWED",
     );
   }
@@ -953,17 +956,14 @@ export async function fulfillPaidOrderFromOrchestration(
     );
   }
 
-  const offer = await db.select().from(offers).where(eq(offers.id, order.offerId)).get();
-  if (!offer) throw new CommerceDomainError("Offer not found.", "OFFER_NOT_FOUND");
-
-  if (offer.kind !== "COURSE" && !offer.bookingTypeId) {
+  if (order.offerKind !== "COURSE" && !order.bookingTypeId) {
     throw new CommerceDomainError(
-      "This Offer has no internal fulfillment strategy configured in Mission 08.5.",
+      "This Order snapshot has no internal fulfillment strategy configured in Mission 08.5.",
       "FULFILLMENT_NOT_CONFIGURED",
     );
   }
 
-  if (offer.bookingTypeId) {
+  if (order.bookingTypeId) {
     if (!order.bookingId) {
       throw new CommerceDomainError(
         "Booking-backed order has no booking identity.",
@@ -977,7 +977,7 @@ export async function fulfillPaidOrderFromOrchestration(
       .get();
     if (
       !booking ||
-      booking.bookingTypeId !== offer.bookingTypeId ||
+      booking.bookingTypeId !== order.bookingTypeId ||
       booking.status !== "CONFIRMED"
     ) {
       throw new CommerceDomainError(
@@ -993,8 +993,8 @@ export async function fulfillPaidOrderFromOrchestration(
   const targetVersion = order.version + 1;
   const statements = [];
 
-  if (offer.kind === "COURSE") {
-    if (!offer.courseId || !order.userId) {
+  if (order.offerKind === "COURSE") {
+    if (!order.courseId || !order.userId) {
       throw new CommerceDomainError(
         "Course order is missing learner/course identity.",
         "DEPENDENCY_NOT_READY",
@@ -1027,7 +1027,7 @@ export async function fulfillPaidOrderFromOrchestration(
         .bind(
           `enroll_order_${order.id}`,
           order.userId,
-          offer.courseId,
+          order.courseId,
           `order:${order.id}`,
           nowSec,
           order.id,
@@ -1061,7 +1061,13 @@ export async function fulfillPaidOrderFromOrchestration(
       )
       .bind(
         newId("ordh"),
-        detail({ offerKind: offer.kind, offerId: offer.id }),
+        detail({
+          offerKind: order.offerKind,
+          offerId: order.offerId,
+          courseId: order.courseId,
+          bookingTypeId: order.bookingTypeId,
+          accessMode: order.accessMode,
+        }),
         nowSec,
         order.id,
         transition,
@@ -1097,17 +1103,14 @@ export async function reconcileRefundedOrderAccessFromOrchestration(
     return order;
   }
 
-  const offer = await db.select().from(offers).where(eq(offers.id, order.offerId)).get();
-  if (!offer) throw new CommerceDomainError("Offer not found.", "OFFER_NOT_FOUND");
-
-  if (offer.kind === "COURSE" && offer.courseId && order.userId) {
+  if (order.offerKind === "COURSE" && order.courseId && order.userId) {
     await db
       .update(enrollments)
       .set({ status: "cancelled", completedAt: null })
       .where(
         and(
           eq(enrollments.userId, order.userId),
-          eq(enrollments.courseId, offer.courseId),
+          eq(enrollments.courseId, order.courseId),
           eq(enrollments.accessSource, `order:${order.id}`),
         ),
       )
