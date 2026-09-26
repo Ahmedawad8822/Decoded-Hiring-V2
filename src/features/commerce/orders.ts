@@ -9,7 +9,7 @@
 // after durable business fulfillment succeeds.
 // ============================================================================
 
-import { asc, eq } from "drizzle-orm";
+import { and, asc, eq } from "drizzle-orm";
 import {
   bookings,
   offers,
@@ -360,6 +360,24 @@ async function findPaymentEvent(callbackKey: string): Promise<PaymentEvent | und
     .get();
 }
 
+async function findPaymentEventByProviderIdentity(
+  provider: string | null | undefined,
+  providerEventId: string | null | undefined,
+): Promise<PaymentEvent | undefined> {
+  if (!provider || !providerEventId) return undefined;
+  const db = await getDb();
+  return db
+    .select()
+    .from(paymentEvents)
+    .where(
+      and(
+        eq(paymentEvents.provider, provider),
+        eq(paymentEvents.providerEventId, providerEventId),
+      ),
+    )
+    .get();
+}
+
 async function applyVerifiedPaymentObservation(params: {
   orderId: string;
   callbackKey: string;
@@ -373,11 +391,16 @@ async function applyVerifiedPaymentObservation(params: {
   currency?: string | null;
   now: Date;
 }): Promise<Order> {
-  const duplicate = await findPaymentEvent(params.callbackKey);
+  const duplicate =
+    (await findPaymentEvent(params.callbackKey)) ??
+    (await findPaymentEventByProviderIdentity(
+      params.provider,
+      params.providerEventId,
+    ));
   if (duplicate) {
     if (duplicate.orderId !== params.orderId) {
       throw new CommerceDomainError(
-        "Payment callback identity is already bound to another order.",
+        "Payment callback/provider event identity is already bound to another order.",
         "IDEMPOTENCY_CONFLICT",
       );
     }
@@ -426,7 +449,12 @@ async function applyVerifiedPaymentObservation(params: {
       await d1.batch([insertEvent]);
     } catch (error: unknown) {
       if (isUniqueConstraintError(error)) {
-        const winner = await findPaymentEvent(params.callbackKey);
+        const winner =
+          (await findPaymentEvent(params.callbackKey)) ??
+          (await findPaymentEventByProviderIdentity(
+            params.provider,
+            params.providerEventId,
+          ));
         if (winner?.orderId === order.id) return (await getOrderById(order.id))!;
       }
       throw error;
