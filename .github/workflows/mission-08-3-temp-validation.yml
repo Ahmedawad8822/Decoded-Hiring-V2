@@ -1,0 +1,41 @@
+name: Mission 08.3 Temporary Validation
+
+on:
+  push:
+    branches:
+      - mission-08.3-offer-access-integration
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      BETTER_AUTH_SECRET: test-only-ci-secret-0123456789abcdef
+      BETTER_AUTH_URL: http://localhost:3000
+      NEXT_PUBLIC_SITE_URL: http://localhost:3000
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Lint
+        run: npm run lint
+      - name: Tests
+        run: npm test
+      - name: Drizzle drift check
+        shell: bash
+        run: |
+          npm run db:generate
+          git diff --exit-code -- drizzle/migrations src/lib/db/schema.ts
+      - name: Build
+        run: npm run build
