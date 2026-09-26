@@ -31,6 +31,7 @@ import {
   CommerceDomainError,
   fulfillPaidOrderFromOrchestration,
   getOrderById,
+  reconcileRefundedOrderAccessFromOrchestration,
 } from "./orders";
 import {
   bookingEffectPayloadSchema,
@@ -726,6 +727,19 @@ async function executeEffect(
         effect.lastAttemptAt ?? new Date(),
       );
       return JSON.stringify({ orderId: fulfilled.id, status: fulfilled.status });
+    }
+    case "ORDER_REFUND_RECONCILE": {
+      const payload = JSON.parse(effect.payload) as { orderId?: unknown };
+      if (typeof payload.orderId !== "string") {
+        throw new CommerceDomainError(
+          "Invalid refunded-order reconciliation payload.",
+          "DEPENDENCY_NOT_READY",
+        );
+      }
+      const refunded = await reconcileRefundedOrderAccessFromOrchestration(
+        payload.orderId,
+      );
+      return JSON.stringify({ orderId: refunded.id, status: refunded.status });
     }
     case "CALENDAR_CREATE":
       return handleCalendarCreate(effect, providers);
