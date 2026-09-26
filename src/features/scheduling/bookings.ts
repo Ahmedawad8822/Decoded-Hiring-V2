@@ -213,19 +213,6 @@ async function hasSatisfiedBookingPayment(
   bookingTypeId: string,
 ): Promise<boolean> {
   const db = await getDb();
-  const row = await db
-    .select({ orderId: orders.id })
-    .from(orders)
-    .innerJoin(offers, eq(offers.id, orders.offerId))
-    .where(
-      and(
-        eq(orders.bookingId, bookingId),
-        eq(offers.bookingTypeId, bookingTypeId),
-      ),
-    )
-    .all();
-  if (row.length === 0) return false;
-
   const linkedOrders = await db
     .select({ status: orders.status })
     .from(orders)
