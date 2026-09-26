@@ -591,7 +591,7 @@ Independent `dh-release-review` on PR #9 found:
 - no Major findings
 - one non-blocking Minor: future live webhook orchestration must make signature verification a mandatory gate before payment-state normalization/persistence
 
-That webhook sequencing requirement is implemented in Slice 08.5: signature verification is a mandatory gate before provider-state normalization or persistence.
+That webhook requirement is implemented more strongly in Slice 08.5: live webhook orchestration uses one compound provider boundary that verifies the signature and derives Order identity + normalized payment truth from the same signed raw envelope before any persistence.
 
 Ahmed gave explicit GO and PR #9 was merged into canonical Mission 08 at `7a417f67621c73de97bb1b6002ee70dfdf4c0202`.
 
@@ -606,7 +606,7 @@ Status: **IMPLEMENTED — SOURCE CERTIFIED; INDEPENDENT RELEASE REVIEW PENDING**
 
 Implementation branch: `mission-08.5-order-orchestration`  
 Accepted base: `7a417f67621c73de97bb1b6002ee70dfdf4c0202`  
-Source-certified head before this documentation sync: `51df54175ba133cd77f5cdf164605c629a8344ab`
+Source-certified head before this documentation sync: `fec9f8607cc1a59944777e1c0240c73b2c30c752`
 
 ### Scope implemented
 
@@ -634,7 +634,10 @@ Slice 08.5 closes the missing internal commerce truth and durability boundary re
 #### Verified payment evidence
 
 - callback evidence must pass `PaymentGateway.verifyCallback`
-- webhook signature verification is mandatory **before** state normalization/persistence
+- callback provider verification receives only opaque provider evidence; the expected internal Order id is not supplied to the adapter
+- webhook evidence must pass compound `PaymentGateway.verifyWebhookPayment`
+- the webhook adapter must verify the signature and derive Order id, payment state, amount/currency and provider metadata from the **same signed raw envelope**
+- unsigned caller-supplied webhook state/amount/currency are not part of the 08.5 application boundary
 - callback/webhook provider metadata must match the configured adapter identity
 - verified provider event ids require an authoritative provider name
 - duplicate callbacks collapse by internal callback key
@@ -716,7 +719,7 @@ Dedicated `tests/mission-08-order-orchestration.test.ts` contains **27 passing r
 - quantity and booking-link constraints
 - unverified callback fail-closed behavior
 - callback/webhook provider identity
-- webhook signature-before-normalization security gate
+- signed-envelope webhook binding and rejection of unverified evidence
 - amount mismatch rejection
 - provider-event dedupe and concurrent event collapse
 - manual invoice trusted transition
@@ -751,7 +754,7 @@ Provider activation, public scheduling/checkout routes, Studio control plane, ob
 
 ### Source runtime certification
 
-GitHub Actions run `36263637222` passed on source-certified head `51df54175ba133cd77f5cdf164605c629a8344ab`:
+GitHub Actions run `36264573636` passed on source-certified head `fec9f8607cc1a59944777e1c0240c73b2c30c752`:
 
 - typecheck — PASS
 - lint with zero warnings — PASS
