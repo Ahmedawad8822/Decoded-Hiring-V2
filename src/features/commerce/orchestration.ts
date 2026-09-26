@@ -21,6 +21,7 @@ import {
 import { getDb } from "@/lib/db";
 import { getD1Database } from "@/lib/cloudflare/bindings";
 import { isUniqueConstraintError } from "@/lib/db/sqlite-errors";
+import { autoConfirmPaidBookingFromCommerce } from "@/features/scheduling/bookings";
 import {
   SchedulingProviderError,
   UnconfiguredCommerceSchedulingProviders,
@@ -722,6 +723,18 @@ async function executeEffect(
           "DEPENDENCY_NOT_READY",
         );
       }
+
+      const order = await getOrderById(payload.orderId);
+      if (!order) {
+        throw new CommerceDomainError("Order not found.", "ORDER_NOT_FOUND");
+      }
+      if (order.status === "PAID" && order.bookingId) {
+        await autoConfirmPaidBookingFromCommerce(
+          order.bookingId,
+          effect.lastAttemptAt ?? new Date(),
+        );
+      }
+
       const fulfilled = await fulfillPaidOrderFromOrchestration(
         payload.orderId,
         effect.lastAttemptAt ?? new Date(),
