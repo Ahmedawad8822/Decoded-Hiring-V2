@@ -358,6 +358,59 @@ test("COMMERCE 08.5: order request is idempotent and snapshots Offer price", asy
   assert.equal(history[0].toStatus, "PENDING");
 });
 
+test("COMMERCE 08.5: linked course orders reject quantity greater than one", async () => {
+  const setup = await createCourseOffer();
+  await assert.rejects(
+    createOrder({
+      offerId: setup.offer.id,
+      userId: setup.userId,
+      requestKey: crypto.randomUUID(),
+      customerEmail: `${setup.userId}@example.com`,
+      quantity: 2,
+      now: NOW,
+    }),
+    (error: unknown) =>
+      error instanceof CommerceDomainError &&
+      error.code === "ORDER_NOT_ALLOWED",
+  );
+});
+
+test("COMMERCE 08.5: booking-linked manual invoice cannot create an orphan order", async () => {
+  const bookingType = await createBookingType({
+    slug: slug("manual-invoice-session"),
+    title: "Manual Invoice Session",
+    durationMinutes: 60,
+    bufferBeforeMinutes: 0,
+    bufferAfterMinutes: 0,
+    minimumNoticeMinutes: 0,
+    bookingHorizonDays: 30,
+    timezone: "America/New_York",
+    confirmationPolicy: "AHMED_APPROVAL",
+    accessMode: "MANUAL_INVOICE",
+    meetingMethod: "TO_BE_CONFIRMED",
+    attendeeLimit: 1,
+  });
+  const offer = await createOffer({
+    kind: "COACHING",
+    bookingTypeId: bookingType.id,
+    title: "Manual Invoice Offer",
+    slug: slug("manual-invoice-offer"),
+    accessMode: "MANUAL_INVOICE",
+  });
+
+  await assert.rejects(
+    createOrder({
+      offerId: offer.id,
+      requestKey: crypto.randomUUID(),
+      customerEmail: "manual@example.com",
+      now: NOW,
+    }),
+    (error: unknown) =>
+      error instanceof CommerceDomainError &&
+      error.code === "ORDER_NOT_ALLOWED",
+  );
+});
+
 test("COMMERCE 08.5: requestKey cannot be rebound to another order", async () => {
   const first = await createPaidCourseOrder();
   const secondOffer = await createCourseOffer();
