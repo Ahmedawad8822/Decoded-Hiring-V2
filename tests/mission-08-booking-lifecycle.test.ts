@@ -42,6 +42,11 @@ import {
 import type { CreateBookingTypeInput } from "@/features/scheduling";
 import { __bookingLifecycleTestOnly } from "@/features/scheduling/bookings";
 
+if (!__bookingLifecycleTestOnly) {
+  throw new Error("Mission 08.2 test seam was not enabled by tests/helpers/env.");
+}
+const lifecycleTest = __bookingLifecycleTestOnly;
+
 const NOW = new Date("2026-10-27T12:00:00.000Z");
 const SLOT_A = new Date("2026-10-27T14:00:00.000Z"); // Tue 10:00 EDT
 const SLOT_B = new Date("2026-10-27T15:00:00.000Z"); // Tue 11:00 EDT
@@ -161,7 +166,7 @@ test("BOOKING 08.2: AHMED_APPROVAL stays pending until explicit admin approval",
   const pending = await requestFromHold(bt, h);
   assert.equal(pending.status, "PENDING_APPROVAL");
 
-  const approved = await __bookingLifecycleTestOnly.approve({
+  const approved = await lifecycleTest.approve({
     bookingId: pending.id,
     expectedVersion: pending.version,
     now: NOW,
@@ -255,7 +260,7 @@ test("BOOKING 08.2: reclaimed hold generation makes old approval stale", async (
   assert.equal(replacement.hold.id, initial.hold.id, "08.1 reclaims the same hold row");
 
   await assert.rejects(
-    __bookingLifecycleTestOnly.approve({
+    lifecycleTest.approve({
       bookingId: pending.id,
       expectedVersion: pending.version,
         now: afterExpiry,
@@ -289,7 +294,7 @@ test("BOOKING 08.2: decline releases only its own pending hold generation", asyn
   const h = await holdSlot(bt.id);
   const pending = await requestFromHold(bt, h);
 
-  const declined = await __bookingLifecycleTestOnly.decline({
+  const declined = await lifecycleTest.decline({
     bookingId: pending.id,
     expectedVersion: pending.version,
     now: NOW,
@@ -307,7 +312,7 @@ test("BOOKING 08.2: cancel confirmed booking releases its exact consumed generat
   const h = await holdSlot(bt.id);
   const confirmed = await requestFromHold(bt, h);
 
-  const cancelled = await __bookingLifecycleTestOnly.cancel({
+  const cancelled = await lifecycleTest.cancel({
     bookingId: confirmed.id,
     expectedVersion: confirmed.version,
     now: new Date(NOW.getTime() + 60_000),
@@ -335,7 +340,7 @@ test("BOOKING 08.2: confirmed booking can be completed", async () => {
   const h = await holdSlot(bt.id);
   const confirmed = await requestFromHold(bt, h);
 
-  const completed = await __bookingLifecycleTestOnly.complete({
+  const completed = await lifecycleTest.complete({
     bookingId: confirmed.id,
     expectedVersion: confirmed.version,
     now: new Date(NOW.getTime() + 2 * 60_000),
@@ -350,7 +355,7 @@ test("BOOKING 08.2: reschedule consumes new hold and preserves old/new slot audi
   const confirmed = await requestFromHold(bt, firstHold);
   const secondHold = await holdSlot(bt.id, SLOT_B);
 
-  const moved = await __bookingLifecycleTestOnly.reschedule({
+  const moved = await lifecycleTest.reschedule({
     bookingId: confirmed.id,
     expectedVersion: confirmed.version,
     newHoldId: secondHold.hold.id,
@@ -393,7 +398,7 @@ test("BOOKING 08.2: stale expectedVersion is rejected before state mutation", as
   const pending = await requestFromHold(bt, h);
 
   await assert.rejects(
-    __bookingLifecycleTestOnly.decline({
+    lifecycleTest.decline({
       bookingId: pending.id,
       expectedVersion: pending.version + 99,
         now: NOW,
@@ -410,12 +415,12 @@ test("BOOKING 08.2: concurrent approvals produce one confirmation audit", async 
   const pending = await requestFromHold(bt, h);
 
   const results = await Promise.allSettled([
-    __bookingLifecycleTestOnly.approve({
+    lifecycleTest.approve({
       bookingId: pending.id,
       expectedVersion: pending.version,
         now: NOW,
     }),
-    __bookingLifecycleTestOnly.approve({
+    lifecycleTest.approve({
       bookingId: pending.id,
       expectedVersion: pending.version,
         now: NOW,
