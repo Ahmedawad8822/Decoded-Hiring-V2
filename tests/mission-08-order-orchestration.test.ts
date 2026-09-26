@@ -592,6 +592,57 @@ test("COMMERCE 08.5: internal course fulfillment grants durable enrollment atomi
   assert.equal(retry.status, "SUCCEEDED");
 });
 
+test("COMMERCE 08.5: refund before fulfillment closes obsolete effect without granting course access", async () => {
+  const setup = await createPaidCourseOrder();
+  const paidGateway = verifiedGateway({ eventId: "event-refund-before-fulfillment" });
+
+  const paid = await applyVerifiedPaymentCallback(paidGateway, {
+    orderId: setup.order.id,
+    callbackKey: "callback-paid-before-refund",
+    callbackPayload: "opaque-paid",
+    provider: "test-pay",
+    now: NOW,
+  });
+  assert.equal(paid.status, "PAID");
+
+  const db = await getDb();
+  const effect = await db
+    .select()
+    .from(orchestrationEffects)
+    .where(eq(orchestrationEffects.subjectId, paid.id))
+    .get();
+  assert.ok(effect);
+
+  const refunded = await applyVerifiedPaymentCallback(
+    verifiedGateway({
+      state: "REFUNDED",
+      eventId: "event-refund-final",
+    }),
+    {
+      orderId: paid.id,
+      callbackKey: "callback-refund-final",
+      callbackPayload: "opaque-refund",
+      provider: "test-pay",
+      now: new Date(NOW.getTime() + 1000),
+    },
+  );
+  assert.equal(refunded.status, "REFUNDED");
+
+  const closed = await processOrchestrationEffect({
+    effectId: effect.id,
+    now: new Date(NOW.getTime() + 2000),
+  });
+  assert.equal(closed.status, "SUCCEEDED");
+
+  const enrollment = await db
+    .select()
+    .from(enrollments)
+    .where(eq(enrollments.userId, setup.userId))
+    .get();
+  assert.equal(enrollment, undefined);
+  assert.equal((await __commerceTestOnly!.getOrder(paid.id))?.status, "REFUNDED");
+});
+
 test("COMMERCE 08.5: payment checkout side effect is retry-safe and transitions order to REQUIRES_ACTION", async () => {
   const setup = await createPaidCourseOrder();
   const effect = await enqueuePaymentCheckout({
@@ -801,6 +852,57 @@ test("COMMERCE 08.5: configured providers resume BLOCKED work into bounded worke
     providers,
   );
   assert.ok(secondPass.some((effect) => effect.id === mail.id && effect.status === "SUCCEEDED"));
+});
+
+test("COMMERCE 08.5: invalid provider configuration stays BLOCKED and is not auto-resumed", async () => {
+  const setup = await createPaidBooking();
+  await applyVerifiedPaymentCallback(
+    verifiedGateway({ amountMinor: 20000, eventId: "event-invalid-config" }),
+    {
+      orderId: setup.order.id,
+      callbackKey: "callback-invalid-config",
+      callbackPayload: "opaque",
+      provider: "test-pay",
+      now: NOW,
+    },
+  );
+  const confirmed = await __bookingLifecycleTestOnly!.approve({
+    bookingId: setup.booking.id,
+    expectedVersion: setup.booking.version,
+    now: NOW,
+  });
+  const reminder = await enqueueBookingReminder({
+    bookingId: confirmed.id,
+    reminderKey: "invalid-config",
+    now: NOW,
+  });
+
+  const mailbox: MailboxProvider = {
+    ...configuredMailbox(),
+    sendReminder: async () => {
+      throw new SchedulingProviderError({
+        message: "Mailbox sender identity is invalid",
+        code: "INVALID_CONFIGURATION",
+        providerKind: "mailbox",
+        operation: "sendReminder",
+        retryable: false,
+      });
+    },
+  };
+
+  const blocked = await processOrchestrationEffect(
+    { effectId: reminder.id, now: NOW },
+    providerBundle({ mailbox }),
+  );
+  assert.equal(blocked.status, "BLOCKED");
+  assert.equal(blocked.lastErrorCode, "INVALID_CONFIGURATION");
+
+  const resumed = await resumeConfiguredBlockedEffects(
+    new Date(NOW.getTime() + 1000),
+    providerBundle({ mailbox: configuredMailbox() }),
+  );
+  assert.equal(resumed, 0);
+  assert.equal((await getOrchestrationEffect(reminder.id))?.status, "BLOCKED");
 });
 
 test("COMMERCE 08.5: concurrent workers collapse to one provider side effect", async () => {
