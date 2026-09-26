@@ -730,3 +730,53 @@ export const bookingHistory = sqliteTable(
 
 export type Booking = typeof bookings.$inferSelect;
 export type BookingHistory = typeof bookingHistory.$inferSelect;
+
+// ============================================================================
+// OFFER / ACCESS DOMAIN (Mission 08.3)
+// ----------------------------------------------------------------------------
+// Offer is the commercial/public presentation layer. It may point to a course
+// or booking type, while learner entitlement and booking state remain owned by
+// their respective domains. Existing Mission 06 course.accessMode remains a
+// compatibility fallback until a course receives its first linked Offer.
+//
+// One course or booking type has at most one primary Offer in this slice.
+// SQLite allows multiple NULL values in these unique indexes, so standalone
+// PRODUCT offers remain unrestricted.
+// ============================================================================
+
+export type OfferKind = "COURSE" | "COACHING" | "WORKSHOP" | "PRODUCT";
+export type OfferAccessMode =
+  | "FREE"
+  | "PAID_ONE_TIME"
+  | "PAID_SESSION"
+  | "MANUAL_INVOICE"
+  | "PAYMENT_DISABLED"
+  | "COMING_SOON";
+
+export const offers = sqliteTable(
+  "offers",
+  {
+    id: text("id").primaryKey(),
+    kind: text("kind").$type<OfferKind>().notNull(),
+    courseId: text("course_id").references(() => courses.id),
+    bookingTypeId: text("booking_type_id").references(() => bookingTypes.id),
+    title: text("title").notNull(),
+    slug: text("slug").notNull().unique(),
+    accessMode: text("access_mode").$type<OfferAccessMode>().notNull(),
+    currency: text("currency"),
+    amountMinor: integer("amount_minor"),
+    alternativeCtaLabel: text("alternative_cta_label"),
+    alternativeCtaUrl: text("alternative_cta_url"),
+    active: integer("active", { mode: "boolean" }).notNull().default(true),
+    createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+    updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+  },
+  (table) => [
+    index("offers_kind_idx").on(table.kind),
+    index("offers_active_idx").on(table.active),
+    uniqueIndex("offers_course_unique").on(table.courseId),
+    uniqueIndex("offers_booking_type_unique").on(table.bookingTypeId),
+  ],
+);
+
+export type Offer = typeof offers.$inferSelect;

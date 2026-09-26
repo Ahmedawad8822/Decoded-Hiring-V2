@@ -306,10 +306,11 @@ The mission closes only after all release gates and independent release review p
 
 ## Slice 08.2 — Booking Lifecycle & Approval
 
-Status: **IMPLEMENTED — SOURCE REVIEW IN PROGRESS; RUNTIME GATES NOT YET EXECUTED**
+Status: **ACCEPTED / MERGED INTO CANONICAL MISSION 08**
 
 Implementation branch: `mission-08.2-booking-lifecycle`  
-Accepted base: `47e8cb179e1bca7eb4447f981c9ff43249a94b85`
+Accepted implementation head: `681048298fce84e0dbb7710a7e19ec77a05e297b`  
+Canonical merge commit: `ab956291c2a00b276ac2998bae16b9c2228ab710`
 
 ### Scope implemented
 
@@ -341,11 +342,95 @@ Source review found and remediated:
 1. cancelled/rescheduled confirmed bookings initially left the prior `CONSUMED` hold permanently blocking the slot; lifecycle-controlled exact-generation release now frees those slots without loosening generic 08.1 acquisition rules.
 2. initial admin transition inputs accepted a caller-provided role string; production mutations now authenticate through Better Auth `requireAdmin()`.
 
-Runtime gates remain unverified in this environment. No claim of typecheck/lint/test/build green is made until they are actually executed.
+Runtime certification passed on exact implementation head `681048298fce84e0dbb7710a7e19ec77a05e297b`:
+- typecheck — PASS
+- lint with zero warnings — PASS
+- full `npm test` — 281 pass / 0 fail
+- 08.1 scheduling suite — 78 pass / 0 fail
+- 08.2 booking lifecycle suite — 18 pass / 0 fail
+- Drizzle drift — PASS
+- production build — PASS
+
+Independent `dh-release-review` found no Critical or Major blockers. Ahmed gave explicit GO, and Slice 08.2 was merged into the canonical Mission 08 branch at `ab956291c2a00b276ac2998bae16b9c2228ab710`.
 
 ### Slice 08.2 stop rule
 
-Do not advance 08.2 into the canonical Mission 08 branch until:
-- local/runtime gates execute successfully,
-- independent review passes,
-- any findings are remediated and re-reviewed.
+**Satisfied.** Slice 08.2 is frozen in the canonical Mission 08 branch.
+
+
+## Slice 08.3 — Offer / Access Integration
+
+Status: **IMPLEMENTED — RUNTIME CERTIFIED; INDEPENDENT RELEASE REVIEW PENDING**
+
+Implementation branch: `mission-08.3-offer-access-integration`  
+Accepted base: `ab956291c2a00b276ac2998bae16b9c2228ab710`
+
+### Scope implemented
+
+- provider-neutral `offers` domain and migration `0014_offer_access`
+- Offer kinds: `COURSE | COACHING | WORKSHOP | PRODUCT`
+- access modes:
+  - `FREE`
+  - `PAID_ONE_TIME`
+  - `PAID_SESSION`
+  - `MANUAL_INVOICE`
+  - `PAYMENT_DISABLED`
+  - `COMING_SOON`
+- one primary Offer per linked course or booking type, enforced by UNIQUE indexes
+- Offer slug uniqueness
+- linked course / booking-type existence validation
+- provider-paid price validation with currency + positive minor-unit amount
+- currency formatting that respects each currency's minor-unit scale
+- same-site / fragment / mailto / HTTPS alternative-CTA validation
+- `PAYMENT_DISABLED` and `COMING_SOON` require an explicit non-payment alternative CTA
+- paid modes remain fail-closed: this slice creates no checkout and grants no paid entitlement
+- inactive Offers fail closed instead of falling back to legacy access configuration
+- Mission 06 course `accessMode` retained only as compatibility fallback until a linked Offer exists
+- linked Offer becomes authoritative for new course access decisions
+- server-side guard prevents legacy course access-mode drift once Offer owns the course
+- FREE Offer may grant the existing Mission 06 free enrollment path
+- paid/manual/disabled/coming-soon Offers cannot use the FREE auto-enrollment path
+- Studio course list exposes effective Offer mode and prevents editing the dormant legacy fallback when linked
+- Mission 01, coaching, workshop, AI Recruiter OS, and learner course overview pages consume Offer state
+- public product routes require the expected Offer kind
+- inactive Offers expose no CTA or price
+- existing public behavior remains unchanged when no Offer is configured
+- dedicated 08.3 regression suite added to `npm test`
+
+### Explicit non-scope
+
+Slice 08.3 does **not**:
+- activate Stripe, Lemon Squeezy, or any other payment provider
+- create checkout sessions
+- create payment/order truth
+- grant entitlement from an unverified payment callback
+- implement provider webhooks
+- implement booking-payment orchestration
+- replace booking lifecycle state
+- deploy or change production configuration
+
+Those remain later Mission 08 slices.
+
+### Runtime certification
+
+GitHub Actions run `36236972932` passed on implementation head `562e3c256b0ff3d761b5a1ccfdcd5734e1b642ee` before this documentation cleanup:
+
+- typecheck — PASS
+- lint with zero warnings — PASS
+- full `npm test` — **299 pass / 0 fail**
+- 08.1 scheduling suite — **78 pass / 0 fail**
+- 08.2 booking lifecycle suite — **18 pass / 0 fail**
+- 08.3 Offer/access suite — **18 pass / 0 fail**
+- Drizzle drift — PASS: `No schema changes, nothing to migrate`
+- production build — PASS
+
+A final exact-head certification is required after release-metadata cleanup before the independent release-review verdict.
+
+### Slice 08.3 stop rule
+
+Do not merge Slice 08.3 into `mission-08-commerce-scheduling` until:
+- final exact-head runtime gates are green,
+- independent `dh-release-review` passes,
+- any Critical/Major findings are remediated and re-reviewed,
+- ChatGPT performs the final exact-SHA verification,
+- Ahmed explicitly says GO.

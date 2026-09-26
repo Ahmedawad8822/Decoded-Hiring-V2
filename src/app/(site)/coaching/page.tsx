@@ -4,6 +4,11 @@ import Image from "next/image";
 import { CoachingDiagnostic } from "@/components/products/coaching-diagnostic";
 import { LeadForm } from "@/features/leads/lead-form";
 import { publicMetadata } from "@/lib/seo";
+import { PUBLIC_OFFER_SLUGS } from "@/features/offers/catalog";
+import { resolveOfferPublicPresentation } from "@/features/offers/presentation";
+import { getOfferBySlugForKind } from "@/features/offers/service";
+
+export const dynamic = "force-dynamic";
 
 export const metadata = publicMetadata({
   title: "Recruitment Decision Coaching | Ahmed Awad",
@@ -12,7 +17,17 @@ export const metadata = publicMetadata({
   path: "/coaching",
 });
 
-export default function CoachingPage() {
+export default async function CoachingPage() {
+  const offer = await getOfferBySlugForKind(PUBLIC_OFFER_SLUGS.coaching, "COACHING");
+  const offerPresentation = offer
+    ? resolveOfferPublicPresentation(offer, {
+        freeHref: "#hg-coaching-brief",
+        freeLabel: "Open a decision brief",
+        contactHref: "#hg-coaching-brief",
+        contactLabel: "Open a decision brief",
+      })
+    : null;
+
   return (
     <article className="hg-page is-active">
       <section className="hg-section hg-product-hero hg-with-portrait hg-coaching-hero">
@@ -30,11 +45,22 @@ export default function CoachingPage() {
             <span>One live case</span>
             <span>Google Meet</span>
             <span>Decision map included</span>
+            {offerPresentation?.priceLabel && <span>{offerPresentation.priceLabel}</span>}
           </div>
           <div className="hg-actions">
-            <a className="hg-primary" href="#hg-coaching-brief">
-              Open a decision brief <ArrowDownRight aria-hidden="true" />
-            </a>
+            {offer && !offerPresentation?.ctaHref ? (
+              <span className="hg-primary" aria-disabled="true">
+                Currently unavailable
+              </span>
+            ) : (
+              <a
+                className="hg-primary"
+                href={offerPresentation?.ctaHref ?? "#hg-coaching-brief"}
+              >
+                {offerPresentation?.ctaLabel ?? "Open a decision brief"}{" "}
+                <ArrowDownRight aria-hidden="true" />
+              </a>
+            )}
           </div>
         </div>
         <figure className="hg-product-portrait hg-product-portrait--coaching">

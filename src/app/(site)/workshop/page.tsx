@@ -6,6 +6,11 @@ import { WorkshopProgramme } from "@/components/products/workshop-programme";
 import { WorkshopSystemMap } from "@/components/products/workshop-system-map";
 import { LeadForm } from "@/features/leads/lead-form";
 import { publicMetadata } from "@/lib/seo";
+import { PUBLIC_OFFER_SLUGS } from "@/features/offers/catalog";
+import { resolveOfferPublicPresentation } from "@/features/offers/presentation";
+import { getOfferBySlugForKind } from "@/features/offers/service";
+
+export const dynamic = "force-dynamic";
 
 export const metadata = publicMetadata({
   title: "AI-Powered Recruitment Workshop | Ahmed Awad",
@@ -14,7 +19,17 @@ export const metadata = publicMetadata({
   path: "/workshop",
 });
 
-export default function WorkshopPage() {
+export default async function WorkshopPage() {
+  const offer = await getOfferBySlugForKind(PUBLIC_OFFER_SLUGS.workshop, "WORKSHOP");
+  const offerPresentation = offer
+    ? resolveOfferPublicPresentation(offer, {
+        freeHref: "#workshop-brief",
+        freeLabel: "Request a workshop conversation",
+        contactHref: "#workshop-brief",
+        contactLabel: "Request a workshop conversation",
+      })
+    : null;
+
   return (
     <article className="hg-page is-active">
       <section className="hg-section hg-product-hero hg-studio-mint hg-with-portrait">
@@ -33,11 +48,22 @@ export default function WorkshopPage() {
             <span>20 modules</span>
             <span>Private team or open cohort</span>
             <span>Live delivery</span>
+            {offerPresentation?.priceLabel && <span>{offerPresentation.priceLabel}</span>}
           </div>
           <div className="hg-actions">
-            <a className="hg-primary" href="#workshop-brief">
-              Bring this to my team <ArrowUpRight aria-hidden="true" />
-            </a>
+            {offer && !offerPresentation?.ctaHref ? (
+              <span className="hg-primary" aria-disabled="true">
+                Currently unavailable
+              </span>
+            ) : (
+              <a
+                className="hg-primary"
+                href={offerPresentation?.ctaHref ?? "#workshop-brief"}
+              >
+                {offerPresentation?.ctaLabel ?? "Bring this to my team"}{" "}
+                <ArrowUpRight aria-hidden="true" />
+              </a>
+            )}
             <a className="hg-secondary" href="#workshop-brief">
               Join the open-cohort list
             </a>

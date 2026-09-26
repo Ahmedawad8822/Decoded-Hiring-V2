@@ -1,9 +1,9 @@
-name: Mission 08.2 Temporary Validation
+name: Mission 08.3 Temporary Validation
 
 on:
   push:
     branches:
-      - mission-08.2-booking-lifecycle
+      - mission-08.3-offer-access-integration
 
 permissions:
   contents: read

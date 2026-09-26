@@ -10,6 +10,8 @@ import { getEnrollment } from "@/features/enrollments/service";
 import { hasLearnerAccess } from "@/features/enrollments/access";
 import { getEnrollmentProgress } from "@/features/progress/service";
 import { EnrollButton } from "@/components/learner/enroll-button";
+import { getEffectiveCourseAccessPolicy } from "@/features/offers/service";
+import { resolveOfferPublicPresentation } from "@/features/offers/presentation";
 
 export async function generateMetadata(props: {
   params: Promise<{ courseSlug: string }>;
@@ -21,7 +23,7 @@ export async function generateMetadata(props: {
   };
 }
 
-function accessNote(accessMode: string): string | null {
+function legacyAccessNote(accessMode: string): string | null {
   if (accessMode === "PAID_ONE_TIME")
     return "This course requires a one-time payment. Online checkout is not available yet — please contact us and we will arrange access.";
   if (accessMode === "MANUAL_INVOICE")
@@ -29,6 +31,19 @@ function accessNote(accessMode: string): string | null {
   if (accessMode === "PAYMENT_DISABLED")
     return "Enrollment is currently disabled for this course.";
   return null;
+}
+
+function offerAccessNote(accessMode: string, available: boolean): string {
+  if (!available) return "This course is not currently accepting new enrollments.";
+  if (accessMode === "PAID_ONE_TIME")
+    return "This course is paid. Online checkout is not active yet, so use the configured alternative path below.";
+  if (accessMode === "MANUAL_INVOICE")
+    return "Access is arranged manually by invoice. Use the option below to request access.";
+  if (accessMode === "COMING_SOON")
+    return "Enrollment is not open yet. Use the option below if you want to be notified or register interest.";
+  if (accessMode === "PAYMENT_DISABLED")
+    return "Online enrollment is currently unavailable. Use the configured alternative path below.";
+  return "Enrollment is currently unavailable.";
 }
 
 export default async function CourseOverviewPage(props: {
@@ -41,6 +56,14 @@ export default async function CourseOverviewPage(props: {
   if (!course) notFound();
 
   const enrollment = session?.user ? await getEnrollment(session.user.id, course.id) : null;
+  const access = await getEffectiveCourseAccessPolicy(course);
+  const offerPresentation = access.offer
+    ? resolveOfferPublicPresentation(access.offer, {
+        freeHref: `/learn/courses/${course.slug}`,
+        freeLabel: "Start learning — free",
+        contactHref: "/contact",
+      })
+    : null;
   // Cancelled enrollments see the page as strangers: no progress card, no
   // resume link — just the enroll CTA (re-enroll reactivates, correction C).
   const activeEnrollment = hasLearnerAccess(enrollment) ? enrollment : null;
@@ -108,16 +131,34 @@ export default async function CourseOverviewPage(props: {
           <div className="continue-card" style={{ marginBottom: 28 }}>
             <div className="cc-top">
               <div>
-                <h3>Enrollment on request</h3>
-                <p className="cc-lesson">{accessNote(course.accessMode)}</p>
+                <h3>
+                  {access.available && access.mode === "COMING_SOON"
+                    ? "Enrollment coming soon"
+                    : access.available
+                      ? "Enrollment on request"
+                      : "Enrollment unavailable"}
+                </h3>
+                <p className="cc-lesson">
+                  {access.source === "OFFER"
+                    ? offerAccessNote(access.mode, access.available)
+                    : legacyAccessNote(access.mode)}
+                </p>
               </div>
-              <span className="cc-count mono">{course.accessMode}</span>
+              <span className="cc-count mono">
+                {offerPresentation?.badge ?? access.mode}
+              </span>
             </div>
-            <div style={{ marginTop: 12 }}>
-              <Link className="btn secondary" href="/contact" style={{ textDecoration: "none" }}>
-                Contact us →
-              </Link>
-            </div>
+            {(offerPresentation?.ctaHref || access.source === "LEGACY_COURSE") && (
+              <div style={{ marginTop: 12 }}>
+                <a
+                  className="btn secondary"
+                  href={offerPresentation?.ctaHref ?? "/contact"}
+                  style={{ textDecoration: "none" }}
+                >
+                  {offerPresentation?.ctaLabel ?? "Contact us"} →
+                </a>
+              </div>
+            )}
           </div>
         )}
 

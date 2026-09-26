@@ -1,23 +1,43 @@
-import Link from "next/link";
 import { ArrowUpRight, Check, LockKeyhole, Play } from "lucide-react";
 import Image from "next/image";
 
 import { publicMetadata } from "@/lib/seo";
+import { PUBLIC_OFFER_SLUGS } from "@/features/offers/catalog";
+import { resolveOfferPublicPresentation } from "@/features/offers/presentation";
+import { getOfferBySlugForKind } from "@/features/offers/service";
+
+export const dynamic = "force-dynamic";
 
 export const metadata = publicMetadata({
   path: "/mission-01",
   title: "Mission 01: Super Recruiter | Ahmed Awad",
   description:
-    "A free private classroom for recruiters who want to build a complete, evidence-led recruitment operating mindset.",
+    "A private classroom for recruiters who want to build a complete, evidence-led recruitment operating mindset.",
 });
 
-export default function MissionPage() {
+export default async function MissionPage() {
+  const offer = await getOfferBySlugForKind(
+    PUBLIC_OFFER_SLUGS.mission01,
+    "COURSE",
+  );
+  const offerPresentation = offer
+    ? resolveOfferPublicPresentation(offer, {
+        freeHref: "/login",
+        freeLabel: "Create my free classroom",
+        contactHref: "/contact?reason=mission-01",
+        contactLabel: "Ask about Mission 01",
+      })
+    : null;
+
+  const isUnavailable = Boolean(offer && !offerPresentation?.ctaHref);
+  const accessBadge = offerPresentation?.badge ?? "100% FREE";
+
   return (
     <article className="hg-page is-active">
       <section className="hg-section hg-product-hero hg-blue hg-with-portrait hg-mission-hero">
         <div className="hg-product-hero-copy">
           <p className="hg-kicker">Private classroom · under three hours</p>
-          <div className="hg-free-stamp">100% FREE</div>
+          <div className="hg-free-stamp">{accessBadge}</div>
           <h1 className="hg-product-title">
             Mission 01:
             <br />
@@ -34,9 +54,19 @@ export default function MissionPage() {
             <span>Account required</span>
           </div>
           <div className="hg-actions">
-            <Link className="hg-primary" href="/login">
-              Create my free classroom <ArrowUpRight aria-hidden="true" />
-            </Link>
+            {isUnavailable ? (
+              <span className="hg-primary" aria-disabled="true">
+                Currently unavailable
+              </span>
+            ) : (
+              <a
+                className="hg-primary"
+                href={offerPresentation?.ctaHref ?? "/login"}
+              >
+                {offerPresentation?.ctaLabel ?? "Create my free classroom"}{" "}
+                <ArrowUpRight aria-hidden="true" />
+              </a>
+            )}
             <a className="hg-secondary" href="#mission-route">
               Preview the first checkpoint
             </a>
@@ -189,9 +219,19 @@ export default function MissionPage() {
           </div>
         </div>
         <div className="hg-actions">
-          <Link className="hg-primary" href="/login">
-            Start Mission 01 <ArrowUpRight aria-hidden="true" />
-          </Link>
+          {isUnavailable ? (
+            <span className="hg-primary" aria-disabled="true">
+              Currently unavailable
+            </span>
+          ) : (
+            <a
+              className="hg-primary"
+              href={offerPresentation?.ctaHref ?? "/login"}
+            >
+              {offerPresentation?.ctaLabel ?? "Start Mission 01"}{" "}
+              <ArrowUpRight aria-hidden="true" />
+            </a>
+          )}
         </div>
       </section>
     </article>
