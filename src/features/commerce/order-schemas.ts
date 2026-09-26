@@ -23,6 +23,7 @@ export const manualPaymentSchema = orderTransitionSchema.extend({
 export const verifiedCallbackApplicationSchema = z.object({
   orderId: z.string().trim().min(1),
   callbackKey: z.string().trim().min(1).max(300),
+  callbackPayload: z.string(),
   provider: z.string().trim().min(1).max(100).optional().nullable(),
   now: z.date(),
 });
