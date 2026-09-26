@@ -17,14 +17,16 @@ export type OfferPublicPresentation = {
 
 export function formatOfferPrice(offer: Pick<Offer, "currency" | "amountMinor">): string | null {
   if (!offer.currency || offer.amountMinor == null || offer.amountMinor <= 0) return null;
-  const amount = offer.amountMinor / 100;
   try {
-    return new Intl.NumberFormat("en", {
+    const formatter = new Intl.NumberFormat("en", {
       style: "currency",
       currency: offer.currency,
-      maximumFractionDigits: amount % 1 === 0 ? 0 : 2,
-    }).format(amount);
+    });
+    const fractionDigits = formatter.resolvedOptions().maximumFractionDigits;
+    const amount = offer.amountMinor / 10 ** fractionDigits;
+    return formatter.format(amount);
   } catch {
+    const amount = offer.amountMinor / 100;
     return `${offer.currency} ${amount.toFixed(2)}`;
   }
 }
