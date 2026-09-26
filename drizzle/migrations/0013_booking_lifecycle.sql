@@ -44,7 +44,7 @@ CREATE TABLE `booking_history` (
 	`actor_id` text,
 	`detail` text,
 	`created_at` integer NOT NULL,
-	FOREIGN KEY (`booking_id`) REFERENCES `bookings`(`id`) ON UPDATE no action ON DELETE cascade
+	FOREIGN KEY (`booking_id`) REFERENCES `bookings`(`id`) ON UPDATE no action ON DELETE no action
 );
 --> statement-breakpoint
 CREATE INDEX `booking_history_booking_idx` ON `booking_history` (`booking_id`);--> statement-breakpoint
