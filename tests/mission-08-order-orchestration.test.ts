@@ -573,6 +573,24 @@ test("COMMERCE 08.5: booking-linked manual invoice cannot create an orphan order
   );
 });
 
+test("COMMERCE 08.5: requestKey cannot be rebound with a different quantity", async () => {
+  const setup = await createPaidCourseOrder();
+
+  await assert.rejects(
+    createOrder({
+      offerId: setup.offer.id,
+      userId: setup.userId,
+      requestKey: setup.requestKey,
+      customerEmail: `${setup.userId}@example.com`,
+      quantity: 2,
+      now: NOW,
+    }),
+    (error: unknown) =>
+      error instanceof CommerceDomainError &&
+      error.code === "IDEMPOTENCY_CONFLICT",
+  );
+});
+
 test("COMMERCE 08.5: requestKey cannot be rebound to another order", async () => {
   const first = await createPaidCourseOrder();
   const secondOffer = await createCourseOffer();
