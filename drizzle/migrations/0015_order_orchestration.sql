@@ -1,6 +1,10 @@
 CREATE TABLE `orders` (
 	`id` text PRIMARY KEY NOT NULL,
 	`offer_id` text NOT NULL,
+	`offer_kind` text NOT NULL,
+	`access_mode` text NOT NULL,
+	`course_id` text,
+	`booking_type_id` text,
 	`booking_id` text,
 	`user_id` text,
 	`request_key` text NOT NULL,
@@ -21,12 +25,16 @@ CREATE TABLE `orders` (
 	`created_at` integer NOT NULL,
 	`updated_at` integer NOT NULL,
 	FOREIGN KEY (`offer_id`) REFERENCES `offers`(`id`) ON UPDATE no action ON DELETE no action,
+	FOREIGN KEY (`course_id`) REFERENCES `courses`(`id`) ON UPDATE no action ON DELETE no action,
+	FOREIGN KEY (`booking_type_id`) REFERENCES `booking_types`(`id`) ON UPDATE no action ON DELETE no action,
 	FOREIGN KEY (`booking_id`) REFERENCES `bookings`(`id`) ON UPDATE no action ON DELETE no action,
 	FOREIGN KEY (`user_id`) REFERENCES `user`(`id`) ON UPDATE no action ON DELETE no action
 );
 --> statement-breakpoint
 CREATE UNIQUE INDEX `orders_request_key_unique` ON `orders` (`request_key`);--> statement-breakpoint
 CREATE INDEX `orders_offer_idx` ON `orders` (`offer_id`);--> statement-breakpoint
+CREATE INDEX `orders_course_idx` ON `orders` (`course_id`);--> statement-breakpoint
+CREATE INDEX `orders_booking_type_idx` ON `orders` (`booking_type_id`);--> statement-breakpoint
 CREATE INDEX `orders_booking_idx` ON `orders` (`booking_id`);--> statement-breakpoint
 CREATE INDEX `orders_user_idx` ON `orders` (`user_id`);--> statement-breakpoint
 CREATE INDEX `orders_status_idx` ON `orders` (`status`);--> statement-breakpoint
