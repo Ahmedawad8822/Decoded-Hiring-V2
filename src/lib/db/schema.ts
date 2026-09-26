@@ -845,6 +845,8 @@ export const orders = sqliteTable(
   },
   (table) => [
     index("orders_offer_idx").on(table.offerId),
+    index("orders_course_idx").on(table.courseId),
+    index("orders_booking_type_idx").on(table.bookingTypeId),
     index("orders_booking_idx").on(table.bookingId),
     index("orders_user_idx").on(table.userId),
     index("orders_status_idx").on(table.status),
