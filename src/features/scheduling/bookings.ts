@@ -574,7 +574,98 @@ async function confirmBoundBooking(
       targetVersion,
     );
 
-  await d1.batch([consume, confirm, audit]);
+  // Durable outbox is committed in the SAME D1 batch as confirmation.
+  // If the process dies immediately after business confirmation, calendar and
+  // confirmation-message work is still recoverable. Mail waits for calendar.
+  const calendarEffectId = `fx_booking_${booking.id}_calendar_create`;
+  const mailEffectId = `fx_booking_${booking.id}_mail_confirmation`;
+  const effectPayload = historyDetail({
+    bookingId: booking.id,
+    bookingVersion: targetVersion,
+  });
+
+  const enqueueCalendar = d1
+    .prepare(
+      `INSERT OR IGNORE INTO orchestration_effects
+       (id, subject_type, subject_id, effect_type, provider_kind,
+        idempotency_key, depends_on_effect_id, payload, status, attempt_count,
+        created_at, updated_at)
+       SELECT ?, 'BOOKING', id, 'CALENDAR_CREATE', 'calendar',
+              ?, NULL, ?, 'PENDING', 0, ?, ?
+       FROM bookings
+       WHERE id=? AND transition_key=? AND version=? AND status='CONFIRMED'`,
+    )
+    .bind(
+      calendarEffectId,
+      `booking:${booking.id}:calendar:create`,
+      effectPayload,
+      nowSec,
+      nowSec,
+      booking.id,
+      token,
+      targetVersion,
+    );
+
+  const enqueueCalendarAudit = d1
+    .prepare(
+      `INSERT OR IGNORE INTO orchestration_history
+       (id, effect_id, action, from_status, to_status, detail, created_at)
+       SELECT ?, id, 'ENQUEUED', NULL, 'PENDING', ?, ?
+       FROM orchestration_effects WHERE id=?`,
+    )
+    .bind(
+      `fxh_${calendarEffectId}_enqueued`,
+      historyDetail({ reason: "booking_confirmed" }),
+      nowSec,
+      calendarEffectId,
+    );
+
+  const enqueueMail = d1
+    .prepare(
+      `INSERT OR IGNORE INTO orchestration_effects
+       (id, subject_type, subject_id, effect_type, provider_kind,
+        idempotency_key, depends_on_effect_id, payload, status, attempt_count,
+        created_at, updated_at)
+       SELECT ?, 'BOOKING', id, 'MAIL_CONFIRMATION', 'mailbox',
+              ?, ?, ?, 'PENDING', 0, ?, ?
+       FROM bookings
+       WHERE id=? AND transition_key=? AND version=? AND status='CONFIRMED'`,
+    )
+    .bind(
+      mailEffectId,
+      `booking:${booking.id}:mail:confirmation`,
+      calendarEffectId,
+      effectPayload,
+      nowSec,
+      nowSec,
+      booking.id,
+      token,
+      targetVersion,
+    );
+
+  const enqueueMailAudit = d1
+    .prepare(
+      `INSERT OR IGNORE INTO orchestration_history
+       (id, effect_id, action, from_status, to_status, detail, created_at)
+       SELECT ?, id, 'ENQUEUED', NULL, 'PENDING', ?, ?
+       FROM orchestration_effects WHERE id=?`,
+    )
+    .bind(
+      `fxh_${mailEffectId}_enqueued`,
+      historyDetail({ reason: "booking_confirmed", dependsOn: calendarEffectId }),
+      nowSec,
+      mailEffectId,
+    );
+
+  await d1.batch([
+    consume,
+    confirm,
+    audit,
+    enqueueCalendar,
+    enqueueCalendarAudit,
+    enqueueMail,
+    enqueueMailAudit,
+  ]);
 
   const updated = await getBookingById(booking.id);
   if (
