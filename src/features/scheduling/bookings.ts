@@ -942,7 +942,7 @@ export async function rescheduleBooking(
  * scheduling barrel/API. Production admin operations above always resolve the
  * live Better Auth session through requireAdmin().
  */
-export const __bookingLifecycleTestOnly = {
+const bookingLifecycleTestApi = {
   approve: (input: BookingTransitionInput, actorId = "test-admin") =>
     confirmBoundBooking(input, "APPROVED", { id: actorId, role: "admin" }),
   confirm: (input: BookingTransitionInput, actorId = "test-admin") =>
@@ -971,3 +971,13 @@ export const __bookingLifecycleTestOnly = {
   reschedule: (input: RescheduleBookingInput, actorId = "test-admin") =>
     rescheduleBookingAsActor(input, { id: actorId, role: "admin" }),
 };
+
+/**
+ * Regression-only escape hatch. It is unavailable unless the dedicated test
+ * bootstrap explicitly opts in. Production/runtime environments never set this
+ * flag, so a direct-path import cannot bypass Better Auth.
+ */
+export const __bookingLifecycleTestOnly =
+  process.env.DH_BOOKING_LIFECYCLE_TEST_SEAM === "1"
+    ? bookingLifecycleTestApi
+    : undefined;
