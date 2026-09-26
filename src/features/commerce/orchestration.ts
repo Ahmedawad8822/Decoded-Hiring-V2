@@ -278,6 +278,7 @@ async function claimEffect(
          SET status='PROCESSING',
              attempt_count=attempt_count+1,
              claim_token=?,
+             transition_key=NULL,
              lease_expires_at=?,
              last_attempt_at=?,
              updated_at=?
@@ -828,12 +829,14 @@ async function finishEffect(
   const nowSec = toUnixSeconds(now);
   const nextAttemptSec = nextAttemptAt ? toUnixSeconds(nextAttemptAt) : null;
   const action = status;
+  const completionToken = `fxtr_${crypto.randomUUID()}`;
   await d1.batch([
     d1
       .prepare(
         `UPDATE orchestration_effects
          SET status=?,
              claim_token=NULL,
+             transition_key=?,
              lease_expires_at=NULL,
              next_attempt_at=?,
              provider_ref=COALESCE(?, provider_ref),
@@ -845,6 +848,7 @@ async function finishEffect(
       )
       .bind(
         status,
+        completionToken,
         nextAttemptSec,
         providerRef,
         errorCode ?? null,
@@ -860,7 +864,7 @@ async function finishEffect(
          (id, effect_id, action, from_status, to_status, detail, created_at)
          SELECT ?, id, ?, 'PROCESSING', ?, ?, ?
          FROM orchestration_effects
-         WHERE id=? AND status=? AND claim_token IS NULL`,
+         WHERE id=? AND status=? AND transition_key=? AND claim_token IS NULL`,
       )
       .bind(
         newId("fxh"),
@@ -875,11 +879,16 @@ async function finishEffect(
         nowSec,
         effect.id,
         status,
+        completionToken,
       ),
   ]);
 
   const finished = await getOrchestrationEffect(effect.id);
-  if (!finished || finished.status !== status) {
+  if (
+    !finished ||
+    finished.status !== status ||
+    finished.transitionKey !== completionToken
+  ) {
     throw new CommerceDomainError(
       "Orchestration completion lost its lease ownership.",
       "CONCURRENT_MODIFICATION",
