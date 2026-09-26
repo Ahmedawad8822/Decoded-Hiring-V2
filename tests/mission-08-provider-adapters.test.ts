@@ -73,7 +73,6 @@ test("PROVIDERS 08.4: payment adapter fails closed for every external capability
 
   await expectProviderError(
     UnconfiguredPaymentGateway.verifyCallback({
-      orderId: checkoutInput.orderId,
       callbackPayload: "opaque-callback",
     }),
     "payment",
@@ -91,7 +90,6 @@ test("PROVIDERS 08.4: payment adapter fails closed for every external capability
 
   await expectProviderError(
     UnconfiguredPaymentGateway.verifyWebhookPayment({
-      orderId: checkoutInput.orderId,
       rawBody: '{"type":"payment"}',
       signature: "opaque-signature",
     }),
@@ -127,7 +125,6 @@ test("PROVIDERS 08.4: unconfigured payment can never manufacture paid state", as
   let returned = false;
   try {
     await UnconfiguredPaymentGateway.verifyCallback({
-      orderId: checkoutInput.orderId,
       callbackPayload: "anything",
     });
     returned = true;
