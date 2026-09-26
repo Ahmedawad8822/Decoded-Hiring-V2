@@ -819,6 +819,10 @@ export const orders = sqliteTable(
     offerId: text("offer_id")
       .notNull()
       .references(() => offers.id),
+    offerKind: text("offer_kind").$type<OfferKind>().notNull(),
+    accessMode: text("access_mode").$type<OfferAccessMode>().notNull(),
+    courseId: text("course_id").references(() => courses.id),
+    bookingTypeId: text("booking_type_id").references(() => bookingTypes.id),
     bookingId: text("booking_id").references(() => bookings.id),
     userId: text("user_id").references(() => users.id),
     requestKey: text("request_key").notNull().unique(),
