@@ -26,6 +26,7 @@ export const enqueueEffectSchema = z.object({
   effectType: orchestrationEffectTypeSchema,
   providerKind: orchestrationProviderKindSchema,
   idempotencyKey: z.string().trim().min(1).max(300),
+  dependsOnEffectId: z.string().trim().min(1).optional().nullable(),
   payload: z.record(z.string(), z.unknown()),
   now: z.date(),
 });
