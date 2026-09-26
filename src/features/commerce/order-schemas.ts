@@ -30,9 +30,6 @@ export const verifiedCallbackApplicationSchema = z.object({
 
 export const verifiedWebhookApplicationSchema = z.object({
   orderId: z.string().trim().min(1),
-  providerState: z.string().trim().min(1).max(200),
-  amountMinor: z.number().int().nonnegative().optional().nullable(),
-  currency: z.string().trim().regex(/^[A-Z]{3}$/).optional().nullable(),
   rawBody: z.union([z.string(), z.instanceof(Uint8Array)]),
   signature: z.string().min(1),
   headers: z.record(z.string(), z.string()).optional(),
