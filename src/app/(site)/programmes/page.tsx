@@ -9,7 +9,7 @@ export const metadata = publicMetadata({
   path: "/programmes",
   title: "Recruitment Programmes | Decoded Hiring",
   description:
-    "Choose between the free Mission 01 classroom, team workshop, focused coaching or the AI Recruiter OS research list.",
+    "Choose between the Mission 01 classroom, team workshop, focused coaching or the AI Recruiter OS research list.",
 });
 
 const programmes = [
@@ -18,7 +18,7 @@ const programmes = [
     title: "Mission 01: Super Recruiter",
     description:
       "Change how you think about recruitment, then turn that thinking into a repeatable system.",
-    detail: "100% free · private classroom · under three hours",
+    detail: "Private classroom · under three hours",
     href: "/mission-01" as const,
     cta: "Enter Mission 01",
     tone: "blue",
@@ -81,7 +81,7 @@ export default function ProgrammesPage() {
           One field. Four useful entry points.
         </h1>
         <p className="hg-body">
-          Start with a focused free mission, bring a live problem to a private
+          Start with a focused mission, bring a live problem to a private
           session, build a team standard through the workshop or join the
           research list for AI Recruiter OS.
         </p>
