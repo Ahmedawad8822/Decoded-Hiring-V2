@@ -1,16 +1,10 @@
 export {
   CommerceDomainError,
   createOrder,
-  getOrderById,
-  getOrderByRequestKey,
-  getOrderHistory,
-  getPaymentEvents,
   getOrderForAdmin,
   applyVerifiedPaymentCallback,
   applyVerifiedPaymentWebhook,
   recordManualPaymentForAdmin,
-  fulfillPaidOrderFromOrchestration,
-  __commerceTestOnly,
 } from "./orders";
 
 export {
