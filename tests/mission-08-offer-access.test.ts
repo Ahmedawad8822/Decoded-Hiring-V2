@@ -347,6 +347,22 @@ test("OFFER 08.3: paid presentation fails closed to alternative/contact, never c
   assert.equal(JSON.stringify(presentation).toLowerCase().includes("checkout"), false);
 });
 
+test("OFFER 08.3: price formatting respects zero-decimal currencies", async () => {
+  const offer = await createOffer({
+    kind: "PRODUCT",
+    title: "JPY product",
+    slug: id("offer"),
+    accessMode: "PAID_ONE_TIME",
+    currency: "JPY",
+    amountMinor: 12500,
+  });
+
+  const presentation = resolveOfferPublicPresentation(offer, {
+    freeHref: "/login",
+  });
+  assert.match(presentation.badge.replace(/\s/g, ""), /12,500|12500/);
+});
+
 test("OFFER 08.3: PAYMENT_DISABLED presentation uses configured alternative path", async () => {
   const offer = await createOffer({
     kind: "PRODUCT",
@@ -407,8 +423,8 @@ test("OFFER 08.3: public product pages are wired to Offer lookup with safe fallb
     "utf8",
   );
 
-  assert.ok(coaching.includes("getPublicOfferBySlug(PUBLIC_OFFER_SLUGS.coaching)"));
-  assert.ok(workshop.includes("getPublicOfferBySlug(PUBLIC_OFFER_SLUGS.workshop)"));
+  assert.ok(coaching.includes("getOfferBySlug(PUBLIC_OFFER_SLUGS.coaching)"));
+  assert.ok(workshop.includes("getOfferBySlug(PUBLIC_OFFER_SLUGS.workshop)"));
   assert.ok(coursePage.includes("getEffectiveCourseAccessPolicy(course)"));
   assert.ok(coursePage.includes("resolveOfferPublicPresentation"));
 });
