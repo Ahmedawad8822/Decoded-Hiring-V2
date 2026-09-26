@@ -249,7 +249,9 @@ function providerBundle(overrides: Partial<CommerceSchedulingProviders> = {}): C
   };
 }
 
-async function createPaidBooking() {
+async function createPaidBooking(
+  confirmationPolicy: "AUTO_CONFIRM" | "AHMED_APPROVAL" | "REQUEST_ONLY" = "AHMED_APPROVAL",
+) {
   const bookingType = await createBookingType({
     slug: slug("paid-session"),
     title: "Paid Coaching",
@@ -259,7 +261,7 @@ async function createPaidBooking() {
     minimumNoticeMinutes: 0,
     bookingHorizonDays: 30,
     timezone: "America/New_York",
-    confirmationPolicy: "AHMED_APPROVAL",
+    confirmationPolicy,
     accessMode: "PAID_SESSION",
     meetingMethod: "TO_BE_CONFIRMED",
     attendeeLimit: 1,
@@ -813,6 +815,50 @@ test("COMMERCE 08.5: payment checkout side effect is retry-safe and transitions 
     providerBundle({ payment }),
   );
   assert.equal(checkoutCalls, 1);
+});
+
+test("COMMERCE 08.5: PAID_SESSION AUTO_CONFIRM completes through durable fulfillment orchestration", async () => {
+  const setup = await createPaidBooking("AUTO_CONFIRM");
+  assert.equal(setup.booking.status, "REQUESTED");
+
+  const paid = await applyVerifiedPaymentCallback(
+    verifiedGateway({ amountMinor: 20000, eventId: "event-paid-auto-confirm" }),
+    {
+      orderId: setup.order.id,
+      callbackKey: "callback-paid-auto-confirm",
+      callbackPayload: "opaque",
+      provider: "test-pay",
+      now: NOW,
+    },
+  );
+  assert.equal(paid.status, "PAID");
+
+  const db = await getDb();
+  const fulfillment = await db
+    .select()
+    .from(orchestrationEffects)
+    .where(eq(orchestrationEffects.subjectId, paid.id))
+    .all()
+    .then((rows) => rows.find((row) => row.effectType === "ORDER_FULFILL"));
+  assert.ok(fulfillment);
+
+  const completed = await processOrchestrationEffect({
+    effectId: fulfillment.id,
+    now: new Date(NOW.getTime() + 1000),
+  });
+  assert.equal(completed.status, "SUCCEEDED");
+  assert.equal((await __commerceTestOnly!.getOrder(paid.id))?.status, "FULFILLED");
+
+  const confirmed = await __bookingLifecycleTestOnly!.getBooking(setup.booking.id);
+  assert.equal(confirmed?.status, "CONFIRMED");
+
+  const bookingEffects = await db
+    .select()
+    .from(orchestrationEffects)
+    .where(eq(orchestrationEffects.subjectId, setup.booking.id))
+    .all();
+  assert.ok(bookingEffects.some((effect) => effect.effectType === "CALENDAR_CREATE"));
+  assert.ok(bookingEffects.some((effect) => effect.effectType === "MAIL_CONFIRMATION"));
 });
 
 test("COMMERCE 08.5: PAID_SESSION booking cannot confirm until matching order is PAID", async () => {
