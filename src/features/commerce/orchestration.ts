@@ -11,7 +11,6 @@ import { and, asc, desc, eq, inArray, isNull, lte, or } from "drizzle-orm";
 import {
   bookingTypes,
   bookings,
-  offers,
   orchestrationEffects,
   orchestrationHistory,
   type OrchestrationEffect,
@@ -182,6 +181,18 @@ export async function enqueuePaymentCheckout(params: {
     throw new CommerceDomainError(
       `Cannot create checkout for order in ${order.status} state.`,
       "INVALID_TRANSITION",
+    );
+  }
+  if (
+    (order.accessMode !== "PAID_ONE_TIME" &&
+      order.accessMode !== "PAID_SESSION") ||
+    !order.currency ||
+    order.amountMinor == null ||
+    order.amountMinor <= 0
+  ) {
+    throw new CommerceDomainError(
+      "Only provider-paid Order snapshots may enqueue checkout work.",
+      "ORDER_NOT_ALLOWED",
     );
   }
   return enqueueOrchestrationEffect({
@@ -388,12 +399,15 @@ async function handlePaymentCheckout(
   providers: CommerceSchedulingProviders,
 ): Promise<string> {
   const payload = paymentCheckoutPayloadSchema.parse(JSON.parse(effect.payload));
-  const db = await getDb();
   const order = await getOrderById(payload.orderId);
   if (!order) throw new CommerceDomainError("Order not found.", "ORDER_NOT_FOUND");
-  const offer = await db.select().from(offers).where(eq(offers.id, order.offerId)).get();
-  if (!offer) throw new CommerceDomainError("Offer not found.", "OFFER_NOT_FOUND");
-  if (!order.currency || order.amountMinor == null || order.amountMinor <= 0) {
+  if (
+    (order.accessMode !== "PAID_ONE_TIME" &&
+      order.accessMode !== "PAID_SESSION") ||
+    !order.currency ||
+    order.amountMinor == null ||
+    order.amountMinor <= 0
+  ) {
     throw new CommerceDomainError(
       "Order has no provider-payable amount.",
       "ORDER_NOT_ALLOWED",
@@ -402,7 +416,7 @@ async function handlePaymentCheckout(
 
   const result = await providers.payment.createCheckout({
     orderId: order.id,
-    offerId: offer.id,
+    offerId: order.offerId,
     amountMinor: order.amountMinor * order.quantity,
     currency: order.currency,
     quantity: order.quantity,
@@ -412,7 +426,7 @@ async function handlePaymentCheckout(
     idempotencyKey: effect.idempotencyKey,
     metadata: {
       orderId: order.id,
-      offerId: offer.id,
+      offerId: order.offerId,
     },
   });
 
@@ -535,7 +549,8 @@ async function handleCalendarCreate(
     idempotencyKey: effect.idempotencyKey,
     calendarId: "decoded-hiring-primary",
     summary: bookingType.title,
-    description: booking.notes ?? null,
+    // Do not export free-form intake/qualification notes to external calendars.
+    description: null,
     startAt: booking.startAt,
     endAt: booking.endAt,
     timezone: booking.timezone,
@@ -755,6 +770,23 @@ async function executeEffect(
   }
 }
 
+function sanitizedFailureMessage(error: unknown): string {
+  if (error instanceof SchedulingProviderError) {
+    return `Provider ${error.providerKind} operation ${error.operation} failed with ${error.code}.`;
+  }
+  if (error instanceof CommerceDomainError) {
+    switch (error.code) {
+      case "FULFILLMENT_NOT_CONFIGURED":
+        return "Internal fulfillment strategy is not configured.";
+      case "DEPENDENCY_NOT_READY":
+        return "Required orchestration dependency is not ready.";
+      default:
+        return `Commerce orchestration failed with ${error.code}.`;
+    }
+  }
+  return "Unexpected orchestration failure.";
+}
+
 function classifyFailure(
   error: unknown,
   attemptCount: number,
@@ -773,7 +805,7 @@ function classifyFailure(
       return {
         status: "BLOCKED",
         code: error.code,
-        message: error.message,
+        message: sanitizedFailureMessage(error),
         nextAttemptAt: null,
       };
     }
@@ -782,14 +814,14 @@ function classifyFailure(
       return {
         status: "RETRYABLE_FAILURE",
         code: error.code,
-        message: error.message,
+        message: sanitizedFailureMessage(error),
         nextAttemptAt: new Date(now.getTime() + delaySeconds * 1000),
       };
     }
     return {
       status: "TERMINAL_FAILURE",
       code: error.code,
-      message: error.message,
+      message: sanitizedFailureMessage(error),
       nextAttemptAt: null,
     };
   }
@@ -801,7 +833,7 @@ function classifyFailure(
     return {
       status: "BLOCKED",
       code: error.code,
-      message: error.message,
+      message: sanitizedFailureMessage(error),
       nextAttemptAt: null,
     };
   }
@@ -813,7 +845,7 @@ function classifyFailure(
     return {
       status: "RETRYABLE_FAILURE",
       code: error.code,
-      message: error.message,
+      message: sanitizedFailureMessage(error),
       nextAttemptAt: new Date(now.getTime() + 15_000),
     };
   }
@@ -821,7 +853,7 @@ function classifyFailure(
   return {
     status: "RETRYABLE_FAILURE",
     code: "UNEXPECTED_ERROR",
-    message: error instanceof Error ? error.message : "Unexpected orchestration failure.",
+    message: sanitizedFailureMessage(error),
     nextAttemptAt: new Date(now.getTime() + 30_000),
   };
 }
