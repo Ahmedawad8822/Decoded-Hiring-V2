@@ -29,9 +29,9 @@ import { getD1Database } from "@/lib/cloudflare/bindings";
 import { isUniqueConstraintError } from "@/lib/db/sqlite-errors";
 import { requireAdmin } from "@/lib/auth";
 import type {
-  NormalizePaymentStateResult,
   PaymentGateway,
   VerifyCallbackResult,
+  VerifyWebhookPaymentResult,
 } from "@/features/scheduling";
 import {
   createOrderSchema,
@@ -742,31 +742,25 @@ export async function applyVerifiedPaymentWebhook(
 ): Promise<Order> {
   const parsed = verifiedWebhookApplicationSchema.parse(input);
 
-  // Mandatory security gate: no normalization/persistence before signature
-  // verification succeeds.
-  const signature = await gateway.verifyWebhookSignature({
-    rawBody: parsed.rawBody,
-    signature: parsed.signature,
-    headers: parsed.headers,
-  });
-  if (!signature.valid) {
+  // Security-critical single boundary: the adapter verifies the signature AND
+  // derives normalized payment truth from the same signed raw body.
+  const verified: VerifyWebhookPaymentResult =
+    await gateway.verifyWebhookPayment({
+      orderId: parsed.orderId,
+      rawBody: parsed.rawBody,
+      signature: parsed.signature,
+      headers: parsed.headers,
+    });
+
+  if (!verified.verified) {
     throw new CommerceDomainError(
-      "Payment webhook signature verification failed.",
+      "Payment webhook evidence was not verified.",
       "PAYMENT_EVIDENCE_INVALID",
     );
   }
-
-  const normalized: NormalizePaymentStateResult =
-    await gateway.normalizePaymentState({
-      orderId: parsed.orderId,
-      providerState: parsed.providerState,
-      amountMinor: parsed.amountMinor ?? null,
-      currency: parsed.currency ?? null,
-    });
-
-  if (normalized.orderId !== parsed.orderId) {
+  if (verified.orderId !== parsed.orderId) {
     throw new CommerceDomainError(
-      "Normalized payment order identity does not match the requested order.",
+      "Verified webhook order identity does not match the requested order.",
       "PAYMENT_EVIDENCE_INVALID",
     );
   }
@@ -779,7 +773,7 @@ export async function applyVerifiedPaymentWebhook(
     );
   }
   const provider = runtime.provider ?? null;
-  if (signature.providerEventId && !provider) {
+  if (verified.providerEventId && !provider) {
     throw new CommerceDomainError(
       "Verified webhook event identity requires an authoritative provider name.",
       "PAYMENT_EVIDENCE_INVALID",
@@ -787,19 +781,21 @@ export async function applyVerifiedPaymentWebhook(
   }
 
   const bodyHash = await sha256Hex(parsed.rawBody);
-  const callbackKey = signature.providerEventId
-    ? `webhook:${provider}:${signature.providerEventId}`
-    : `webhook:sha256:${bodyHash}`;
+  const callbackKey = verified.providerEventId
+    ? `webhook:${provider}:${verified.providerEventId}`
+    : `webhook:${provider ?? "unidentified"}:sha256:${bodyHash}`;
 
   return applyVerifiedPaymentObservation({
     orderId: parsed.orderId,
     callbackKey,
     source: "WEBHOOK",
     provider,
-    providerEventId: signature.providerEventId ?? null,
-    state: normalized.state,
-    amountMinor: normalized.amountMinor ?? null,
-    currency: normalized.currency ?? null,
+    providerEventId: verified.providerEventId ?? null,
+    providerCheckoutId: verified.providerCheckoutId ?? null,
+    providerPaymentId: verified.providerPaymentId ?? null,
+    state: verified.state,
+    amountMinor: verified.amountMinor ?? null,
+    currency: verified.currency ?? null,
     now: parsed.now,
   });
 }
