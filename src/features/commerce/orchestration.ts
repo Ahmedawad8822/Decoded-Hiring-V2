@@ -7,7 +7,7 @@
 // intentionally creating duplicate provider side effects.
 // ============================================================================
 
-import { and, asc, desc, eq, inArray, isNull, lte, or } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, lte, or, sql } from "drizzle-orm";
 import {
   bookingTypes,
   bookings,
@@ -967,7 +967,11 @@ export async function listRunnableOrchestrationEffects(
 ): Promise<OrchestrationEffect[]> {
   const boundedLimit = Math.max(1, Math.min(limit, 100));
   const db = await getDb();
-  const candidates = await db
+
+  // Dependency readiness belongs in the database predicate, BEFORE LIMIT.
+  // Otherwise old PENDING children whose parents never succeeded can occupy
+  // the whole bounded scan and starve unrelated later work forever.
+  return db
     .select()
     .from(orchestrationEffects)
     .where(
@@ -986,36 +990,19 @@ export async function listRunnableOrchestrationEffects(
           isNull(orchestrationEffects.nextAttemptAt),
           lte(orchestrationEffects.nextAttemptAt, now),
         ),
+        sql<boolean>`(
+          ${orchestrationEffects.dependsOnEffectId} IS NULL
+          OR EXISTS (
+            SELECT 1
+            FROM orchestration_effects AS dependency
+            WHERE dependency.id = ${orchestrationEffects.dependsOnEffectId}
+              AND dependency.status = 'SUCCEEDED'
+          )
+        )`,
       ),
     )
     .orderBy(asc(orchestrationEffects.createdAt))
     .limit(boundedLimit);
-
-  const dependencyIds = Array.from(
-    new Set(
-      candidates
-        .map((effect) => effect.dependsOnEffectId)
-        .filter((id): id is string => Boolean(id)),
-    ),
-  );
-  if (dependencyIds.length === 0) return candidates;
-
-  const dependencies = await db
-    .select({
-      id: orchestrationEffects.id,
-      status: orchestrationEffects.status,
-    })
-    .from(orchestrationEffects)
-    .where(inArray(orchestrationEffects.id, dependencyIds));
-  const dependencyState = new Map(
-    dependencies.map((effect) => [effect.id, effect.status] as const),
-  );
-
-  return candidates.filter(
-    (effect) =>
-      !effect.dependsOnEffectId ||
-      dependencyState.get(effect.dependsOnEffectId) === "SUCCEEDED",
-  );
 }
 
 export async function resumeConfiguredBlockedEffects(
@@ -1028,7 +1015,12 @@ export async function resumeConfiguredBlockedEffects(
   const blocked = await db
     .select()
     .from(orchestrationEffects)
-    .where(eq(orchestrationEffects.status, "BLOCKED"))
+    .where(
+      and(
+        eq(orchestrationEffects.status, "BLOCKED"),
+        eq(orchestrationEffects.lastErrorCode, "PROVIDER_NOT_CONFIGURED"),
+      ),
+    )
     .orderBy(asc(orchestrationEffects.createdAt))
     .limit(Math.max(1, Math.min(limit, 500)));
 
@@ -1043,9 +1035,7 @@ export async function resumeConfiguredBlockedEffects(
       configured = await providerKindConfigured(effect.providerKind, providers);
       statusCache.set(effect.providerKind, configured);
     }
-    if (!configured || effect.lastErrorCode !== "PROVIDER_NOT_CONFIGURED") {
-      continue;
-    }
+    if (!configured) continue;
 
     const transition = `fxtr_${crypto.randomUUID()}`;
     await d1.batch([
