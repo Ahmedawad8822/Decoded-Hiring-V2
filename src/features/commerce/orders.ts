@@ -820,6 +820,16 @@ export async function fulfillPaidOrderFromOrchestration(
   const order = await getOrderById(orderId);
   if (!order) throw new CommerceDomainError("Order not found.", "ORDER_NOT_FOUND");
   if (order.status === "FULFILLED") return order;
+  if (
+    order.status === "CANCELLED" ||
+    order.status === "FAILED" ||
+    order.status === "REFUNDED"
+  ) {
+    // Payment truth moved to a terminal state before fulfillment completed.
+    // The queued internal effect is now obsolete and must close without
+    // granting access or retrying forever.
+    return order;
+  }
   if (order.status !== "PAID") {
     throw new CommerceDomainError(
       `Order must be PAID before fulfillment; found ${order.status}.`,
