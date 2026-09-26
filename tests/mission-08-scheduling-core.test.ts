@@ -1231,10 +1231,14 @@ test("SCHEDULING: released slot can be reacquired by a different owner", async (
 test("SCHEDULING: unconfigured PaymentGateway fails closed", async () => {
   await assert.rejects(
     UnconfiguredPaymentGateway.createCheckout({
-      priceId: "price_123",
+      orderId: "order_provider_test",
+      offerId: "offer_provider_test",
+      amountMinor: 10000,
+      currency: "USD",
       quantity: 1,
       successUrl: "https://example.com/success",
       cancelUrl: "https://example.com/cancel",
+      idempotencyKey: "checkout:order_provider_test",
     }),
     SchedulingProviderError,
   );
@@ -1243,10 +1247,14 @@ test("SCHEDULING: unconfigured PaymentGateway fails closed", async () => {
   let threw = false;
   try {
     await UnconfiguredPaymentGateway.createCheckout({
-      priceId: "price_123",
+      orderId: "order_provider_test",
+      offerId: "offer_provider_test",
+      amountMinor: 10000,
+      currency: "USD",
       quantity: 1,
       successUrl: "https://example.com/success",
       cancelUrl: "https://example.com/cancel",
+      idempotencyKey: "checkout:order_provider_test",
     });
   } catch (e) {
     threw = true;
