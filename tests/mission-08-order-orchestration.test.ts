@@ -1300,7 +1300,7 @@ test("COMMERCE 08.5: booking confirmation commits calendar -> mail dependency ou
   const mailCounter = { calls: 0 };
   let exportedDescription: string | null | undefined = "not-called";
   const baseCalendar = configuredCalendar(calendarCounter);
-  const calendar: CalendarProvider = {
+  const calendarProvider: CalendarProvider = {
     ...baseCalendar,
     createEvent: async (input) => {
       calendarCounter.calls += 1;
@@ -1315,7 +1315,7 @@ test("COMMERCE 08.5: booking confirmation commits calendar -> mail dependency ou
   // the counter to count only the actual provider call.
   calendarCounter.calls = 0;
   const providers = providerBundle({
-    calendar,
+    calendar: calendarProvider,
     mailbox: configuredMailbox(mailCounter),
   });
   const calendarDone = await processOrchestrationEffect(
