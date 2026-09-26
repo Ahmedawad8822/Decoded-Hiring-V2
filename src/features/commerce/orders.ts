@@ -689,17 +689,13 @@ export async function applyVerifiedPaymentCallback(
   }
 
   const runtime = await gateway.getStatus();
-  if (
-    runtime.provider &&
-    parsed.provider &&
-    runtime.provider !== parsed.provider
-  ) {
+  if (parsed.provider && runtime.provider !== parsed.provider) {
     throw new CommerceDomainError(
       "Callback provider metadata does not match the configured payment adapter.",
       "PAYMENT_EVIDENCE_INVALID",
     );
   }
-  const provider = runtime.provider ?? parsed.provider ?? null;
+  const provider = runtime.provider ?? null;
   if (verified.providerEventId && !provider) {
     throw new CommerceDomainError(
       "Verified provider event identity requires an authoritative provider name.",
@@ -768,17 +764,13 @@ export async function applyVerifiedPaymentWebhook(
   }
 
   const runtime = await gateway.getStatus();
-  if (
-    runtime.provider &&
-    parsed.provider &&
-    runtime.provider !== parsed.provider
-  ) {
+  if (parsed.provider && runtime.provider !== parsed.provider) {
     throw new CommerceDomainError(
       "Webhook provider metadata does not match the configured payment adapter.",
       "PAYMENT_EVIDENCE_INVALID",
     );
   }
-  const provider = runtime.provider ?? parsed.provider ?? null;
+  const provider = runtime.provider ?? null;
   if (signature.providerEventId && !provider) {
     throw new CommerceDomainError(
       "Verified webhook event identity requires an authoritative provider name.",
