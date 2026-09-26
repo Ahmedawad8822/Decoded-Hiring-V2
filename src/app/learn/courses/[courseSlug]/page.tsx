@@ -150,13 +150,13 @@ export default async function CourseOverviewPage(props: {
             </div>
             {(offerPresentation?.ctaHref || access.source === "LEGACY_COURSE") && (
               <div style={{ marginTop: 12 }}>
-                <Link
+                <a
                   className="btn secondary"
                   href={offerPresentation?.ctaHref ?? "/contact"}
                   style={{ textDecoration: "none" }}
                 >
                   {offerPresentation?.ctaLabel ?? "Contact us"} →
-                </Link>
+                </a>
               </div>
             )}
           </div>
