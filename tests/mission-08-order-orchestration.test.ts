@@ -49,7 +49,6 @@ import { createOffer } from "@/features/offers/service";
 import {
   SchedulingProviderError,
   NullCalendarProvider,
-  UnconfiguredCommerceSchedulingProviders,
   UnconfiguredMailboxProvider,
   UnconfiguredMeetingProvider,
   UnconfiguredPaymentGateway,
