@@ -32,25 +32,19 @@ import {
 import { getDb } from "@/lib/db";
 import {
   acquireSlotHold,
-  approveBooking,
-  cancelBooking,
-  completeBooking,
   createAvailabilityWindow,
   createBookingRequest,
   createBookingType,
-  declineBooking,
   generateAcquisitionKey,
   getBookingHistory,
-  rescheduleBooking,
   SchedulingDomainError,
 } from "@/features/scheduling";
 import type { CreateBookingTypeInput } from "@/features/scheduling";
+import { __bookingLifecycleTestOnly } from "@/features/scheduling/bookings";
 
 const NOW = new Date("2026-10-27T12:00:00.000Z");
 const SLOT_A = new Date("2026-10-27T14:00:00.000Z"); // Tue 10:00 EDT
 const SLOT_B = new Date("2026-10-27T15:00:00.000Z"); // Tue 11:00 EDT
-const ADMIN = { id: "ahmed-admin", role: "admin" as const };
-const NON_ADMIN = { id: "not-admin", role: "system" as const };
 
 let seq = 0;
 function slug(prefix = "booking"): string {
@@ -167,10 +161,9 @@ test("BOOKING 08.2: AHMED_APPROVAL stays pending until explicit admin approval",
   const pending = await requestFromHold(bt, h);
   assert.equal(pending.status, "PENDING_APPROVAL");
 
-  const approved = await approveBooking({
+  const approved = await __bookingLifecycleTestOnly.approve({
     bookingId: pending.id,
     expectedVersion: pending.version,
-    actor: ADMIN,
     now: NOW,
   });
   assert.equal(approved.status, "CONFIRMED");
@@ -181,18 +174,21 @@ test("BOOKING 08.2: AHMED_APPROVAL stays pending until explicit admin approval",
   assert.deepEqual(history.map((x) => x.action), ["REQUESTED", "APPROVED"]);
 });
 
-test("BOOKING 08.2: approval rejects non-admin actor", async () => {
+test("BOOKING 08.2: public admin mutations are guarded by requireAdmin", async () => {
+  // Unit-test runtime has no Next request/session, so the public wrapper must
+  // fail closed before it can mutate domain state.
   const bt = await makeType();
   const h = await holdSlot(bt.id);
   const pending = await requestFromHold(bt, h);
 
   await assert.rejects(
-    approveBooking({
-      bookingId: pending.id,
-      expectedVersion: pending.version,
-      actor: NON_ADMIN,
-      now: NOW,
-    }),
+    import("@/features/scheduling").then(({ approveBooking }) =>
+      approveBooking({
+        bookingId: pending.id,
+        expectedVersion: pending.version,
+        now: NOW,
+      }),
+    ),
     (error: unknown) =>
       error instanceof SchedulingDomainError &&
       error.code === "AUTHORIZATION_REQUIRED",
@@ -237,11 +233,10 @@ test("BOOKING 08.2: reclaimed hold generation makes old approval stale", async (
   assert.equal(replacement.hold.id, initial.hold.id, "08.1 reclaims the same hold row");
 
   await assert.rejects(
-    approveBooking({
+    __bookingLifecycleTestOnly.approve({
       bookingId: pending.id,
       expectedVersion: pending.version,
-      actor: ADMIN,
-      now: afterExpiry,
+        now: afterExpiry,
     }),
     (error: unknown) =>
       error instanceof SchedulingDomainError &&
@@ -272,10 +267,9 @@ test("BOOKING 08.2: decline releases only its own pending hold generation", asyn
   const h = await holdSlot(bt.id);
   const pending = await requestFromHold(bt, h);
 
-  const declined = await declineBooking({
+  const declined = await __bookingLifecycleTestOnly.decline({
     bookingId: pending.id,
     expectedVersion: pending.version,
-    actor: ADMIN,
     now: NOW,
     reason: "Not a fit",
   });
@@ -291,10 +285,9 @@ test("BOOKING 08.2: cancel confirmed booking releases its exact consumed generat
   const h = await holdSlot(bt.id);
   const confirmed = await requestFromHold(bt, h);
 
-  const cancelled = await cancelBooking({
+  const cancelled = await __bookingLifecycleTestOnly.cancel({
     bookingId: confirmed.id,
     expectedVersion: confirmed.version,
-    actor: ADMIN,
     now: new Date(NOW.getTime() + 60_000),
     reason: "Client cancelled",
   });
@@ -320,10 +313,9 @@ test("BOOKING 08.2: confirmed booking can be completed", async () => {
   const h = await holdSlot(bt.id);
   const confirmed = await requestFromHold(bt, h);
 
-  const completed = await completeBooking({
+  const completed = await __bookingLifecycleTestOnly.complete({
     bookingId: confirmed.id,
     expectedVersion: confirmed.version,
-    actor: ADMIN,
     now: new Date(NOW.getTime() + 2 * 60_000),
   });
   assert.equal(completed.status, "COMPLETED");
@@ -336,10 +328,9 @@ test("BOOKING 08.2: reschedule consumes new hold and preserves old/new slot audi
   const confirmed = await requestFromHold(bt, firstHold);
   const secondHold = await holdSlot(bt.id, SLOT_B);
 
-  const moved = await rescheduleBooking({
+  const moved = await __bookingLifecycleTestOnly.reschedule({
     bookingId: confirmed.id,
     expectedVersion: confirmed.version,
-    actor: ADMIN,
     newHoldId: secondHold.hold.id,
     newHoldAcquisitionKey: secondHold.acquisitionKey,
     now: NOW,
@@ -380,11 +371,10 @@ test("BOOKING 08.2: stale expectedVersion is rejected before state mutation", as
   const pending = await requestFromHold(bt, h);
 
   await assert.rejects(
-    declineBooking({
+    __bookingLifecycleTestOnly.decline({
       bookingId: pending.id,
       expectedVersion: pending.version + 99,
-      actor: ADMIN,
-      now: NOW,
+        now: NOW,
     }),
     (error: unknown) =>
       error instanceof SchedulingDomainError &&
@@ -398,17 +388,15 @@ test("BOOKING 08.2: concurrent approvals produce one confirmation audit", async 
   const pending = await requestFromHold(bt, h);
 
   const results = await Promise.allSettled([
-    approveBooking({
+    __bookingLifecycleTestOnly.approve({
       bookingId: pending.id,
       expectedVersion: pending.version,
-      actor: ADMIN,
-      now: NOW,
+        now: NOW,
     }),
-    approveBooking({
+    __bookingLifecycleTestOnly.approve({
       bookingId: pending.id,
       expectedVersion: pending.version,
-      actor: ADMIN,
-      now: NOW,
+        now: NOW,
     }),
   ]);
 
