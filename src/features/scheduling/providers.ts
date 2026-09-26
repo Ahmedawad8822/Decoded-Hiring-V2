@@ -1,18 +1,68 @@
 // ============================================================================
-// SCHEDULING PROVIDER CONTRACTS (Mission 08.1)
+// COMMERCE + SCHEDULING PROVIDER CONTRACTS (Mission 08.4)
 // ----------------------------------------------------------------------------
-// Narrow, provider-neutral TypeScript interfaces for the external systems
-// scheduling will eventually integrate with. These contracts contain NO
-// Google/Stripe/Lemon-Squeezy-specific request/response types.
+// Provider-neutral boundaries for payment, calendar, mailbox and meeting
+// capabilities. Domain/business identity stays internal to Decoded Hiring.
+// Provider identifiers are adapter metadata only.
 //
-// Concrete providers are NOT implemented in this slice. Unconfigured/no-op
-// implementations are provided as fail-closed placeholders so the domain can
-// be exercised without any external dependency.
+// No concrete SDKs, credentials, provider selection or production activation
+// live in this module. Unconfigured implementations fail closed and never
+// manufacture successful external side effects.
 // ============================================================================
 
-// -- Calendar ----------------------------------------------------------------
+import type { MeetingMethod } from "./types";
+
+// -- Shared provider primitives ------------------------------------------------
+
+export type ProviderKind = "payment" | "calendar" | "mailbox" | "meeting";
+
+export type SchedulingProviderErrorCode =
+  | "PROVIDER_NOT_CONFIGURED"
+  | "INVALID_CONFIGURATION"
+  | "UNSUPPORTED_OPERATION"
+  | "INVALID_PROVIDER_RESPONSE"
+  | "SIGNATURE_VERIFICATION_FAILED";
+
+export class SchedulingProviderError extends Error {
+  public readonly code: SchedulingProviderErrorCode;
+  public readonly providerKind: ProviderKind;
+  public readonly operation: string;
+  public readonly retryable: boolean;
+
+  constructor(params: {
+    message: string;
+    code: SchedulingProviderErrorCode;
+    providerKind: ProviderKind;
+    operation: string;
+    retryable?: boolean;
+  }) {
+    super(params.message);
+    this.name = "SchedulingProviderError";
+    this.code = params.code;
+    this.providerKind = params.providerKind;
+    this.operation = params.operation;
+    this.retryable = params.retryable ?? false;
+  }
+}
+
+function notConfigured(
+  providerKind: ProviderKind,
+  operation: string,
+  message: string,
+): never {
+  throw new SchedulingProviderError({
+    message,
+    code: "PROVIDER_NOT_CONFIGURED",
+    providerKind,
+    operation,
+    retryable: false,
+  });
+}
+
+// -- Calendar -----------------------------------------------------------------
 
 export interface CalendarEventRef {
+  /** Provider-owned event identifier. Never used as Decoded Hiring identity. */
   id: string;
   provider: string;
 }
@@ -29,77 +79,201 @@ export interface FreeBusyEntry {
   busy: boolean;
 }
 
-export interface CalendarProvider {
-  getFreeBusy(request: FreeBusyRequest): Promise<FreeBusyEntry[]>;
-  createEvent(params: CreateCalendarEventParams): Promise<CalendarEventRef>;
-  updateEvent(ref: CalendarEventRef, params: Partial<CreateCalendarEventParams>): Promise<void>;
-  cancelEvent(ref: CalendarEventRef): Promise<void>;
-}
-
-export interface CreateCalendarEventParams {
-  calendarId: string;
-  summary: string;
-  description?: string | null;
-  startAt: Date;
-  endAt: Date;
-  attendees?: EmailAttendee[];
-  location?: string | null;
-}
-
 export interface EmailAttendee {
   email: string;
   displayName?: string | null;
 }
 
-// -- Payment -----------------------------------------------------------------
+export interface CreateCalendarEventParams {
+  /** Internal Decoded Hiring booking identity. */
+  bookingId: string;
+  /** Stable internal key reused for retries of the same side effect. */
+  idempotencyKey: string;
+  calendarId: string;
+  summary: string;
+  description?: string | null;
+  startAt: Date;
+  endAt: Date;
+  timezone: string;
+  attendees?: EmailAttendee[];
+  location?: string | null;
+}
+
+export interface CreateCalendarEventResult {
+  event: CalendarEventRef;
+  /** Provider-returned/resolved meeting or physical location metadata. */
+  location?: ResolvedMeetingLocation | null;
+}
+
+export interface UpdateCalendarEventParams {
+  bookingId: string;
+  idempotencyKey: string;
+  summary?: string;
+  description?: string | null;
+  startAt?: Date;
+  endAt?: Date;
+  timezone?: string;
+  attendees?: EmailAttendee[];
+  location?: string | null;
+}
+
+export interface CancelCalendarEventParams {
+  bookingId: string;
+  idempotencyKey: string;
+  reason?: string | null;
+}
+
+export interface CalendarProvider {
+  getFreeBusy(request: FreeBusyRequest): Promise<FreeBusyEntry[]>;
+  createEvent(params: CreateCalendarEventParams): Promise<CreateCalendarEventResult>;
+  updateEvent(
+    ref: CalendarEventRef,
+    params: UpdateCalendarEventParams,
+  ): Promise<CreateCalendarEventResult>;
+  cancelEvent(ref: CalendarEventRef, params: CancelCalendarEventParams): Promise<void>;
+}
+
+// -- Payment ------------------------------------------------------------------
+
+/**
+ * Provider-neutral internal state produced by a payment adapter.
+ *
+ * FULFILLED is included because the Mission 08 business contract uses one
+ * normalized order/payment state family. Persistence/orchestration of these
+ * states arrives in later slices.
+ */
+export type NormalizedPaymentState =
+  | "PENDING"
+  | "REQUIRES_ACTION"
+  | "PAID"
+  | "FULFILLED"
+  | "CANCELLED"
+  | "FAILED"
+  | "REFUNDED";
 
 export interface CheckoutResult {
   checkoutUrl: string;
-  checkoutId: string;
+  /** Provider-owned checkout/session identifier, adapter metadata only. */
+  providerCheckoutId: string;
+  provider: string;
+  expiresAt?: Date | null;
+}
+
+export interface PaymentCustomer {
+  email: string;
+  name?: string | null;
+}
+
+export interface CreateCheckoutParams {
+  /** Internal Decoded Hiring order identity. */
+  orderId: string;
+  /** Internal Decoded Hiring offer identity. */
+  offerId: string;
+  amountMinor: number;
+  currency: string;
+  quantity: number;
+  customer?: PaymentCustomer | null;
+  successUrl: string;
+  cancelUrl: string;
+  idempotencyKey: string;
+  metadata?: Readonly<Record<string, string>>;
+}
+
+export interface VerifyCallbackParams {
+  orderId: string;
+  /** Opaque callback body/query representation owned by the adapter boundary. */
+  callbackPayload: string;
+}
+
+export interface VerifyCallbackResult {
+  verified: boolean;
+  orderId: string;
+  state: NormalizedPaymentState;
+  providerCheckoutId?: string | null;
+  providerPaymentId?: string | null;
+  providerEventId?: string | null;
+  amountMinor?: number | null;
+  currency?: string | null;
+}
+
+export interface VerifyWebhookSignatureParams {
+  rawBody: string | Uint8Array;
+  signature: string;
+  headers?: Readonly<Record<string, string>>;
+}
+
+export interface VerifyWebhookSignatureResult {
+  valid: boolean;
+  providerEventId?: string | null;
+}
+
+export interface NormalizePaymentStateParams {
+  orderId: string;
+  providerState: string;
+  amountMinor?: number | null;
+  currency?: string | null;
+}
+
+export interface NormalizePaymentStateResult {
+  orderId: string;
+  providerState: string;
+  state: NormalizedPaymentState;
+  amountMinor?: number | null;
+  currency?: string | null;
+}
+
+export interface RefundOrCancelParams {
+  orderId: string;
+  providerPaymentId?: string | null;
+  providerCheckoutId?: string | null;
+  amountMinor?: number | null;
+  reason?: string | null;
+  idempotencyKey: string;
 }
 
 export interface PaymentGateway {
   createCheckout(params: CreateCheckoutParams): Promise<CheckoutResult>;
   verifyCallback(params: VerifyCallbackParams): Promise<VerifyCallbackResult>;
-  refundOrCancel(checkoutId: string): Promise<void>;
+  verifyWebhookSignature(
+    params: VerifyWebhookSignatureParams,
+  ): Promise<VerifyWebhookSignatureResult>;
+  normalizePaymentState(
+    params: NormalizePaymentStateParams,
+  ): Promise<NormalizePaymentStateResult>;
+  refundOrCancel(params: RefundOrCancelParams): Promise<void>;
 }
 
-export interface CreateCheckoutParams {
-  priceId: string;
-  quantity: number;
-  successUrl: string;
-  cancelUrl: string;
-}
-
-export interface VerifyCallbackParams {
-  checkoutId: string;
-  sessionId: string;
-}
-
-export interface VerifyCallbackResult {
-  verified: boolean;
-  paid: boolean;
-  checkoutId: string;
-}
-
-// -- Mailbox -----------------------------------------------------------------
+// -- Mailbox ------------------------------------------------------------------
 
 export interface SendEmailParams {
+  /** Internal booking identity for audit/orchestration correlation. */
+  bookingId: string;
+  idempotencyKey: string;
   to: string;
   subject: string;
   html: string;
+  text?: string | null;
+  replyTo?: string | null;
+}
+
+export interface MailboxMessageRef {
+  id: string;
+  provider: string;
 }
 
 export interface MailboxProvider {
-  sendConfirmation(params: SendEmailParams): Promise<void>;
-  sendReschedule(params: SendEmailParams): Promise<void>;
-  sendCancellation(params: SendEmailParams): Promise<void>;
-  sendReminder(params: SendEmailParams): Promise<void>;
+  sendConfirmation(params: SendEmailParams): Promise<MailboxMessageRef>;
+  sendReschedule(params: SendEmailParams): Promise<MailboxMessageRef>;
+  sendCancellation(params: SendEmailParams): Promise<MailboxMessageRef>;
+  sendReminder(params: SendEmailParams): Promise<MailboxMessageRef>;
 }
 
-// -- Meeting -----------------------------------------------------------------
+// -- Meeting ------------------------------------------------------------------
 
 export interface MeetingLocationParams {
+  /** Internal booking identity for retry/audit correlation. */
+  bookingId: string;
+  idempotencyKey: string;
   method: MeetingMethod;
   overrideUrl?: string | null;
   overridePhone?: string | null;
@@ -107,7 +281,9 @@ export interface MeetingLocationParams {
 }
 
 export interface MeetingProvider {
-  resolveMeetingLocation(params: MeetingLocationParams): Promise<ResolvedMeetingLocation>;
+  resolveMeetingLocation(
+    params: MeetingLocationParams,
+  ): Promise<ResolvedMeetingLocation>;
 }
 
 export interface ResolvedMeetingLocation {
@@ -118,74 +294,214 @@ export interface ResolvedMeetingLocation {
   displayText: string;
 }
 
-// Re-use the domain enum for meeting methods.
-import type { MeetingMethod } from "./types";
+// -- Fail-closed unconfigured providers ---------------------------------------
 
-// -- Fail-closed unconfigured providers --------------------------------------
+export const UnconfiguredPaymentGateway: PaymentGateway = {
+  createCheckout: async () =>
+    notConfigured(
+      "payment",
+      "createCheckout",
+      "Payment provider is not configured. Cannot create checkout.",
+    ),
+  verifyCallback: async () =>
+    notConfigured(
+      "payment",
+      "verifyCallback",
+      "Payment provider is not configured. Cannot verify payment callbacks.",
+    ),
+  verifyWebhookSignature: async () =>
+    notConfigured(
+      "payment",
+      "verifyWebhookSignature",
+      "Payment provider is not configured. Cannot verify webhook signatures.",
+    ),
+  normalizePaymentState: async () =>
+    notConfigured(
+      "payment",
+      "normalizePaymentState",
+      "Payment provider is not configured. Cannot normalize provider payment state.",
+    ),
+  refundOrCancel: async () =>
+    notConfigured(
+      "payment",
+      "refundOrCancel",
+      "Payment provider is not configured. Cannot cancel or refund payment.",
+    ),
+};
 
-export class SchedulingProviderError extends Error {
-  public readonly code: string;
-  constructor(message: string, code: string) {
-    super(message);
-    this.name = "SchedulingProviderError";
-    this.code = code;
+export const NullCalendarProvider: CalendarProvider = {
+  getFreeBusy: async () =>
+    notConfigured(
+      "calendar",
+      "getFreeBusy",
+      "No calendar provider is configured. External free/busy is unavailable.",
+    ),
+  createEvent: async () =>
+    notConfigured(
+      "calendar",
+      "createEvent",
+      "No calendar provider is configured. Cannot create calendar events.",
+    ),
+  updateEvent: async () =>
+    notConfigured(
+      "calendar",
+      "updateEvent",
+      "No calendar provider is configured. Cannot update calendar events.",
+    ),
+  cancelEvent: async () =>
+    notConfigured(
+      "calendar",
+      "cancelEvent",
+      "No calendar provider is configured. Cannot cancel calendar events.",
+    ),
+};
+
+export const UnconfiguredMailboxProvider: MailboxProvider = {
+  sendConfirmation: async () =>
+    notConfigured(
+      "mailbox",
+      "sendConfirmation",
+      "No mailbox provider is configured. Cannot send booking confirmation.",
+    ),
+  sendReschedule: async () =>
+    notConfigured(
+      "mailbox",
+      "sendReschedule",
+      "No mailbox provider is configured. Cannot send reschedule message.",
+    ),
+  sendCancellation: async () =>
+    notConfigured(
+      "mailbox",
+      "sendCancellation",
+      "No mailbox provider is configured. Cannot send cancellation message.",
+    ),
+  sendReminder: async () =>
+    notConfigured(
+      "mailbox",
+      "sendReminder",
+      "No mailbox provider is configured. Cannot send reminder.",
+    ),
+};
+
+function requireOverride(
+  providerKind: ProviderKind,
+  operation: string,
+  value: string | null | undefined,
+  message: string,
+): string {
+  const normalized = value?.trim();
+  if (!normalized) {
+    throw new SchedulingProviderError({
+      message,
+      code: "INVALID_CONFIGURATION",
+      providerKind,
+      operation,
+      retryable: false,
+    });
+  }
+  return normalized;
+}
+
+function requireHttpsUrl(value: string, operation: string): string {
+  try {
+    const parsed = new URL(value);
+    if (parsed.protocol !== "https:") throw new Error("not https");
+    return parsed.toString();
+  } catch {
+    throw new SchedulingProviderError({
+      message: "External meeting links must use HTTPS.",
+      code: "INVALID_CONFIGURATION",
+      providerKind: "meeting",
+      operation,
+      retryable: false,
+    });
   }
 }
 
 /**
- * Fail-closed PaymentGateway: createCheckout throws immediately.
- * It never returns a fake "paid: true" or dummy checkout success.
+ * Unconfigured meeting adapter.
+ *
+ * Static, caller-supplied locations remain usable because they do not require
+ * an external provider. Provider-generated meeting methods fail closed.
  */
-export const UnconfiguredPaymentGateway: PaymentGateway = {
-  createCheckout: async () => {
-    throw new SchedulingProviderError(
-      "Payment provider is not configured. Cannot create checkout.",
-      "PROVIDER_NOT_CONFIGURED",
-    );
-  },
-  verifyCallback: async () => {
-    throw new SchedulingProviderError(
-      "Payment provider is not configured. Cannot verify callback.",
-      "PROVIDER_NOT_CONFIGURED",
-    );
-  },
-  refundOrCancel: async () => {
-    throw new SchedulingProviderError(
-      "Payment provider is not configured. Cannot refund.",
-      "PROVIDER_NOT_CONFIGURED",
-    );
+export const UnconfiguredMeetingProvider: MeetingProvider = {
+  resolveMeetingLocation: async (params) => {
+    const operation = "resolveMeetingLocation";
+
+    switch (params.method) {
+      case "EXTERNAL_LINK": {
+        const raw = requireOverride(
+          "meeting",
+          operation,
+          params.overrideUrl,
+          "External-link meetings require an explicit URL.",
+        );
+        const url = requireHttpsUrl(raw, operation);
+        return {
+          method: params.method,
+          url,
+          displayText: url,
+        };
+      }
+      case "PHONE": {
+        const phone = requireOverride(
+          "meeting",
+          operation,
+          params.overridePhone,
+          "Phone meetings require an explicit phone number.",
+        );
+        return {
+          method: params.method,
+          phone,
+          displayText: phone,
+        };
+      }
+      case "IN_PERSON": {
+        const address = requireOverride(
+          "meeting",
+          operation,
+          params.overrideAddress,
+          "In-person meetings require an explicit address.",
+        );
+        return {
+          method: params.method,
+          address,
+          displayText: address,
+        };
+      }
+      case "TO_BE_CONFIRMED":
+        return {
+          method: params.method,
+          displayText: "To be confirmed",
+        };
+      case "GOOGLE_MEET":
+        return notConfigured(
+          "meeting",
+          operation,
+          "No meeting provider is configured. Cannot create a provider-generated meeting link.",
+        );
+    }
   },
 };
 
+// -- Provider bundle -----------------------------------------------------------
+
+export interface CommerceSchedulingProviders {
+  payment: PaymentGateway;
+  calendar: CalendarProvider;
+  mailbox: MailboxProvider;
+  meeting: MeetingProvider;
+}
+
 /**
- * No-op CalendarProvider: signals that external free/busy was NOT consulted.
- * Calendar availability for this slice works with policy only when no
- * calendar provider is configured. Callers must NOT interpret empty free/busy
- * results as "all slots free".
+ * Safe default dependency bundle for later orchestration slices.
+ *
+ * Importing/using this object can never activate a real provider.
  */
-export const NullCalendarProvider: CalendarProvider = {
-  getFreeBusy: async () => {
-    throw new SchedulingProviderError(
-      "No calendar provider is configured. Availability must not query external calendars.",
-      "PROVIDER_NOT_CONFIGURED",
-    );
-  },
-  createEvent: async () => {
-    throw new SchedulingProviderError(
-      "No calendar provider is configured. Cannot create events.",
-      "PROVIDER_NOT_CONFIGURED",
-    );
-  },
-  updateEvent: async () => {
-    throw new SchedulingProviderError(
-      "No calendar provider is configured. Cannot update events.",
-      "PROVIDER_NOT_CONFIGURED",
-    );
-  },
-  cancelEvent: async () => {
-    throw new SchedulingProviderError(
-      "No calendar provider is configured. Cannot cancel events.",
-      "PROVIDER_NOT_CONFIGURED",
-    );
-  },
-};
+export const UnconfiguredCommerceSchedulingProviders: Readonly<CommerceSchedulingProviders> =
+  Object.freeze({
+    payment: UnconfiguredPaymentGateway,
+    calendar: NullCalendarProvider,
+    mailbox: UnconfiguredMailboxProvider,
+    meeting: UnconfiguredMeetingProvider,
+  });
