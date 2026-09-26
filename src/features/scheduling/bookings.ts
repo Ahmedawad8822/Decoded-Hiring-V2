@@ -64,11 +64,20 @@ async function resolveAdminActor(): Promise<TrustedBookingActor> {
   try {
     const session = await requireAdmin();
     return { id: session.user.id, role: "admin" };
-  } catch {
-    throw new SchedulingDomainError(
-      "This booking transition requires an authenticated admin session.",
-      "AUTHORIZATION_REQUIRED",
-    );
+  } catch (error: unknown) {
+    if (
+      error instanceof Error &&
+      (error.message.startsWith("Unauthorized:") ||
+        error.message.startsWith("Forbidden:"))
+    ) {
+      throw new SchedulingDomainError(
+        "This booking operation requires an authenticated admin session.",
+        "AUTHORIZATION_REQUIRED",
+      );
+    }
+    // Configuration/DB/runtime failures are operational failures, not auth
+    // denials. Preserve them so outages are observable rather than disguised.
+    throw error;
   }
 }
 
@@ -140,17 +149,17 @@ function assertRequestKeyBinding(
   return existing;
 }
 
-export async function getBookingById(id: string): Promise<Booking | undefined> {
+async function getBookingById(id: string): Promise<Booking | undefined> {
   const db = await getDb();
   return db.select().from(bookings).where(eq(bookings.id, id)).get();
 }
 
-export async function getBookingByRequestKey(requestKey: string): Promise<Booking | undefined> {
+async function getBookingByRequestKey(requestKey: string): Promise<Booking | undefined> {
   const db = await getDb();
   return db.select().from(bookings).where(eq(bookings.requestKey, requestKey)).get();
 }
 
-export async function getBookingHistory(bookingId: string): Promise<BookingHistory[]> {
+async function getBookingHistory(bookingId: string): Promise<BookingHistory[]> {
   const db = await getDb();
   return db
     .select()
@@ -158,6 +167,18 @@ export async function getBookingHistory(bookingId: string): Promise<BookingHisto
     .where(eq(bookingHistory.bookingId, bookingId))
     .orderBy(asc(bookingHistory.createdAt))
     .all();
+}
+
+export async function getBookingForAdmin(id: string): Promise<Booking | undefined> {
+  await resolveAdminActor();
+  return getBookingById(id);
+}
+
+export async function getBookingHistoryForAdmin(
+  bookingId: string,
+): Promise<BookingHistory[]> {
+  await resolveAdminActor();
+  return getBookingHistory(bookingId);
 }
 
 async function getBookingWithTypeAndHold(id: string): Promise<{
@@ -943,6 +964,8 @@ export async function rescheduleBooking(
  * live Better Auth session through requireAdmin().
  */
 const bookingLifecycleTestApi = {
+  getBooking: (id: string) => getBookingById(id),
+  getHistory: (bookingId: string) => getBookingHistory(bookingId),
   approve: (input: BookingTransitionInput, actorId = "test-admin") =>
     confirmBoundBooking(input, "APPROVED", { id: actorId, role: "admin" }),
   confirm: (input: BookingTransitionInput, actorId = "test-admin") =>
