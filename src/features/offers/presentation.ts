@@ -54,7 +54,7 @@ export function resolveOfferPublicPresentation(
   if (!offer.active) {
     return {
       badge: "UNAVAILABLE",
-      priceLabel,
+      priceLabel: null,
       ctaLabel: null,
       ctaHref: null,
       action: "UNAVAILABLE",
