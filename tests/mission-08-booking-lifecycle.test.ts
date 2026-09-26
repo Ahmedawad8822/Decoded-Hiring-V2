@@ -36,7 +36,6 @@ import {
   createBookingRequest,
   createBookingType,
   generateAcquisitionKey,
-  getBookingHistory,
   SchedulingDomainError,
 } from "@/features/scheduling";
 import type { CreateBookingTypeInput } from "@/features/scheduling";
@@ -156,7 +155,7 @@ test("BOOKING 08.2: FREE AUTO_CONFIRM consumes exact hold and confirms atomicall
   assert.equal(hold?.status, "CONSUMED");
   assert.equal(hold?.acquisitionKey, h.acquisitionKey);
 
-  const history = await getBookingHistory(booking.id);
+  const history = await lifecycleTest.getHistory(booking.id);
   assert.deepEqual(history.map((x) => x.action), ["REQUESTED", "AUTO_CONFIRMED"]);
 });
 
@@ -175,7 +174,7 @@ test("BOOKING 08.2: AHMED_APPROVAL stays pending until explicit admin approval",
   assert.equal(approved.approvedBy, "test-admin");
   assert.ok(approved.approvedAt);
 
-  const history = await getBookingHistory(pending.id);
+  const history = await lifecycleTest.getHistory(pending.id);
   assert.deepEqual(history.map((x) => x.action), ["REQUESTED", "APPROVED"]);
 });
 
@@ -194,6 +193,27 @@ test("BOOKING 08.2: public admin mutations are guarded by requireAdmin", async (
         now: NOW,
       }),
     ),
+    (error: unknown) =>
+      error instanceof SchedulingDomainError &&
+      error.code === "AUTHORIZATION_REQUIRED",
+  );
+});
+
+test("BOOKING 08.2: public booking/history reads require an admin session", async () => {
+  const bt = await makeType();
+  const h = await holdSlot(bt.id);
+  const booking = await requestFromHold(bt, h);
+
+  const scheduling = await import("@/features/scheduling");
+
+  await assert.rejects(
+    scheduling.getBookingForAdmin(booking.id),
+    (error: unknown) =>
+      error instanceof SchedulingDomainError &&
+      error.code === "AUTHORIZATION_REQUIRED",
+  );
+  await assert.rejects(
+    scheduling.getBookingHistoryForAdmin(booking.id),
     (error: unknown) =>
       error instanceof SchedulingDomainError &&
       error.code === "AUTHORIZATION_REQUIRED",
@@ -384,7 +404,7 @@ test("BOOKING 08.2: reschedule consumes new hold and preserves old/new slot audi
   });
   assert.ok(originalSlotAgain.success);
 
-  const history = await getBookingHistory(moved.id);
+  const history = await lifecycleTest.getHistory(moved.id);
   const event = history.find((x) => x.action === "RESCHEDULED");
   assert.ok(event?.detail);
   const detail = JSON.parse(event!.detail!);
@@ -433,7 +453,7 @@ test("BOOKING 08.2: concurrent approvals produce one confirmation audit", async 
   const final = await db.select().from(bookings).where(eq(bookings.id, pending.id)).get();
   assert.equal(final?.status, "CONFIRMED");
 
-  const history = await getBookingHistory(pending.id);
+  const history = await lifecycleTest.getHistory(pending.id);
   assert.equal(history.filter((x) => x.action === "APPROVED").length, 1);
 });
 
@@ -443,7 +463,7 @@ test("BOOKING 08.2: booking history is a permanent DB backstop and blocks parent
   const booking = await requestFromHold(bt, h);
   const db = await getDb();
 
-  const history = await getBookingHistory(booking.id);
+  const history = await lifecycleTest.getHistory(booking.id);
   assert.ok(history.length >= 1);
 
   await assert.rejects(
@@ -452,7 +472,7 @@ test("BOOKING 08.2: booking history is a permanent DB backstop and blocks parent
 
   const stillThere = await db.select().from(bookings).where(eq(bookings.id, booking.id)).get();
   assert.equal(stillThere?.id, booking.id);
-  const historyStillThere = await getBookingHistory(booking.id);
+  const historyStillThere = await lifecycleTest.getHistory(booking.id);
   assert.equal(historyStillThere.length, history.length);
 });
 
