@@ -90,6 +90,16 @@ test("PROVIDERS 08.4: payment adapter fails closed for every external capability
   );
 
   await expectProviderError(
+    UnconfiguredPaymentGateway.verifyWebhookPayment({
+      orderId: checkoutInput.orderId,
+      rawBody: '{"type":"payment"}',
+      signature: "opaque-signature",
+    }),
+    "payment",
+    "verifyWebhookPayment",
+  );
+
+  await expectProviderError(
     UnconfiguredPaymentGateway.normalizePaymentState({
       orderId: checkoutInput.orderId,
       providerState: "succeeded",
@@ -434,6 +444,15 @@ test("PROVIDERS 08.4: payment contract can normalize provider state without prov
     verifyWebhookSignature: async () => ({
       valid: true,
       providerEventId: "event-opaque",
+    }),
+    verifyWebhookPayment: async (params) => ({
+      verified: true,
+      orderId: params.orderId,
+      state: "PAID",
+      providerEventId: "event-opaque",
+      providerPaymentId: "payment-opaque",
+      amountMinor: 12500,
+      currency: "USD",
     }),
     normalizePaymentState: async (params) => ({
       orderId: params.orderId,
