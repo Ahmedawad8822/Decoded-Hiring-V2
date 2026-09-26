@@ -286,7 +286,7 @@ test("BOOKING 08.2: decline releases only its own pending hold generation", asyn
   assert.equal(hold?.status, "RELEASED");
 });
 
-test("BOOKING 08.2: cancel confirmed booking preserves terminal consumed hold", async () => {
+test("BOOKING 08.2: cancel confirmed booking releases its exact consumed generation", async () => {
   const bt = await makeType({ confirmationPolicy: "AUTO_CONFIRM" });
   const h = await holdSlot(bt.id);
   const confirmed = await requestFromHold(bt, h);
@@ -302,7 +302,17 @@ test("BOOKING 08.2: cancel confirmed booking preserves terminal consumed hold", 
 
   const db = await getDb();
   const hold = await db.select().from(slotHolds).where(eq(slotHolds.id, h.hold.id)).get();
-  assert.equal(hold?.status, "CONSUMED");
+  assert.equal(hold?.status, "RELEASED");
+
+  // The cancelled slot is bookable again through normal 08.1 reclaim.
+  const reacquired = await acquireSlotHold({
+    bookingTypeId: bt.id,
+    startAt: SLOT_A,
+    now: new Date(NOW.getTime() + 2 * 60_000),
+    ttlMinutes: 10,
+    acquisitionKey: generateAcquisitionKey(),
+  });
+  assert.ok(reacquired.success);
 });
 
 test("BOOKING 08.2: confirmed booking can be completed", async () => {
@@ -343,6 +353,18 @@ test("BOOKING 08.2: reschedule consumes new hold and preserves old/new slot audi
   const db = await getDb();
   const nextHold = await db.select().from(slotHolds).where(eq(slotHolds.id, secondHold.hold.id)).get();
   assert.equal(nextHold?.status, "CONSUMED");
+  const oldHold = await db.select().from(slotHolds).where(eq(slotHolds.id, firstHold.hold.id)).get();
+  assert.equal(oldHold?.status, "RELEASED", "reschedule must free the original slot generation");
+
+  // The original slot can be acquired again after the move.
+  const originalSlotAgain = await acquireSlotHold({
+    bookingTypeId: bt.id,
+    startAt: SLOT_A,
+    now: new Date(NOW.getTime() + 60_000),
+    ttlMinutes: 10,
+    acquisitionKey: generateAcquisitionKey(),
+  });
+  assert.ok(originalSlotAgain.success);
 
   const history = await getBookingHistory(moved.id);
   const event = history.find((x) => x.action === "RESCHEDULED");
