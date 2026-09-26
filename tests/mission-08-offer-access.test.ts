@@ -38,6 +38,7 @@ import {
   type CourseAccessMode,
 } from "@/lib/db";
 import { enrollFree, getEnrollment } from "@/features/enrollments/service";
+import { updateCourse } from "@/features/courses/service";
 import {
   createOffer,
   getEffectiveCourseAccessPolicy,
@@ -383,6 +384,26 @@ test("OFFER 08.3: PAYMENT_DISABLED presentation uses configured alternative path
   assert.equal(presentation.action, "ALTERNATIVE");
   assert.equal(presentation.ctaLabel, "Join the list");
   assert.equal(presentation.ctaHref, "/ai-recruiter-os");
+});
+
+test("OFFER 08.3: linked Offer blocks legacy course access-mode drift at service boundary", async () => {
+  const course = await createPublishedCourse("FREE");
+  await createOffer({
+    kind: "COURSE",
+    courseId: course.id,
+    title: "Authoritative offer",
+    slug: validSlug("offer"),
+    accessMode: "FREE",
+  });
+
+  await assert.rejects(
+    updateCourse(course.id, { id: course.id, accessMode: "PAID_ONE_TIME" }),
+    /access is owned by linked Offer/i,
+  );
+
+  const db = await getDb();
+  const stored = await db.select().from(courses).where(eq(courses.id, course.id)).get();
+  assert.equal(stored?.accessMode, "FREE");
 });
 
 test("OFFER 08.3: updating a linked Offer changes effective access without mutating legacy course field", async () => {
