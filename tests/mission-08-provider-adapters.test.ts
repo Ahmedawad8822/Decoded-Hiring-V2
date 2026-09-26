@@ -18,6 +18,8 @@ import {
   type CalendarProvider,
   type CreateCalendarEventParams,
   type PaymentGateway,
+  type NormalizedPaymentState,
+  type VerifyCallbackResult,
 } from "@/features/scheduling";
 
 async function expectProviderError(
@@ -38,6 +40,18 @@ async function expectProviderError(
     },
   );
 }
+
+type ProviderCannotFulfill =
+  "FULFILLED" extends NormalizedPaymentState ? never : true;
+const providerCannotFulfill: ProviderCannotFulfill = true;
+
+type UnverifiedCallback = Extract<VerifyCallbackResult, { verified: false }>;
+type UnverifiedStateMustBeEmpty =
+  Exclude<UnverifiedCallback["state"], undefined> extends never ? true : never;
+const unverifiedStateMustBeEmpty: UnverifiedStateMustBeEmpty = true;
+
+void providerCannotFulfill;
+void unverifiedStateMustBeEmpty;
 
 const checkoutInput = {
   orderId: "order_test_08_4",
