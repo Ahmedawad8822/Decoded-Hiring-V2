@@ -391,7 +391,7 @@ Accepted base: `ab956291c2a00b276ac2998bae16b9c2228ab710`
 - FREE Offer may grant the existing Mission 06 free enrollment path
 - paid/manual/disabled/coming-soon Offers cannot use the FREE auto-enrollment path
 - Studio course list exposes effective Offer mode and prevents editing the dormant legacy fallback when linked
-- Mission 01, coaching, workshop, and learner course overview pages consume Offer state
+- Mission 01, coaching, workshop, AI Recruiter OS, and learner course overview pages consume Offer state
 - public product routes require the expected Offer kind
 - inactive Offers expose no CTA or price
 - existing public behavior remains unchanged when no Offer is configured
