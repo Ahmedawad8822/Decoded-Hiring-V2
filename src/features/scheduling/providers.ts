@@ -322,7 +322,7 @@ export interface ResolvedMeetingLocation {
 
 // -- Fail-closed unconfigured providers ---------------------------------------
 
-export const UnconfiguredPaymentGateway: PaymentGateway = {
+export const UnconfiguredPaymentGateway: PaymentGateway = Object.freeze({
   getStatus: async () => ({
     kind: "payment",
     provider: null,
@@ -365,9 +365,9 @@ export const UnconfiguredPaymentGateway: PaymentGateway = {
       "refundOrCancel",
       "Payment provider is not configured. Cannot cancel or refund payment.",
     ),
-};
+});
 
-export const NullCalendarProvider: CalendarProvider = {
+export const NullCalendarProvider: CalendarProvider = Object.freeze({
   getStatus: async () => ({
     kind: "calendar",
     provider: null,
@@ -398,9 +398,9 @@ export const NullCalendarProvider: CalendarProvider = {
       "cancelEvent",
       "No calendar provider is configured. Cannot cancel calendar events.",
     ),
-};
+});
 
-export const UnconfiguredMailboxProvider: MailboxProvider = {
+export const UnconfiguredMailboxProvider: MailboxProvider = Object.freeze({
   getStatus: async () => ({
     kind: "mailbox",
     provider: null,
@@ -436,7 +436,7 @@ export const UnconfiguredMailboxProvider: MailboxProvider = {
       "sendReminder",
       "No mailbox provider is configured. Cannot send reminder.",
     ),
-};
+});
 
 function requireOverride(
   providerKind: ProviderKind,
@@ -460,7 +460,13 @@ function requireOverride(
 function requireHttpsUrl(value: string, operation: string): string {
   try {
     const parsed = new URL(value);
-    if (parsed.protocol !== "https:") throw new Error("not https");
+    if (
+      parsed.protocol !== "https:" ||
+      Boolean(parsed.username) ||
+      Boolean(parsed.password)
+    ) {
+      throw new Error("unsafe external meeting URL");
+    }
     return parsed.toString();
   } catch {
     throw new SchedulingProviderError({
@@ -479,7 +485,7 @@ function requireHttpsUrl(value: string, operation: string): string {
  * Static, caller-supplied locations remain usable because they do not require
  * an external provider. Provider-generated meeting methods fail closed.
  */
-export const UnconfiguredMeetingProvider: MeetingProvider = {
+export const UnconfiguredMeetingProvider: MeetingProvider = Object.freeze({
   getStatus: async () => ({
     kind: "meeting",
     provider: null,
@@ -543,7 +549,7 @@ export const UnconfiguredMeetingProvider: MeetingProvider = {
         );
     }
   },
-};
+});
 
 // -- Provider bundle -----------------------------------------------------------
 
