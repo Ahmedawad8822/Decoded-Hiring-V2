@@ -7,7 +7,7 @@
 // intentionally creating duplicate provider side effects.
 // ============================================================================
 
-import { and, asc, desc, eq } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, lte, or } from "drizzle-orm";
 import {
   bookingTypes,
   bookings,
@@ -895,6 +895,93 @@ async function finishEffect(
     );
   }
   return finished;
+}
+
+export async function listRunnableOrchestrationEffects(
+  now: Date,
+  limit = 25,
+): Promise<OrchestrationEffect[]> {
+  const boundedLimit = Math.max(1, Math.min(limit, 100));
+  const db = await getDb();
+  const candidates = await db
+    .select()
+    .from(orchestrationEffects)
+    .where(
+      and(
+        or(
+          inArray(orchestrationEffects.status, [
+            "PENDING",
+            "RETRYABLE_FAILURE",
+            "BLOCKED",
+          ]),
+          and(
+            eq(orchestrationEffects.status, "PROCESSING"),
+            lte(orchestrationEffects.leaseExpiresAt, now),
+          ),
+        ),
+        or(
+          isNull(orchestrationEffects.nextAttemptAt),
+          lte(orchestrationEffects.nextAttemptAt, now),
+        ),
+      ),
+    )
+    .orderBy(asc(orchestrationEffects.createdAt))
+    .limit(boundedLimit);
+
+  const dependencyIds = Array.from(
+    new Set(
+      candidates
+        .map((effect) => effect.dependsOnEffectId)
+        .filter((id): id is string => Boolean(id)),
+    ),
+  );
+  if (dependencyIds.length === 0) return candidates;
+
+  const dependencies = await db
+    .select({
+      id: orchestrationEffects.id,
+      status: orchestrationEffects.status,
+    })
+    .from(orchestrationEffects)
+    .where(inArray(orchestrationEffects.id, dependencyIds));
+  const dependencyState = new Map(
+    dependencies.map((effect) => [effect.id, effect.status] as const),
+  );
+
+  return candidates.filter(
+    (effect) =>
+      !effect.dependsOnEffectId ||
+      dependencyState.get(effect.dependsOnEffectId) === "SUCCEEDED",
+  );
+}
+
+export async function processDueOrchestrationEffects(
+  params: {
+    now: Date;
+    limit?: number;
+    leaseSeconds?: number;
+  },
+  providers: CommerceSchedulingProviders =
+    UnconfiguredCommerceSchedulingProviders,
+): Promise<OrchestrationEffect[]> {
+  const candidates = await listRunnableOrchestrationEffects(
+    params.now,
+    params.limit ?? 25,
+  );
+  const results: OrchestrationEffect[] = [];
+  for (const effect of candidates) {
+    results.push(
+      await processOrchestrationEffect(
+        {
+          effectId: effect.id,
+          now: params.now,
+          leaseSeconds: params.leaseSeconds ?? 60,
+        },
+        providers,
+      ),
+    );
+  }
+  return results;
 }
 
 export async function processOrchestrationEffect(
