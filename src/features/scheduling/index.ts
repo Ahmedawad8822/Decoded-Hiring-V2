@@ -119,7 +119,6 @@ export {
   rescheduleBooking,
 } from "./bookings";
 export {
-  bookingActorSchema,
   createBookingRequestSchema,
   bookingTransitionSchema,
   bookingDecisionSchema,
