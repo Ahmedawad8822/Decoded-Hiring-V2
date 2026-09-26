@@ -26,7 +26,6 @@ import {
   SchedulingProviderError,
   UnconfiguredCommerceSchedulingProviders,
   type CommerceSchedulingProviders,
-  type ProviderRuntimeStatus,
 } from "@/features/scheduling";
 import {
   CommerceDomainError,
@@ -216,34 +215,22 @@ export async function enqueueBookingReminder(params: {
   });
 }
 
-async function providerKindStatus(
+async function providerKindConfigured(
   kind: OrchestrationEffect["providerKind"],
   providers: CommerceSchedulingProviders,
-): Promise<ProviderRuntimeStatus> {
+): Promise<boolean> {
   switch (kind) {
     case "payment":
-      return providers.payment.getStatus();
+      return (await providers.payment.getStatus()).configured;
     case "calendar":
-      return providers.calendar.getStatus();
+      return (await providers.calendar.getStatus()).configured;
     case "mailbox":
-      return providers.mailbox.getStatus();
+      return (await providers.mailbox.getStatus()).configured;
     case "meeting":
-      return providers.meeting.getStatus();
+      return (await providers.meeting.getStatus()).configured;
     case "internal":
-      return {
-        kind: "payment",
-        provider: "decoded-hiring-internal",
-        configured: true,
-        capabilities: ["internal_fulfillment"],
-      };
+      return true;
   }
-}
-
-async function providerStatus(
-  effect: OrchestrationEffect,
-  providers: CommerceSchedulingProviders,
-): Promise<ProviderRuntimeStatus> {
-  return providerKindStatus(effect.providerKind, providers);
 }
 
 async function dependencySatisfied(effect: OrchestrationEffect): Promise<boolean> {
@@ -1009,8 +996,7 @@ export async function resumeConfiguredBlockedEffects(
   for (const effect of blocked) {
     let configured = statusCache.get(effect.providerKind);
     if (configured === undefined) {
-      const status = await providerKindStatus(effect.providerKind, providers);
-      configured = status.configured;
+      configured = await providerKindConfigured(effect.providerKind, providers);
       statusCache.set(effect.providerKind, configured);
     }
     if (!configured || effect.lastErrorCode !== "PROVIDER_NOT_CONFIGURED") {
@@ -1111,8 +1097,9 @@ export async function processOrchestrationEffect(
     if (current.lastErrorCode !== "PROVIDER_NOT_CONFIGURED") {
       return current;
     }
-    const status = await providerStatus(current, providers);
-    if (!status.configured) return current;
+    if (!(await providerKindConfigured(current.providerKind, providers))) {
+      return current;
+    }
   }
 
   const claimed = await claimEffect(current, parsed);
