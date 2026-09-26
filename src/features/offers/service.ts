@@ -169,7 +169,7 @@ export async function getOffersForCourses(courseIds: string[]): Promise<Map<stri
   return new Map(
     rows
       .filter((offer): offer is Offer & { courseId: string } => Boolean(offer.courseId))
-      .map((offer) => [offer.courseId, offer]),
+      .map((offer) => [offer.courseId, offer] as const),
   );
 }
 
