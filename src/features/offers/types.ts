@@ -43,9 +43,25 @@ export const createOfferSchema = z.object({
   active: z.boolean().optional().default(true),
 });
 
-export const updateOfferSchema = createOfferSchema
-  .partial()
-  .extend({ id: z.string().trim().min(1) });
+export const updateOfferSchema = z.object({
+  id: z.string().trim().min(1),
+  kind: offerKindSchema.optional(),
+  courseId: z.string().trim().min(1).optional().nullable(),
+  bookingTypeId: z.string().trim().min(1).optional().nullable(),
+  title: z.string().trim().min(3).max(160).optional(),
+  slug: slugSchema.optional(),
+  accessMode: offerAccessModeSchema.optional(),
+  currency: z
+    .string()
+    .trim()
+    .regex(/^[A-Z]{3}$/, "Currency must be a 3-letter ISO-style code.")
+    .optional()
+    .nullable(),
+  amountMinor: z.number().int().nonnegative().optional().nullable(),
+  alternativeCtaLabel: z.string().trim().min(1).max(100).optional().nullable(),
+  alternativeCtaUrl: safeCtaUrlSchema.optional().nullable(),
+  active: z.boolean().optional(),
+});
 
 export type CreateOfferInput = z.input<typeof createOfferSchema>;
 export type UpdateOfferInput = z.input<typeof updateOfferSchema>;
