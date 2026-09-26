@@ -21,6 +21,7 @@ export {
   getEffectByIdempotencyKey,
   getOrchestrationHistory,
   listRunnableOrchestrationEffects,
+  resumeConfiguredBlockedEffects,
   processDueOrchestrationEffects,
   processOrchestrationEffect,
 } from "./orchestration";
