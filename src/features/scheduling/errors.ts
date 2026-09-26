@@ -29,7 +29,8 @@ export type SchedulingDomainErrorCode =
   | "APPROVAL_REQUIRED"
   | "INVALID_TRANSITION"
   | "HOLD_GENERATION_MISMATCH"
-  | "PAYMENT_REQUIRED";
+  | "PAYMENT_REQUIRED"
+  | "IDEMPOTENCY_CONFLICT";
 
 export class SchedulingDomainError extends Error {
   public readonly code: SchedulingDomainErrorCode;
