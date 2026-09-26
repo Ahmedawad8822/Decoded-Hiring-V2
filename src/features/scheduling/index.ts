@@ -1,6 +1,10 @@
 // ============================================================================
 // SCHEDULING DOMAIN — PUBLIC API BARREL (Mission 08.1)
-// ============================================================================
+// =============================================================================
+
+// Domain error types (Mission 08.1 remediation §3)
+export { SchedulingDomainError } from "./errors";
+export type { SchedulingDomainErrorCode } from "./errors";
 
 // Types
 export type {
@@ -10,6 +14,8 @@ export type {
   SlotHoldStatus,
   CanonicalSlot,
   AcquireHoldResult,
+  AcquireHoldSuccess,
+  AcquireHoldFailure,
   HoldRejectionReason,
   SlotHoldLike,
   SafeHoldView,
@@ -57,6 +63,7 @@ export {
   releaseSlotHold,
   consumeSlotHold,
   generateOwnerToken,
+  generateAcquisitionKey,
   safeView,
 } from "./holds";
 

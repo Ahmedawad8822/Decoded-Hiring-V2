@@ -1,4 +1,4 @@
-// ============================================================================
+// ====================================================================
 // SLOT HOLD MANAGEMENT (Mission 08.1)
 // ----------------------------------------------------------------------------
 // Concurrency-safe slot hold lease with atomic CAS boundaries.
@@ -22,6 +22,25 @@
 //   - Acquisition is authoritative: startAt/endAt/slotKey are derived from the
 //     booking type's policy server-side; caller-supplied wall-clock values are
 //     validated against the canonical slot set rather than trusted.
+//
+// ACQUISITION IDEMPOTENCY (Mission 08.1 remediation §1):
+//   - `acquisitionKey` is a high-entropy identity (UUID) for a LOGICAL booking
+//     attempt. It is separate from — and NOT interchangeable with — the lease
+//     ownerToken. A caller generates one per booking attempt and re-sends it
+//     on retry so a lost successful response can be recovered idempotently.
+//   - SAME acquisitionKey + same canonical slot + HELD + unexpired → returns
+//     the existing lease (same ownerToken, NO TTL extension).
+//   - DIFFERENT acquisitionKey → TAKEN (no token leak).
+//   - CONSUMED remains terminal even for the same acquisitionKey.
+//   - The ownerToken remains server-generated and is never derived from or
+//     replaceable by the acquisitionKey.
+//
+// ERROR BOUNDARY (Mission 08.1 remediation §3):
+//   - Domain-state errors (HOLD_NOT_FOUND, NOT_OWNER, WRONG_STATE, EXPIRED,
+//     CONCURRENT_MODIFICATION) throw SchedulingDomainError.
+//   - Provider adapter failures (payment/calendar/etc.) throw SchedulingProviderError.
+//   - Core hold modules depend ONLY on SchedulingDomainError, never on the
+//     provider module.
 // ====================================================================
 
 import { and, eq, gt } from "drizzle-orm";
@@ -30,7 +49,8 @@ import { slotHolds } from "@/lib/db";
 import { isUniqueConstraintError } from "@/lib/db/sqlite-errors";
 import { buildSlotKey, generateCandidateSlots } from "./availability";
 import { getBookingTypeById, getBookingTypeWindows } from "./policy";
-import { SchedulingProviderError } from "./providers";
+import { SchedulingDomainError } from "./errors";
+import type { SchedulingDomainErrorCode } from "./errors";
 import { acquireSlotHoldSchema, mutateSlotHoldSchema } from "./schemas";
 import type { AcquireSlotHoldInput } from "./schemas";
 import type {
@@ -64,6 +84,18 @@ function newId(prefix: string): string {
  */
 export function generateOwnerToken(): string {
   return `hold_${crypto.randomUUID()}`;
+}
+
+/**
+ * Generate a high-entropy acquisition/idempotency key for a logical booking
+ * attempt. The caller creates one before each booking attempt and re-sends it
+ * on retry so a lost successful response can be recovered idempotently.
+ *
+ * This is NOT a lease token — it is an idempotency identity only. It can never
+ * become the authoritative ownerToken, and it is safe to transmit in requests.
+ */
+export function generateAcquisitionKey(): string {
+  return crypto.randomUUID();
 }
 
 /** Convert a DB row into the public, token-free safe view. */
@@ -123,26 +155,32 @@ async function resolveCanonicalSlot(
  *   On UNIQUE(slotKey) race (two callers INSERT simultaneously): the loser
  *   re-reads and returns the winner's hold as unavailable.
  *
- * CASE B was removed: idempotency for the same owner required the browser to
- *   identify itself, which conflicts with the "server generates the lease
- *   token" rule. A caller without the server-issued token is treated as a
- *   different owner; the legitimate owner instead uses the token returned at
- *   acquisition to release/consume.
+ * CASE A-IDEM — idempotent retry: if the caller supplies an `acquisitionKey`
+ *   that matches an existing HELD + unexpired hold for the same slot, return
+ *   that hold's ownerToken WITHOUT inserting a new row or extending TTL.
+ *   This recovers a lost successful response securely.
  *
- * CASE C — HELD + unexpired + different owner -> reject (TAKEN).
- * CASE D — HELD + expired -> atomic reclaim via CAS UPDATE.
- * CASE E — RELEASED -> atomic re-acquire via CAS UPDATE.
- * CASE F — CONSUMED -> reject (CONSUMED).
+ * CASE B — HELD + unexpired + DIFFERENT acquisition key -> reject (TAKEN).
+ *   The caller receives a safe view only — never the winner's ownerToken.
+ *
+ * CASE C — HELD + expired -> atomic reclaim via CAS UPDATE (new owner).
+ * CASE D — RELEASED -> atomic re-acquire via CAS UPDATE (new owner).
+ * CASE E — CONSUMED -> reject (CONSUMED). Terminal even for same acquisitionKey.
  *
  * The returned `hold` is a SafeHoldView (never carries ownerToken). The
  * server-generated `ownerToken` is returned ONLY when success === true.
+ * The `acquisitionKey` is echoed back on success so the caller can retry
+ * idempotently if the response is lost.
  */
 export async function acquireSlotHold(
   input: AcquireSlotHoldInput,
 ): Promise<AcquireHoldResult> {
   // (C) Runtime validation at the boundary.
   const parsed = acquireSlotHoldSchema.parse(input);
-  const { bookingTypeId, startAt, now, ttlMinutes } = parsed;
+  const { bookingTypeId, startAt, now, ttlMinutes, acquisitionKey } = parsed;
+
+  // If the caller supplied an acquisitionKey, use it; otherwise generate one.
+  const effectiveAcquisitionKey = acquisitionKey ?? generateAcquisitionKey();
 
   const db = await getDb();
 
@@ -197,6 +235,7 @@ export async function acquireSlotHold(
         startAt: canonicalStart,
         endAt: canonicalEnd,
         ownerToken,
+        acquisitionKey: effectiveAcquisitionKey,
         status: "HELD" as const,
         expiresAt,
         createdAt: now,
@@ -226,23 +265,53 @@ export async function acquireSlotHold(
       .from(slotHolds)
       .where(eq(slotHolds.slotKey, slotKey))
       .get();
-    return { success: true, hold: safeView(created!), ownerToken }; // token only to winner
+    return {
+      success: true,
+      hold: safeView(created!),
+      ownerToken,
+      acquisitionKey: effectiveAcquisitionKey,
+    };
   }
 
-  // Existing hold — classify by state.
+  // --- Idempotency check (CASE A-IDEM) ---
+  // Same acquisitionKey + HELD + unexpired → recover existing lease without
+  // inserting a new row or extending TTL. This is the secure idempotency
+  // path: the caller proves this is the same logical attempt via the
+  // acquisitionKey, and receives back the SAME ownerToken they would have
+  // gotten on the first (lost) response.
+  if (
+    existing.acquisitionKey === effectiveAcquisitionKey &&
+    existing.status === "HELD" &&
+    existing.expiresAt > now
+  ) {
+    return {
+      success: true,
+      hold: safeView(existing),
+      ownerToken: existing.ownerToken,
+      acquisitionKey: effectiveAcquisitionKey,
+    };
+  }
+
+  // --- Existing hold: classify by state (CASE B / C / D / E) ---
+  // Any acquisitionKey that doesn't match the idempotency above (including
+  // a DIFFERENT acquisitionKey, an expired hold for the same key, or a
+  // key-less hold) falls through to normal reclaim/classify logic.
   if (existing.status === "CONSUMED") {
+    // CASE E — terminal, even for same acquisitionKey.
     return classifyUnavailableHold(existing);
   }
   const isHeldUnexpired = existing.status === "HELD" && existing.expiresAt > now;
   if (isHeldUnexpired) {
-    // CASE C — held + unexpired + unknown/different owner -> reject.
+    // CASE B — held + unexpired + different acquisition key (or no idempotency
+    // match) → reject (TAKEN). Safe view only, never the winner's token.
     return classifyUnavailableHold(existing);
   }
-  // CASE D (expired HELD) or CASE E (RELEASED) — reclaim via CAS UPDATE.
+  // CASE C (expired HELD) or CASE D (RELEASED) — reclaim via CAS UPDATE.
   // Any caller may reclaim an expired or released lease.
   return reclaimSlot(
     existing,
     ownerToken,
+    effectiveAcquisitionKey,
     bookingTypeId,
     slotKey,
     canonicalStart,
@@ -281,8 +350,9 @@ function classifyUnavailableHold(hold: SlotHold): AcquireHoldResult {
  * to a re-read + classify.
  */
 async function reclaimSlot(
-  existing: SlotHold,
+  existing: SlotHoldLike,
   newOwnerToken: string,
+  newAcquisitionKey: string,
   bookingTypeId: string,
   slotKey: string,
   startAt: Date,
@@ -295,6 +365,7 @@ async function reclaimSlot(
     .update(slotHolds)
     .set({
       ownerToken: newOwnerToken,
+      acquisitionKey: newAcquisitionKey,
       status: "HELD" as const,
       expiresAt,
       consumedAt: null,
@@ -313,7 +384,12 @@ async function reclaimSlot(
     .get();
 
   if (updated) {
-    return { success: true, hold: safeView(updated), ownerToken: newOwnerToken };
+    return {
+      success: true,
+      hold: safeView(updated),
+      ownerToken: newOwnerToken,
+      acquisitionKey: newAcquisitionKey,
+    };
   }
 
   // CAS lost — re-read and classify the current state.
@@ -334,6 +410,7 @@ async function reclaimSlot(
         startAt,
         endAt,
         ownerToken: newOwnerToken,
+        acquisitionKey: newAcquisitionKey,
         status: "HELD",
         expiresAt,
         createdAt: now,
@@ -360,7 +437,12 @@ async function reclaimSlot(
       .from(slotHolds)
       .where(eq(slotHolds.slotKey, slotKey))
       .get();
-    return { success: true, hold: safeView(created!), ownerToken: newOwnerToken };
+    return {
+      success: true,
+      hold: safeView(created!),
+      ownerToken: newOwnerToken,
+      acquisitionKey: newAcquisitionKey,
+    };
   }
 
   return classifyUnavailableHold(reread);
@@ -372,6 +454,10 @@ async function reclaimSlot(
  *
  * CAS boundary: (slotKey, ownerToken, status='HELD', expiresAt=current).
  * A stale owner (whose token no longer matches) gets 0 rows updated.
+ *
+ * Domain-state errors (HOLD_NOT_FOUND, NOT_OWNER, WRONG_STATE, EXPIRED,
+ * CONCURRENT_MODIFICATION) throw SchedulingDomainError — NOT
+ * SchedulingProviderError (which is reserved for provider-adapter failures).
  */
 export async function releaseSlotHold(
   bookingTypeId: string,
@@ -396,22 +482,22 @@ export async function releaseSlotHold(
     .get();
 
   if (!existing) {
-    throw new SchedulingProviderError("Slot hold not found.", "HOLD_NOT_FOUND");
+    throw new SchedulingDomainError("Slot hold not found.", "HOLD_NOT_FOUND");
   }
   if (existing.ownerToken !== parsed.ownerToken) {
-    throw new SchedulingProviderError(
+    throw new SchedulingDomainError(
       "Only the current owner can release this hold.",
       "NOT_OWNER",
     );
   }
   if (existing.status !== "HELD") {
-    throw new SchedulingProviderError(
+    throw new SchedulingDomainError(
       `Cannot release a ${existing.status} hold.`,
       "WRONG_STATE",
     );
   }
   if (existing.expiresAt <= parsed.now) {
-    throw new SchedulingProviderError(
+    throw new SchedulingDomainError(
       "Hold has expired; cannot release an expired lease.",
       "EXPIRED",
     );
@@ -444,18 +530,33 @@ export async function releaseSlotHold(
       .where(eq(slotHolds.slotKey, slotKey))
       .get();
     if (!reread) {
-      throw new SchedulingProviderError("Slot hold was deleted before release could complete.", "HOLD_NOT_FOUND");
+      throw new SchedulingDomainError(
+        "Slot hold was deleted before release could complete.",
+        "HOLD_NOT_FOUND",
+      );
     }
     if (reread.ownerToken !== parsed.ownerToken) {
-      throw new SchedulingProviderError("Only the current owner can release this hold.", "NOT_OWNER");
+      throw new SchedulingDomainError(
+        "Only the current owner can release this hold.",
+        "NOT_OWNER",
+      );
     }
     if (reread.status !== "HELD") {
-      throw new SchedulingProviderError(`Cannot release a ${reread.status} hold.`, "WRONG_STATE");
+      throw new SchedulingDomainError(
+        `Cannot release a ${reread.status} hold.`,
+        "WRONG_STATE",
+      );
     }
     if (reread.expiresAt <= parsed.now) {
-      throw new SchedulingProviderError("Hold has expired; cannot release an expired lease.", "EXPIRED");
+      throw new SchedulingDomainError(
+        "Hold has expired; cannot release an expired lease.",
+        "EXPIRED",
+      );
     }
-    throw new SchedulingProviderError("Release failed: concurrent modification detected.", "CONCURRENT_MODIFICATION");
+    throw new SchedulingDomainError(
+      "Release failed: concurrent modification detected.",
+      "CONCURRENT_MODIFICATION",
+    );
   }
 }
 
@@ -468,6 +569,8 @@ export async function releaseSlotHold(
  * - Stale owner cannot consume (CAS fails).
  * - RELEASED cannot be consumed (status check).
  * - CONSUMED by same owner is idempotent (re-CAS succeeds with 0 rows).
+ *
+ * Domain-state errors throw SchedulingDomainError.
  */
 export async function consumeSlotHold(
   bookingTypeId: string,
@@ -492,23 +595,26 @@ export async function consumeSlotHold(
     .get();
 
   if (!existing) {
-    throw new SchedulingProviderError("Slot hold not found.", "HOLD_NOT_FOUND");
+    throw new SchedulingDomainError("Slot hold not found.", "HOLD_NOT_FOUND");
   }
   if (existing.ownerToken !== parsed.ownerToken) {
-    throw new SchedulingProviderError(
+    throw new SchedulingDomainError(
       "Only the current owner can consume this hold.",
       "NOT_OWNER",
     );
   }
   if (existing.status === "RELEASED") {
-    throw new SchedulingProviderError("Cannot consume a RELEASED hold.", "WRONG_STATE");
+    throw new SchedulingDomainError(
+      "Cannot consume a RELEASED hold.",
+      "WRONG_STATE",
+    );
   }
   if (existing.status === "CONSUMED") {
     // Idempotent re-consume by the same owner.
     return safeView(existing);
   }
   if (existing.expiresAt <= parsed.now) {
-    throw new SchedulingProviderError(
+    throw new SchedulingDomainError(
       "Hold has expired; cannot consume an expired lease.",
       "EXPIRED",
     );
@@ -544,22 +650,37 @@ export async function consumeSlotHold(
     .where(eq(slotHolds.slotKey, slotKey))
     .get();
   if (!reread) {
-    throw new SchedulingProviderError("Slot hold was deleted before consume could complete.", "HOLD_NOT_FOUND");
+    throw new SchedulingDomainError(
+      "Slot hold was deleted before consume could complete.",
+      "HOLD_NOT_FOUND",
+    );
   }
   if (reread.ownerToken !== parsed.ownerToken) {
-    throw new SchedulingProviderError("Only the current owner can consume this hold.", "NOT_OWNER");
+    throw new SchedulingDomainError(
+      "Only the current owner can consume this hold.",
+      "NOT_OWNER",
+    );
   }
   if (reread.status === "RELEASED") {
-    throw new SchedulingProviderError("Cannot consume a RELEASED hold.", "WRONG_STATE");
+    throw new SchedulingDomainError(
+      "Cannot consume a RELEASED hold.",
+      "WRONG_STATE",
+    );
   }
   if (reread.status === "CONSUMED") {
     return safeView(reread);
   }
   if (reread.expiresAt <= parsed.now) {
-    throw new SchedulingProviderError("Hold has expired; cannot consume an expired lease.", "EXPIRED");
+    throw new SchedulingDomainError(
+      "Hold has expired; cannot consume an expired lease.",
+      "EXPIRED",
+    );
   }
-  throw new SchedulingProviderError("Consume failed: concurrent modification detected.", "CONCURRENT_MODIFICATION");
+  throw new SchedulingDomainError(
+    "Consume failed: concurrent modification detected.",
+    "CONCURRENT_MODIFICATION",
+  );
 }
 
-// Re-exported for tests/seams: the token generator that acquisition relies on.
-export { type SlotHoldLike };
+// Re-exported for consumers that import from the holds module directly.
+export type { SlotHoldLike, SchedulingDomainErrorCode };

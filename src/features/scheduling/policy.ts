@@ -16,6 +16,7 @@ import { getDb } from "@/lib/db";
 import { bookingTypes, bookingAvailabilityWindows } from "@/lib/db";
 import { isUniqueConstraintError } from "@/lib/db/sqlite-errors";
 import type { BookingType, BookingAvailabilityWindow } from "@/lib/db";
+import { SchedulingDomainError } from "./errors";
 import {
   createBookingTypeSchema,
   createAvailabilityWindowSchema,
@@ -67,10 +68,29 @@ export async function createBookingType(data: CreateBookingTypeInput): Promise<B
     });
   } catch (error: unknown) {
     if (isUniqueConstraintError(error)) {
-      // (H) Slug collision — reject explicitly, naming the slug. We deliberately
-      // do NOT return the existing row so a losing caller cannot observe the
-      // winner's policy.
-      throw new Error(`Booking type with slug "${parsed.slug}" already exists.`);
+      // (H) On a lost UNIQUE constraint race, RE-READ by parsed.slug to
+      // classify the error precisely:
+      //  1. If the slug exists in the DB → it is a genuine duplicate; reject
+      //     with a domain error naming the slug. We deliberately do NOT return
+      //     the existing row so a losing caller cannot observe the winner's
+      //     policy configuration.
+      //  2. If the slug does NOT exist (the UNIQUE violation came from a
+      //     different constraint) → rethrow the ORIGINAL database error so the
+      //     caller can diagnose the real cause rather than receiving a
+      //     misleading "slug already exists" message.
+      const existing = await db
+        .select()
+        .from(bookingTypes)
+        .where(eq(bookingTypes.slug, parsed.slug))
+        .get();
+      if (existing) {
+        throw new SchedulingDomainError(
+          `Booking type with slug "${parsed.slug}" already exists.`,
+          "DUPLICATE_SLUG",
+        );
+      }
+      // Not a slug collision — rethrow the original database error.
+      throw error;
     }
     throw error;
   }

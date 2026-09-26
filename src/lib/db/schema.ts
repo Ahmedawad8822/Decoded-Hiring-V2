@@ -608,6 +608,12 @@ export const slotHolds = sqliteTable(
     startAt: integer("start_at", { mode: "timestamp" }).notNull(),
     endAt: integer("end_at", { mode: "timestamp" }).notNull(),
     ownerToken: text("owner_token").notNull(),
+    /**
+     * Server-issued idempotency identity for the logical booking attempt that
+     * owns the lease. Nullable for backward compatibility with holds created
+     * before this column existed — those are treated as unique attempts.
+     */
+    acquisitionKey: text("acquisition_key"),
     status: text("status").$type<SlotHoldStatus>().notNull().default("HELD"),
     expiresAt: integer("expires_at", { mode: "timestamp" }).notNull(),
     consumedAt: integer("consumed_at", { mode: "timestamp" }),

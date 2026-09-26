@@ -98,12 +98,20 @@ export const createAvailabilityWindowSchema = z
  *    ONLY to the winning acquirer (see generateOwnerToken + holds.ts).
  *  - The caller cannot choose the authoritative lease token, the slot
  *    duration, or a wall-clock time outside the booking type's policy.
+ *
+ * `acquisitionKey` is an OPTIONAL high-entropy idempotency identity (UUID)
+ * that the caller generates per logical booking attempt. It is NOT a lease
+ * token — the browser can supply it, but it can NEVER become the
+ * authoritative `ownerToken`. Same acquisitionKey + same canonical slot +
+ * HELD + unexpired returns the existing lease idempotently; a different
+ * acquisitionKey gets TAKEN. If omitted, the server generates one.
  */
 export const acquireSlotHoldSchema = z.object({
   bookingTypeId: z.string().trim().min(1),
   startAt: validDate,
   now: validDate,
   ttlMinutes: z.number().int().positive(),
+  acquisitionKey: z.string().trim().uuid().optional(),
 });
 
 /**

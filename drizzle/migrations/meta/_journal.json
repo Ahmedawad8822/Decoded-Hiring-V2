@@ -78,6 +78,13 @@
       "when": 1790310133719,
       "tag": "0010_old_nuke",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "6",
+      "when": 1790397288844,
+      "tag": "0011_supreme_husk",
+      "breakpoints": true
     }
   ]
 }

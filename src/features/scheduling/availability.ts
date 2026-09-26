@@ -3,10 +3,12 @@
 // ----------------------------------------------------------------------------
 // Pure, deterministic slot generation from weekly availability windows + a
 // booking type's policy. No DB, no external providers. All time arithmetic
-// operates on UTC instants with an explicit IANA timezone policy.
-// ============================================================================
+// operates on canonical LOCAL candidate wall times resolved via localTimeToUtc,
+// which applies the documented DST policy (skip nonexistent spring-forward
+// gaps; pick the earlier occurrence for fall-back folds).
+// ====================================================================
 
-import { localTimeToUtc, getWeekdayInTz } from "./time";
+import { localTimeToUtc, getWeekdayInTz, NonexistentTimeError } from "./time";
 import type { BookingType, BookingAvailabilityWindow, CanonicalSlot } from "./types";
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
@@ -28,14 +30,29 @@ export function buildSlotKey(bookingTypeId: string, startAt: Date): string {
 /**
  * Generate canonical candidate slots for a date range.
  *
- * The iteration walks UTC calendar days overlapping the requested range
- * (with one-day padding on each side to cover timezone-boundary spillover),
- * computes the local weekday in the booking type's IANA timezone, and emits
- * duration-aligned slot start/end pairs within configured windows.
+ * DST-SAFE CANDIDATE GENERATION:
+ * Rather than generating a UTC start instant and blindly incrementing in UTC
+ * (which produces wrong UTC mappings, crashes inside spring-forward gaps, and
+ * emits duplicate local wall-clock times during fall-back folds), generation
+ * now operates from canonical LOCAL candidate wall times:
  *
- * Filters applied:
+ *   1. Buffers are applied in LOCAL minute space (window minutes + buffers).
+ *   2. Candidates are emitted at duration-aligned LOCAL wall times
+ *      (stepping in minutes, not UTC milliseconds).
+ *   3. Each local candidate is resolved to a UTC instant via localTimeToUtc,
+ *      which applies the documented DST policy:
+ *      - Nonexistent local time (spring-forward gap) → NonexistentTimeError
+ *        is caught and that candidate is SKIPPED (no crash, no phantom slot).
+ *      - Ambiguous local time (fall-back fold) → resolved deterministically
+ *        to the earlier UTC instant (the first / DST occurrence).
+ *
+ * As a result, exactly one canonical slot is emitted per valid local wall-clock
+ * time. A window fully inside a spring-forward gap produces zero slots without
+ * crashing; a window spanning a fall-back fold produces no duplicate slots.
+ *
+ * Filters applied (all in UTC instant space):
  *   - Only weekdays with configured availability windows
- *   - Slot must fit entirely within the window (buffers applied to boundaries)
+ *   - Slot must fit entirely within the effective window (buffers applied)
  *   - Minimum notice: now + minimumNoticeMinutes <= slot.startAt
  *   - Booking horizon: slot.startAt <= now + bookingHorizonDays
  *   - Slot must fall within [rangeStart, rangeEnd]
@@ -90,46 +107,58 @@ export function generateCandidateSlots(params: {
     if (!dayWindows || dayWindows.length === 0) continue;
 
     for (const w of dayWindows) {
-      // Compute UTC start/end of this local window on this day.
-      const windowStartUtc = localTimeToUtc(utcDay, timezone, w.startMinute);
-      const windowEndUtc = localTimeToUtc(utcDay, timezone, w.endMinute);
+      // --- DST SAFE: operate in LOCAL minute space -------------------------
+      // Apply buffers to the local window so buffer boundaries are expressed
+      // in the same local wall-clock frame as the availability rule.
+      const effectiveStartMinute = w.startMinute + bufferBeforeMinutes;
+      const effectiveEndMinute = w.endMinute - bufferAfterMinutes;
+      if (effectiveStartMinute >= effectiveEndMinute) continue;
 
-      // Apply buffers: availability effectively starts after bufferBefore
-      // and ends before bufferAfter.
-      const effectiveStart = new Date(windowStartUtc.getTime() + bufferBeforeMinutes * MS_PER_MINUTE);
-      const effectiveEnd = new Date(windowEndUtc.getTime() - bufferAfterMinutes * MS_PER_MINUTE);
+      // Generate duration-aligned LOCAL candidates.
+      let slotStartMinute = effectiveStartMinute;
+      while (slotStartMinute + durationMinutes <= effectiveEndMinute) {
 
-      if (effectiveStart.getTime() >= effectiveEnd.getTime()) continue;
+        // Resolve the local wall-clock candidate to a UTC instant using the
+        // documented DST policy. A nonexistent local time (spring-forward
+        // gap) throws NonexistentTimeError — skip that slot instead of
+        // crashing the entire query.
+        let slotStartUtc: Date;
+        try {
+          slotStartUtc = localTimeToUtc(utcDay, timezone, slotStartMinute);
+        } catch (e) {
+          if (e instanceof NonexistentTimeError) {
+            slotStartMinute += durationMinutes;
+            continue;
+          }
+          throw e;
+        }
 
-      // Generate duration-aligned slots within [effectiveStart, effectiveEnd].
-      let slotStart = new Date(effectiveStart);
-      while (slotStart.getTime() + durationMinutes * MS_PER_MINUTE <= effectiveEnd.getTime()) {
-        const slotEnd = new Date(slotStart.getTime() + durationMinutes * MS_PER_MINUTE);
+        const slotEndUtc = new Date(slotStartUtc.getTime() + durationMinutes * MS_PER_MINUTE);
 
         // Range filter
-        if (slotStart < rangeStart) {
-          slotStart = new Date(slotStart.getTime() + durationMinutes * MS_PER_MINUTE);
+        if (slotStartUtc < rangeStart) {
+          slotStartMinute += durationMinutes;
           continue;
         }
-        if (slotEnd > rangeEnd) {
+        if (slotEndUtc > rangeEnd) {
           break; // remaining slots also exceed rangeEnd
         }
 
         // Minimum notice filter
-        if (slotStart < deadline) {
-          slotStart = new Date(slotStart.getTime() + durationMinutes * MS_PER_MINUTE);
+        if (slotStartUtc < deadline) {
+          slotStartMinute += durationMinutes;
           continue;
         }
 
         // Booking horizon filter
-        if (slotStart > horizon) {
+        if (slotStartUtc > horizon) {
           break; // remaining slots also exceed horizon
         }
 
-        const slotKey = buildSlotKey(bookingTypeId, slotStart);
-        slots.push({ startAt: new Date(slotStart), endAt: new Date(slotEnd), slotKey });
+        const slotKey = buildSlotKey(bookingTypeId, slotStartUtc);
+        slots.push({ startAt: new Date(slotStartUtc), endAt: new Date(slotEndUtc), slotKey });
 
-        slotStart = new Date(slotStart.getTime() + durationMinutes * MS_PER_MINUTE);
+        slotStartMinute += durationMinutes;
       }
     }
   }
