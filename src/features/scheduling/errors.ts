@@ -22,7 +22,15 @@ export type SchedulingDomainErrorCode =
   | "WRONG_STATE"
   | "EXPIRED"
   | "CONCURRENT_MODIFICATION"
-  | "DUPLICATE_SLUG";
+  | "DUPLICATE_SLUG"
+  | "BOOKING_NOT_FOUND"
+  | "BOOKING_TYPE_NOT_FOUND"
+  | "AUTHORIZATION_REQUIRED"
+  | "APPROVAL_REQUIRED"
+  | "INVALID_TRANSITION"
+  | "HOLD_GENERATION_MISMATCH"
+  | "PAYMENT_REQUIRED"
+  | "IDEMPOTENCY_CONFLICT";
 
 export class SchedulingDomainError extends Error {
   public readonly code: SchedulingDomainErrorCode;

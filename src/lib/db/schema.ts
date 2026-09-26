@@ -631,3 +631,102 @@ export const slotHolds = sqliteTable(
 export type BookingType = typeof bookingTypes.$inferSelect;
 export type BookingAvailabilityWindow = typeof bookingAvailabilityWindows.$inferSelect;
 export type SlotHold = typeof slotHolds.$inferSelect;
+
+// ============================================================================
+// BOOKING LIFECYCLE DOMAIN (Mission 08.2)
+// ----------------------------------------------------------------------------
+// A booking is bound to one generation of a slot-hold lease via the pair
+// (holdId, holdAcquisitionKey). slot_holds rows are reclaimed in place, so
+// holdId alone is not a durable ownership identity.
+//
+// version is a CAS token for server-authoritative transitions. booking_history
+// is append-only business audit; reschedules preserve the previous slot in
+// history rather than silently erasing it.
+// ============================================================================
+
+export type BookingStatus =
+  | "REQUESTED"
+  | "PENDING_APPROVAL"
+  | "CONFIRMED"
+  | "COMPLETED"
+  | "CANCELLED"
+  | "DECLINED";
+
+export type BookingHistoryAction =
+  | "REQUESTED"
+  | "AUTO_CONFIRMED"
+  | "APPROVED"
+  | "CONFIRMED"
+  | "DECLINED"
+  | "CANCELLED"
+  | "COMPLETED"
+  | "RESCHEDULED";
+
+export const bookings = sqliteTable(
+  "bookings",
+  {
+    id: text("id").primaryKey(),
+    bookingTypeId: text("booking_type_id")
+      .notNull()
+      .references(() => bookingTypes.id),
+    holdId: text("hold_id")
+      .notNull()
+      .references(() => slotHolds.id),
+    holdAcquisitionKey: text("hold_acquisition_key").notNull(),
+    requestKey: text("request_key").notNull().unique(),
+    requesterName: text("requester_name").notNull(),
+    requesterEmail: text("requester_email").notNull(),
+    requesterPhone: text("requester_phone"),
+    notes: text("notes"),
+    slotKey: text("slot_key").notNull(),
+    startAt: integer("start_at", { mode: "timestamp" }).notNull(),
+    endAt: integer("end_at", { mode: "timestamp" }).notNull(),
+    timezone: text("timezone").notNull(),
+    status: text("status").$type<BookingStatus>().notNull().default("REQUESTED"),
+    version: integer("version").notNull().default(1),
+    transitionKey: text("transition_key"),
+    approvedBy: text("approved_by"),
+    approvedAt: integer("approved_at", { mode: "timestamp" }),
+    confirmedAt: integer("confirmed_at", { mode: "timestamp" }),
+    completedAt: integer("completed_at", { mode: "timestamp" }),
+    cancelledBy: text("cancelled_by"),
+    cancelledAt: integer("cancelled_at", { mode: "timestamp" }),
+    declinedBy: text("declined_by"),
+    declinedAt: integer("declined_at", { mode: "timestamp" }),
+    createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+    updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+  },
+  (table) => [
+    uniqueIndex("bookings_hold_generation_unique").on(
+      table.holdId,
+      table.holdAcquisitionKey,
+    ),
+    index("bookings_booking_type_idx").on(table.bookingTypeId),
+    index("bookings_status_idx").on(table.status),
+    index("bookings_start_at_idx").on(table.startAt),
+    index("bookings_requester_email_idx").on(table.requesterEmail),
+  ]
+);
+
+export const bookingHistory = sqliteTable(
+  "booking_history",
+  {
+    id: text("id").primaryKey(),
+    bookingId: text("booking_id")
+      .notNull()
+      .references(() => bookings.id),
+    action: text("action").$type<BookingHistoryAction>().notNull(),
+    fromStatus: text("from_status").$type<BookingStatus>(),
+    toStatus: text("to_status").$type<BookingStatus>().notNull(),
+    actorId: text("actor_id"),
+    detail: text("detail"),
+    createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+  },
+  (table) => [
+    index("booking_history_booking_idx").on(table.bookingId),
+    index("booking_history_created_at_idx").on(table.createdAt),
+  ]
+);
+
+export type Booking = typeof bookings.$inferSelect;
+export type BookingHistory = typeof bookingHistory.$inferSelect;

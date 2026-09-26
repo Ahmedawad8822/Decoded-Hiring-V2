@@ -302,3 +302,50 @@ trigger tests are deterministic across repeated `tsx` runs.
 - Scheduling Agent
 
 The mission closes only after all release gates and independent release review pass, followed by Ahmed's explicit merge GO.
+
+
+## Slice 08.2 — Booking Lifecycle & Approval
+
+Status: **IMPLEMENTED — SOURCE REVIEW IN PROGRESS; RUNTIME GATES NOT YET EXECUTED**
+
+Implementation branch: `mission-08.2-booking-lifecycle`  
+Accepted base: `47e8cb179e1bca7eb4447f981c9ff43249a94b85`
+
+### Scope implemented
+
+- durable `bookings` business-truth table
+- append-only `booking_history` audit trail
+- states: `REQUESTED | PENDING_APPROVAL | CONFIRMED | COMPLETED | CANCELLED | DECLINED`
+- request idempotency via UNIQUE(request_key)
+- one booking per exact hold generation via UNIQUE(hold_id, hold_acquisition_key)
+- booking CAS version + transition correlation key
+- `AHMED_APPROVAL` path
+- Better Auth `requireAdmin()` enforcement on production admin transitions
+- FREE `AUTO_CONFIRM` path
+- paid/manual/disabled confirmation fail-closed until commerce state exists
+- atomic D1 confirmation: claim booking -> consume exact hold generation -> confirm -> audit
+- stale/reclaimed hold-generation protection
+- cancellation/decline release of only the exact lease generation owned by the booking
+- reschedule consumes the new generation, releases the old consumed generation, and records old/new slot identities in audit history
+- completion keeps the current consumed appointment historical
+- migration `0013_booking_lifecycle` plus Drizzle snapshot/journal
+- dedicated 08.2 regression suite added to `npm test`
+
+### Security boundary
+
+Browser/admin callers do not submit an authoritative role. Public admin lifecycle operations resolve the live Better Auth server session through `requireAdmin()`. The trusted actor transition seam used by unit regression tests is not exported from the scheduling barrel.
+
+### Review status
+
+Source review found and remediated:
+1. cancelled/rescheduled confirmed bookings initially left the prior `CONSUMED` hold permanently blocking the slot; lifecycle-controlled exact-generation release now frees those slots without loosening generic 08.1 acquisition rules.
+2. initial admin transition inputs accepted a caller-provided role string; production mutations now authenticate through Better Auth `requireAdmin()`.
+
+Runtime gates remain unverified in this environment. No claim of typecheck/lint/test/build green is made until they are actually executed.
+
+### Slice 08.2 stop rule
+
+Do not advance 08.2 into the canonical Mission 08 branch until:
+- local/runtime gates execute successfully,
+- independent review passes,
+- any findings are remediated and re-reviewed.
