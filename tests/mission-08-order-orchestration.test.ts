@@ -897,6 +897,12 @@ test("COMMERCE 08.5: invalid provider configuration stays BLOCKED and is not aut
   assert.equal(blocked.status, "BLOCKED");
   assert.equal(blocked.lastErrorCode, "INVALID_CONFIGURATION");
 
+  const directRetry = await processOrchestrationEffect(
+    { effectId: reminder.id, now: new Date(NOW.getTime() + 500) },
+    providerBundle({ mailbox: configuredMailbox() }),
+  );
+  assert.equal(directRetry.status, "BLOCKED");
+
   const resumed = await resumeConfiguredBlockedEffects(
     new Date(NOW.getTime() + 1000),
     providerBundle({ mailbox: configuredMailbox() }),
