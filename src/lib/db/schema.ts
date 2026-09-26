@@ -684,6 +684,7 @@ export const bookings = sqliteTable(
     timezone: text("timezone").notNull(),
     status: text("status").$type<BookingStatus>().notNull().default("REQUESTED"),
     version: integer("version").notNull().default(1),
+    transitionKey: text("transition_key"),
     approvedBy: text("approved_by"),
     approvedAt: integer("approved_at", { mode: "timestamp" }),
     confirmedAt: integer("confirmed_at", { mode: "timestamp" }),
