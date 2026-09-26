@@ -8,7 +8,7 @@ import { LeadForm } from "@/features/leads/lead-form";
 import { publicMetadata } from "@/lib/seo";
 import { PUBLIC_OFFER_SLUGS } from "@/features/offers/catalog";
 import { resolveOfferPublicPresentation } from "@/features/offers/presentation";
-import { getOfferBySlug } from "@/features/offers/service";
+import { getOfferBySlugForKind } from "@/features/offers/service";
 
 export const dynamic = "force-dynamic";
 
@@ -20,7 +20,7 @@ export const metadata = publicMetadata({
 });
 
 export default async function WorkshopPage() {
-  const offer = await getOfferBySlug(PUBLIC_OFFER_SLUGS.workshop);
+  const offer = await getOfferBySlugForKind(PUBLIC_OFFER_SLUGS.workshop, "WORKSHOP");
   const offerPresentation = offer
     ? resolveOfferPublicPresentation(offer, {
         freeHref: "#workshop-brief",
