@@ -90,6 +90,7 @@ export {
 } from "./providers";
 export type {
   ProviderKind,
+  ProviderRuntimeStatus,
   SchedulingProviderErrorCode,
   CalendarProvider,
   PaymentGateway,
