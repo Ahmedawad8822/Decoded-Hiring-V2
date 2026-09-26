@@ -12,7 +12,7 @@ export const dynamic = "force-dynamic";
 export const metadata = publicMetadata({
   title: "AI Recruiter OS | Ahmed Awad",
   description:
-    "Join the waitlist for an advanced programme about AI agents and accountable recruitment workflows.",
+    "An advanced programme about AI agents and accountable recruitment workflows.",
   path: "/ai-recruiter-os",
 });
 
@@ -67,21 +67,23 @@ export default async function AiRecruiterOsPage() {
           />
         </figure>
       </section>
-      <section className="hg-section hg-form-stage" id="ai-os-waitlist">
-        <p className="hg-kicker">Research waitlist</p>
-        <h2 className="hg-title">
-          Which workflow should AI make more accountable?
-        </h2>
-        <p className="hg-body">
-          Share one workflow and your current AI level. This is research for a
-          future programme—not a launch promise.
-        </p>
-        <LeadForm
-          kind="ai_os"
-          sourceRoute="/ai-recruiter-os"
-          submitLabel="Join the research waitlist"
-        />
-      </section>
+      {!isUnavailable && (
+        <section className="hg-section hg-form-stage" id="ai-os-waitlist">
+          <p className="hg-kicker">Research waitlist</p>
+          <h2 className="hg-title">
+            Which workflow should AI make more accountable?
+          </h2>
+          <p className="hg-body">
+            Share one workflow and your current AI level. This is research for a
+            future programme—not a launch promise.
+          </p>
+          <LeadForm
+            kind="ai_os"
+            sourceRoute="/ai-recruiter-os"
+            submitLabel="Join the research waitlist"
+          />
+        </section>
+      )}
     </article>
   );
 }
