@@ -1011,7 +1011,21 @@ export async function resumeConfiguredBlockedEffects(
     UnconfiguredCommerceSchedulingProviders,
   limit = 100,
 ): Promise<number> {
+  const boundedLimit = Math.max(1, Math.min(limit, 500));
   const db = await getDb();
+
+  // Resolve provider readiness first, then query only the provider kinds that
+  // can actually resume. Applying LIMIT before provider readiness filtering
+  // would let an old backlog for one still-unconfigured provider starve work
+  // for another provider that has just become configured.
+  const resumableKinds: OrchestrationEffect["providerKind"][] = [];
+  for (const kind of ["payment", "calendar", "mailbox", "meeting"] as const) {
+    if (await providerKindConfigured(kind, providers)) {
+      resumableKinds.push(kind);
+    }
+  }
+  if (resumableKinds.length === 0) return 0;
+
   const blocked = await db
     .select()
     .from(orchestrationEffects)
@@ -1019,24 +1033,17 @@ export async function resumeConfiguredBlockedEffects(
       and(
         eq(orchestrationEffects.status, "BLOCKED"),
         eq(orchestrationEffects.lastErrorCode, "PROVIDER_NOT_CONFIGURED"),
+        inArray(orchestrationEffects.providerKind, resumableKinds),
       ),
     )
     .orderBy(asc(orchestrationEffects.createdAt))
-    .limit(Math.max(1, Math.min(limit, 500)));
+    .limit(boundedLimit);
 
-  const statusCache = new Map<string, boolean>();
   let resumed = 0;
   const d1 = await getD1Database();
   const nowSec = toUnixSeconds(now);
 
   for (const effect of blocked) {
-    let configured = statusCache.get(effect.providerKind);
-    if (configured === undefined) {
-      configured = await providerKindConfigured(effect.providerKind, providers);
-      statusCache.set(effect.providerKind, configured);
-    }
-    if (!configured) continue;
-
     const transition = `fxtr_${crypto.randomUUID()}`;
     await d1.batch([
       d1
@@ -1048,7 +1055,9 @@ export async function resumeConfiguredBlockedEffects(
                last_error_code=NULL,
                last_error_message=NULL,
                updated_at=?
-           WHERE id=? AND status='BLOCKED'`,
+           WHERE id=?
+             AND status='BLOCKED'
+             AND last_error_code='PROVIDER_NOT_CONFIGURED'`,
         )
         .bind(transition, nowSec, effect.id),
       d1
