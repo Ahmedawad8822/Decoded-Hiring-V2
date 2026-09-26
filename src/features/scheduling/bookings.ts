@@ -208,13 +208,16 @@ async function getBookingWithTypeAndHold(id: string): Promise<{
   return { booking, bookingType, hold };
 }
 
-async function hasSatisfiedBookingPayment(
+async function getBookingOrderPaymentContract(
   bookingId: string,
   bookingTypeId: string,
-): Promise<boolean> {
+): Promise<{ exists: boolean; satisfied: boolean }> {
   const db = await getDb();
   const linkedOrders = await db
-    .select({ status: orders.status })
+    .select({
+      status: orders.status,
+      accessMode: orders.accessMode,
+    })
     .from(orders)
     .where(
       and(
@@ -224,10 +227,13 @@ async function hasSatisfiedBookingPayment(
     )
     .all();
 
-  return linkedOrders.some(
-    (candidate) =>
-      candidate.status === "PAID" || candidate.status === "FULFILLED",
-  );
+  return {
+    exists: linkedOrders.length > 0,
+    satisfied: linkedOrders.some(
+      (candidate) =>
+        candidate.status === "PAID" || candidate.status === "FULFILLED",
+    ),
+  };
 }
 
 async function findByHoldGeneration(
@@ -438,23 +444,34 @@ async function confirmBoundBooking(
     }
   }
 
-  const accessPolicy = await getEffectiveBookingAccessPolicy(bookingType);
-  if (!accessPolicy.available) {
-    throw new SchedulingDomainError(
-      "Booking is currently unavailable under its commercial Offer policy.",
-      "BOOKING_UNAVAILABLE",
-    );
-  }
-  if (
-    accessPolicy.mode === "PAID_SESSION" ||
-    accessPolicy.mode === "PAID_ONE_TIME" ||
-    accessPolicy.mode === "MANUAL_INVOICE"
-  ) {
-    const paymentSatisfied = await hasSatisfiedBookingPayment(
-      booking.id,
-      booking.bookingTypeId,
-    );
-    if (!paymentSatisfied) {
+  const orderPayment = await getBookingOrderPaymentContract(
+    booking.id,
+    booking.bookingTypeId,
+  );
+
+  if (orderPayment.exists) {
+    // Once an Order exists, its immutable booking/payment contract is the
+    // authority for this booking attempt. Later Offer edits/deactivation may
+    // affect new purchases, but cannot invalidate or free an existing Order.
+    if (!orderPayment.satisfied) {
+      throw new SchedulingDomainError(
+        "A matching internal order must be PAID before this booking can be confirmed.",
+        "PAYMENT_REQUIRED",
+      );
+    }
+  } else {
+    const accessPolicy = await getEffectiveBookingAccessPolicy(bookingType);
+    if (!accessPolicy.available) {
+      throw new SchedulingDomainError(
+        "Booking is currently unavailable under its commercial Offer policy.",
+        "BOOKING_UNAVAILABLE",
+      );
+    }
+    if (
+      accessPolicy.mode === "PAID_SESSION" ||
+      accessPolicy.mode === "PAID_ONE_TIME" ||
+      accessPolicy.mode === "MANUAL_INVOICE"
+    ) {
       throw new SchedulingDomainError(
         "A matching internal order must be PAID before this booking can be confirmed.",
         "PAYMENT_REQUIRED",
