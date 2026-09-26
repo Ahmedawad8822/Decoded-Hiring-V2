@@ -528,10 +528,10 @@ async function handleCalendarCreate(
   const payload = bookingEffectPayloadSchema.parse(JSON.parse(effect.payload));
   const { booking, bookingType } = await getBookingContext(payload.bookingId);
   if (booking.status !== "CONFIRMED") {
-    throw new CommerceDomainError(
-      "Calendar creation waits for CONFIRMED booking state.",
-      "DEPENDENCY_NOT_READY",
-    );
+    return JSON.stringify({
+      skipped: true,
+      reason: `booking_${booking.status.toLowerCase()}`,
+    });
   }
 
   const result = await providers.calendar.createEvent({
@@ -560,11 +560,17 @@ async function handleCalendarUpdate(
 ): Promise<string> {
   const payload = bookingEffectPayloadSchema.parse(JSON.parse(effect.payload));
   const { booking } = await getBookingContext(payload.bookingId);
-  if (booking.status !== "CONFIRMED") {
-    throw new CommerceDomainError(
-      "Calendar update waits for CONFIRMED booking state.",
-      "DEPENDENCY_NOT_READY",
-    );
+  if (
+    booking.status !== "CONFIRMED" ||
+    (payload.bookingVersion != null && booking.version > payload.bookingVersion)
+  ) {
+    return JSON.stringify({
+      skipped: true,
+      reason:
+        booking.status !== "CONFIRMED"
+          ? `booking_${booking.status.toLowerCase()}`
+          : "superseded_reschedule",
+    });
   }
   const ref = await latestCalendarRef(booking.id);
   if (!ref) {
@@ -589,6 +595,12 @@ async function handleCalendarCancel(
 ): Promise<string> {
   const payload = bookingEffectPayloadSchema.parse(JSON.parse(effect.payload));
   const { booking } = await getBookingContext(payload.bookingId);
+  if (booking.status !== "CANCELLED") {
+    return JSON.stringify({
+      skipped: true,
+      reason: `booking_${booking.status.toLowerCase()}`,
+    });
+  }
   const ref = await latestCalendarRef(booking.id);
   if (!ref) {
     // A booking may be cancelled before a calendar event was ever created.
@@ -609,6 +621,30 @@ async function handleMail(
 ): Promise<string> {
   const payload = bookingEffectPayloadSchema.parse(JSON.parse(effect.payload));
   const { booking, bookingType } = await getBookingContext(payload.bookingId);
+
+  const isVersionStale =
+    payload.bookingVersion != null && booking.version !== payload.bookingVersion;
+  if (
+    effect.effectType === "MAIL_CONFIRMATION" &&
+    (booking.status !== "CONFIRMED" || isVersionStale)
+  ) {
+    return JSON.stringify({ skipped: true, reason: "stale_confirmation_message" });
+  }
+  if (
+    effect.effectType === "MAIL_RESCHEDULE" &&
+    (booking.status !== "CONFIRMED" || isVersionStale)
+  ) {
+    return JSON.stringify({ skipped: true, reason: "stale_reschedule_message" });
+  }
+  if (
+    effect.effectType === "MAIL_CANCELLATION" &&
+    (booking.status !== "CANCELLED" || isVersionStale)
+  ) {
+    return JSON.stringify({ skipped: true, reason: "stale_cancellation_message" });
+  }
+  if (effect.effectType === "MAIL_REMINDER" && booking.status !== "CONFIRMED") {
+    return JSON.stringify({ skipped: true, reason: "booking_not_confirmed" });
+  }
 
   const base = {
     bookingId: booking.id,
