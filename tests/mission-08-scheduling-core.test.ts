@@ -5,9 +5,28 @@
  * generation, slot hold acquisition / release / consume, concurrency safety,
  * stale-owner protection, and provider contract fail-closed behavior.
  *
+ * Remediation coverage (Mission 08.1 review):
+ *   (A) Ownership token leak on losing acquire
+ *   (B) Server-generated ownership token
+ *   (C) Boundary runtime validation of acquire/mutate inputs
+ *   (D) Authoritative, policy-enforced acquisition
+ *   (E) Required (non-defaulted) policy fields at creation
+ *   (F) DST nonexistent/ambiguous wall-time handling + IANA alias acceptance
+ *   (G) DB-backed (trigger) overlap invariant under concurrency
+ *   (H) Slug collision throws (no silent merge / policy leak)
+ *   (I) Stale/forged owner token rejected on release/consume
+ *   (J) Browser cannot choose endAt/ownerToken (stripped, server derives)
+ *   (K) Consistent error types for hold mutations
+ *
  * Time references:
  *   - TZ = UTC+0 reference dates chosen so weekdays are stable.
  *   - America/New_York used for DST-sensitive cases.
+ *
+ * 2026 calendar reference (used throughout):
+ *   Oct 26 2026 = Monday (EDT, UTC-4)
+ *   Oct 27 2026 = Tuesday (EDT, UTC-4)   <- SLOT_START day
+ *   Nov  1 2026 = Sunday (DST ends, fall-back)
+ *   Nov  2 2026 = Monday (EST, UTC-5)
  */
 
 import "./helpers/env";
@@ -17,14 +36,18 @@ import { test } from "node:test";
 import { migrateLocalDb } from "../src/lib/db/migrate";
 import { disposeCloudflareBindings } from "../src/lib/cloudflare/bindings";
 import { getDb } from "@/lib/db";
-import { slotHolds } from "@/lib/db";
+import { slotHolds, bookingTypes, bookingAvailabilityWindows } from "@/lib/db";
 import { eq } from "drizzle-orm";
 import type { BookingType, BookingAvailabilityWindow } from "@/lib/db";
+import { ZodError } from "zod";
 
 import {
   createBookingTypeSchema,
   createAvailabilityWindowSchema,
+  acquireSlotHoldSchema,
+  mutateSlotHoldSchema,
   type CreateBookingTypeInput,
+  type AcquireSlotHoldInput,
   type CreateAvailabilityWindowInput,
 } from "@/features/scheduling/schemas";
 import {
@@ -35,6 +58,10 @@ import {
   consumeSlotHold,
   createBookingType,
   createAvailabilityWindow,
+  generateOwnerToken,
+  isValidIanaTimezone,
+  localTimeToUtc,
+  NonexistentTimeError,
 } from "@/features/scheduling";
 import {
   UnconfiguredPaymentGateway,
@@ -49,6 +76,14 @@ import {
 
 test.before(async () => {
   await migrateLocalDb();
+  // (H) Remediation: the local D1 persists across `tsx` invocations, so a test
+  // that re-uses a fixed slug would collide with a prior run's row and falsely
+  // trip UNIQUE(slug). Wipe scheduling rows each run; collision *intention* is
+  // still tested with per-run-unique slugs below.
+  const db = await getDb();
+  await db.delete(slotHolds).run();
+  await db.delete(bookingAvailabilityWindows).run();
+  await db.delete(bookingTypes).run();
 });
 
 test.after(async () => {
@@ -64,7 +99,9 @@ function uniqueSlug(prefix = "test"): string {
   return `${prefix}-${Date.now().toString(36)}-${seq++}`;
 }
 
-function makeValidBookingTypeInput(overrides: Partial<CreateBookingTypeInput> = {}): CreateBookingTypeInput {
+function makeValidBookingTypeInput(
+  overrides: Partial<CreateBookingTypeInput> = {},
+): CreateBookingTypeInput {
   return {
     slug: uniqueSlug("coach"),
     title: "Coaching Session",
@@ -95,10 +132,31 @@ function makeValidWindowInput(
   };
 }
 
+/**
+ * Create a booking type + a Tuesday (weekday 2) 09:00-17:00 EDT window so that
+ * SLOT_START (10:00 AM EDT, Oct 27) is a canonical, acquire-able slot under the
+ * authoritative acquisition path.
+ */
+async function createBookedType(): Promise<BookingType> {
+  const bt = await createBookingType(
+    makeValidBookingTypeInput({ timezone: "America/New_York" }),
+  );
+  await createAvailabilityWindow(
+    makeValidWindowInput(bt.id, { weekday: 2, startMinute: 540, endMinute: 1020 }),
+  );
+  return bt;
+}
+
 // Fixed test timestamps (all UTC).
 // Tuesday, Oct 27 2026 — chosen as a stable mid-week reference.
 const SLOT_START = new Date("2026-10-27T14:00:00.000Z"); // 10:00 AM EDT
 const SLOT_END = new Date("2026-10-27T15:00:00.000Z"); // 11:00 AM EDT (60-min slot)
+// A Tuesday slot beyond the default 30-day horizon (Oct 27 + 35 days = Dec 1).
+const SLOT_FAR = new Date("2026-12-01T14:00:00.000Z"); // 10:00 AM EST Tue
+// A Tuesday slot at 9:00 AM EDT — in-window and aligned, used for notice tests.
+const SLOT_WITHIN_NOTICE = new Date("2026-10-27T13:00:00.000Z"); // 09:00 AM EDT
+
+const TOKEN_RE = /^hold_[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 
 // ---------------------------------------------------------------------------
 // 1–7: BOOKING TYPE VALIDATION (pure schema tests)
@@ -145,9 +203,7 @@ test("SCHEDULING: booking type rejects invalid access mode", () => {
 });
 
 test("SCHEDULING: booking type rejects invalid IANA timezone", () => {
-  const r = createBookingTypeSchema.safeParse(
-    makeValidBookingTypeInput({ timezone: "Mars/Phobos" }),
-  );
+  const r = createBookingTypeSchema.safeParse(makeValidBookingTypeInput({ timezone: "Mars/Phobos" }));
   assert.ok(!r.success);
   // Positive control — valid zones pass.
   const rOk = createBookingTypeSchema.safeParse(makeValidBookingTypeInput({ timezone: "Asia/Gaza" }));
@@ -162,13 +218,43 @@ test("SCHEDULING: booking type accepts PAYMENT_DISABLED access mode", () => {
 });
 
 // ---------------------------------------------------------------------------
+// (E) Required policy fields — application layer refuses silent defaults.
+// ---------------------------------------------------------------------------
+
+test("SCHEDULING: confirmationPolicy is required (no silent default)", () => {
+  const input = makeValidBookingTypeInput();
+  delete (input as Partial<CreateBookingTypeInput>).confirmationPolicy;
+  const r = createBookingTypeSchema.safeParse(input);
+  assert.ok(!r.success, "confirmationPolicy must be required");
+});
+
+test("SCHEDULING: accessMode is required (no silent default)", () => {
+  const input = makeValidBookingTypeInput();
+  delete (input as Partial<CreateBookingTypeInput>).accessMode;
+  const r = createBookingTypeSchema.safeParse(input);
+  assert.ok(!r.success, "accessMode must be required");
+});
+
+test("SCHEDULING: meetingMethod is required (no silent default)", () => {
+  const input = makeValidBookingTypeInput();
+  delete (input as Partial<CreateBookingTypeInput>).meetingMethod;
+  const r = createBookingTypeSchema.safeParse(input);
+  assert.ok(!r.success, "meetingMethod must be required");
+});
+
+test("SCHEDULING: attendeeLimit is required (no silent default)", () => {
+  const input = makeValidBookingTypeInput();
+  delete (input as Partial<CreateBookingTypeInput>).attendeeLimit;
+  const r = createBookingTypeSchema.safeParse(input);
+  assert.ok(!r.success, "attendeeLimit must be required");
+});
+
+// ---------------------------------------------------------------------------
 // 8–11: AVAILABILITY WINDOWS
 // ---------------------------------------------------------------------------
 
 test("SCHEDULING: availability window rejects invalid weekday", () => {
-  const r = createAvailabilityWindowSchema.safeParse(
-    makeValidWindowInput("bt_123", { weekday: 7 }),
-  );
+  const r = createAvailabilityWindowSchema.safeParse(makeValidWindowInput("bt_123", { weekday: 7 }));
   assert.ok(!r.success);
 });
 
@@ -195,10 +281,7 @@ test("SCHEDULING: availability window rejects values outside 0..1440", () => {
 });
 
 test("SCHEDULING: duplicate and overlapping windows are rejected at write time", async () => {
-  // Create a booking type for this test.
-  const bt = await createBookingType(
-    makeValidBookingTypeInput({ timezone: "America/New_York" }),
-  );
+  const bt = await createBookingType(makeValidBookingTypeInput({ timezone: "America/New_York" }));
 
   // Insert first window: Mon 09:00-10:00 (540-600).
   await createAvailabilityWindow(makeValidWindowInput(bt.id, { weekday: 1, startMinute: 540, endMinute: 600 }));
@@ -218,6 +301,48 @@ test("SCHEDULING: duplicate and overlapping windows are rejected at write time",
   // Non-overlapping adjacent window: Mon 10:00-11:00 (600-660) — does NOT overlap.
   const ok = await createAvailabilityWindow(makeValidWindowInput(bt.id, { weekday: 1, startMinute: 600, endMinute: 660 }));
   assert.ok(ok.id);
+});
+
+// ---------------------------------------------------------------------------
+// (G) DB-backed overlap invariant: adjacent windows remain valid; concurrent
+// overlapping windows cannot both commit.
+// ---------------------------------------------------------------------------
+
+test("SCHEDULING: (G) adjacent windows on the same weekday are both valid", async () => {
+  const bt = await createBookingType(makeValidBookingTypeInput({ timezone: "America/New_York" }));
+  // 09:00-10:00 then 10:00-11:00 — adjacent, half-open, no overlap.
+  const w1 = await createAvailabilityWindow(makeValidWindowInput(bt.id, { weekday: 1, startMinute: 540, endMinute: 600 }));
+  const w2 = await createAvailabilityWindow(makeValidWindowInput(bt.id, { weekday: 1, startMinute: 600, endMinute: 660 }));
+  assert.ok(w1.id && w2.id);
+});
+
+test("SCHEDULING: (G) concurrent overlapping windows -> exactly one wins, no overlap in DB", async () => {
+  const bt = await createBookingType(makeValidBookingTypeInput({ timezone: "America/New_York" }));
+  // 09:00-10:00 and 09:30-10:30 overlap — inserted concurrently.
+  const results = await Promise.allSettled([
+    createAvailabilityWindow(makeValidWindowInput(bt.id, { weekday: 1, startMinute: 540, endMinute: 600 })),
+    createAvailabilityWindow(makeValidWindowInput(bt.id, { weekday: 1, startMinute: 570, endMinute: 630 })),
+  ]);
+  const successes = results.filter((r) => r.status === "fulfilled");
+  const failures = results.filter((r) => r.status === "rejected");
+  assert.equal(successes.length, 1, "exactly one overlapping window must commit");
+  assert.equal(failures.length, 1, "exactly one overlapping window must be rejected");
+
+  // Verify the DB holds the winner with NO overlapping pair.
+  const db = await getDb();
+  const rows = await db
+    .select()
+    .from(bookingAvailabilityWindows)
+    .where(eq(bookingAvailabilityWindows.bookingTypeId, bt.id));
+  assert.equal(rows.length, 1, "exactly one window row should exist for the winner");
+  const [w] = rows;
+  assert.ok(
+    (w.startMinute === 540 && w.endMinute === 600) ||
+      (w.startMinute === 570 && w.endMinute === 630),
+    "the surviving window must be one of the two originals",
+  );
+  // No overlap is possible with a single row, but assert the half-open invariant.
+  assert.ok(w.startMinute < w.endMinute);
 });
 
 // ---------------------------------------------------------------------------
@@ -246,7 +371,7 @@ test("SCHEDULING: generates deterministic slots for a known window", () => {
   };
 
   // Monday Oct 26 2026 09:00-10:00 local (EDT = UTC-4).
-  // Local 09:00 → UTC 13:00.  So the slot is 13:00–14:00 UTC.
+  // Local 09:00 -> UTC 13:00.  So the slot is 13:00-14:00 UTC.
   const windows: BookingAvailabilityWindow[] = [
     {
       id: "w1",
@@ -289,7 +414,7 @@ test("SCHEDULING: slot generation respects duration", () => {
     updatedAt: new Date(),
   };
 
-  // Monday 09:00-11:00 local → UTC 13:00-15:00. 30-min slots → 4 slots.
+  // Monday 09:00-11:00 local -> UTC 13:00-15:00. 30-min slots -> 4 slots.
   const windows: BookingAvailabilityWindow[] = [
     {
       id: "w1",
@@ -347,10 +472,10 @@ test("SCHEDULING: slot generation respects minimum notice", () => {
   const now = new Date("2026-10-26T12:30:00.000Z"); // 08:30 AM EDT
   // Deadline = now + 120 min = 10:30 AM EDT = 14:30 UTC
   // Slots starting before 14:30 UTC should be filtered.
-  // Local 09:00 → UTC 13:00 (< 14:30, filtered)
-  // Local 10:00 → UTC 14:00 (< 14:30, filtered)
-  // Local 11:00 → UTC 15:00 (>= 14:30, included)
-  // Local 12:00 → UTC 16:00 (included)
+  // Local 09:00 -> UTC 13:00 (< 14:30, filtered)
+  // Local 10:00 -> UTC 14:00 (< 14:30, filtered)
+  // Local 11:00 -> UTC 15:00 (>= 14:30, included)
+  // Local 12:00 -> UTC 16:00 (included)
   const rangeStart = new Date("2026-10-26T00:00:00.000Z");
   const rangeEnd = new Date("2026-10-26T23:59:59.999Z");
 
@@ -383,38 +508,10 @@ test("SCHEDULING: slot generation respects booking horizon", () => {
 
   // Monday-Friday windows
   const windows: BookingAvailabilityWindow[] = [
-    {
-      id: "w_mon",
-      bookingTypeId: "bt_horizon",
-      weekday: 1, // Monday
-      startMinute: 540,
-      endMinute: 600,
-      createdAt: new Date(),
-    },
-    {
-      id: "w_tue",
-      bookingTypeId: "bt_horizon",
-      weekday: 2, // Tuesday
-      startMinute: 540,
-      endMinute: 600,
-      createdAt: new Date(),
-    },
-    {
-      id: "w_wed",
-      bookingTypeId: "bt_horizon",
-      weekday: 3, // Wednesday
-      startMinute: 540,
-      endMinute: 600,
-      createdAt: new Date(),
-    },
-    {
-      id: "w_thu",
-      bookingTypeId: "bt_horizon",
-      weekday: 4, // Thursday
-      startMinute: 540,
-      endMinute: 600,
-      createdAt: new Date(),
-    },
+    { id: "w_mon", bookingTypeId: "bt_horizon", weekday: 1, startMinute: 540, endMinute: 600, createdAt: new Date() }, // Monday
+    { id: "w_tue", bookingTypeId: "bt_horizon", weekday: 2, startMinute: 540, endMinute: 600, createdAt: new Date() }, // Tuesday
+    { id: "w_wed", bookingTypeId: "bt_horizon", weekday: 3, startMinute: 540, endMinute: 600, createdAt: new Date() }, // Wednesday
+    { id: "w_thu", bookingTypeId: "bt_horizon", weekday: 4, startMinute: 540, endMinute: 600, createdAt: new Date() }, // Thursday
   ];
 
   const now = new Date("2026-10-26T00:00:00.000Z"); // Monday Oct 26
@@ -427,14 +524,10 @@ test("SCHEDULING: slot generation respects booking horizon", () => {
   const rangeEnd = new Date("2026-10-30T23:59:59.999Z");
 
   const slots = generateCandidateSlots({ bookingType, windows, rangeStart, rangeEnd, now });
-  // Expected: Mon, Tue, Wed = 3 slots. Thu is beyond the 3-day horizon.
   assert.equal(slots.length, 3);
-  // Monday
-  assert.equal(slots[0].startAt.toISOString(), "2026-10-26T13:00:00.000Z");
-  // Tuesday
-  assert.equal(slots[1].startAt.toISOString(), "2026-10-27T13:00:00.000Z");
-  // Wednesday
-  assert.equal(slots[2].startAt.toISOString(), "2026-10-28T13:00:00.000Z");
+  assert.equal(slots[0].startAt.toISOString(), "2026-10-26T13:00:00.000Z"); // Monday
+  assert.equal(slots[1].startAt.toISOString(), "2026-10-27T13:00:00.000Z"); // Tuesday
+  assert.equal(slots[2].startAt.toISOString(), "2026-10-28T13:00:00.000Z"); // Wednesday
 });
 
 test("SCHEDULING: converts configured local timezone to correct UTC instant", () => {
@@ -481,7 +574,6 @@ test("SCHEDULING: converts configured local timezone to correct UTC instant", ()
 });
 
 test("SCHEDULING: DST-sensitive timezone produces correct UTC behavior", () => {
-  // Same booking type, range crossing the US DST transition (Nov 1 2026).
   const bookingType: BookingType = {
     id: "bt_dst",
     slug: "test-dst",
@@ -517,19 +609,13 @@ test("SCHEDULING: DST-sensitive timezone produces correct UTC behavior", () => {
   const now = new Date("2026-10-26T00:00:00.000Z");
 
   const slots = generateCandidateSlots({ bookingType, windows, rangeStart, rangeEnd, now });
-  // Expected 8 weekday slots: Oct 26,27,28,29,30 (Mon-Fri) + Nov 2,3,4 (Mon-Wed;
-  // Nov 1 is Sunday, Nov 5 is Thu but let's verify).
-  // Mon-Fri Oct 26-30: 5 slots
-  // Mon-Wed Nov 2-4: 3 slots (Nov 1 is Sunday, Nov 5 is Thursday but within range)
-  // Actually Nov 5 (Thu) is also a weekday with a window.
-  // So: Oct 26,27,28,29,30 = 5 + Nov 2,3,4,5 = 4. Total = 9.
   assert.ok(slots.length >= 8, `expected >= 8 slots, got ${slots.length}`);
 
-  // Verify DST: Monday Oct 26 (EDT, UTC-4) → 9 AM local = 13:00 UTC
+  // Verify DST: Monday Oct 26 (EDT, UTC-4) -> 9 AM local = 13:00 UTC
   const monOct26 = slots.find((s) => s.startAt.toISOString().startsWith("2026-10-26T13:0"));
   assert.ok(monOct26, "Oct 26 Monday slot should exist at 13:00 UTC (EDT)");
 
-  // Verify DST: Monday Nov 2 (EST, UTC-5) → 9 AM local = 14:00 UTC
+  // Verify DST: Monday Nov 2 (EST, UTC-5) -> 9 AM local = 14:00 UTC
   const monNov2 = slots.find((s) => s.startAt.toISOString().startsWith("2026-11-02T14:0"));
   assert.ok(monNov2, "Nov 2 Monday slot should exist at 14:00 UTC (EST, after DST)");
 });
@@ -540,156 +626,227 @@ test("SCHEDULING: slotKey is deterministic", () => {
   assert.equal(key1, key2);
   assert.equal(key1, "bt_abc:2026-10-04T07:00:00.000Z");
 
-  // Different start → different key
+  // Different start -> different key
   const key3 = buildSlotKey("bt_abc", new Date("2026-10-04T08:00:00.000Z"));
   assert.notEqual(key1, key3);
 
-  // Different booking type → different key
+  // Different booking type -> different key
   const key4 = buildSlotKey("bt_xyz", new Date("2026-10-04T07:00:00.000Z"));
   assert.notEqual(key1, key4);
 });
 
 // ---------------------------------------------------------------------------
-// 19–22: HOLD ACQUISITION (DB-backed)
+// (F) DST wall-time resolution + IANA alias acceptance
 // ---------------------------------------------------------------------------
 
-test("SCHEDULING: first caller acquires free slot", async () => {
-  const bt = await createBookingType(makeValidBookingTypeInput({ timezone: "America/New_York" }));
+test("SCHEDULING: (F) IANA validator accepts the UTC alias", () => {
+  assert.ok(isValidIanaTimezone("UTC"));
+  assert.ok(isValidIanaTimezone("Etc/UTC"));
+  assert.ok(isValidIanaTimezone("America/New_York"));
+  assert.ok(!isValidIanaTimezone("Mars/Phobos"));
+  assert.ok(!isValidIanaTimezone(""));
+});
+
+test("SCHEDULING: (F) spring-forward nonexistent local time throws", () => {
+  // America/New_York 2026-03-08: clocks spring 2:00 -> 3:00 AM. 02:30 does not exist.
+  const ref = new Date("2026-03-08T12:00:00.000Z"); // local date = Mar 8
+  let threw = false;
+  try {
+    const r = localTimeToUtc(ref, "America/New_York", 2 * 60 + 30);
+    // Must NOT silently resolve to 01:30 or 03:30 (or any instant).
+    const local = r.toLocaleString("en-US", { timeZone: "America/New_York", hour12: false });
+    assert.fail(`expected NonexistentTimeError, got local time ${local}`);
+  } catch (e) {
+    threw = true;
+    assert.ok(e instanceof NonexistentTimeError, `expected NonexistentTimeError, got ${String(e)}`);
+    // Explicitly: not silently mapped to 01:30 or 03:30.
+    assert.ok(!String(e).includes("01:30"));
+    assert.ok(!String(e).includes("03:30"));
+  }
+  assert.ok(threw);
+});
+
+test("SCHEDULING: (F) fall-back ambiguous local time resolves deterministically (earlier UTC = EDT)", () => {
+  // America/New_York 2026-11-01: clocks fall back 2:00 -> 1:00 AM. 01:30 occurs
+  // twice (EDT then EST). Policy: pick the EARLIER UTC instant (first occurrence).
+  const ref = new Date("2026-11-01T12:00:00.000Z");
+  const r = localTimeToUtc(ref, "America/New_York", 1 * 60 + 30);
+  assert.equal(r.toISOString(), "2026-11-01T05:30:00.000Z"); // 01:30 EDT = 05:30 UTC (earlier)
+  // Round-trips to 01:30 local on Nov 1 (EDT, the earlier UTC instant).
+  const local = r.toLocaleString("en-US", {
+    timeZone: "America/New_York",
+    hour12: false,
+    hour: "2-digit",
+    minute: "2-digit",
+    month: "2-digit",
+    day: "2-digit",
+  });
+  assert.ok(/01:30/.test(local), `fall-back must round-trip to 01:30 local, got ${local}`);
+});
+
+test("SCHEDULING: (F) normal 9 AM stays correct on both sides of DST", () => {
+  // Tuesday Oct 27 (EDT, UTC-4): 9 AM local = 13:00 UTC
+  const refTue = new Date("2026-10-27T13:00:00.000Z"); // 9 AM EDT Oct 27
+  assert.equal(localTimeToUtc(refTue, "America/New_York", 9 * 60).toISOString(), "2026-10-27T13:00:00.000Z");
+  // Tuesday Dec 1 (EST, UTC-5): 9 AM local = 14:00 UTC
+  const refDec = new Date("2026-12-01T14:00:00.000Z"); // 9 AM EST Dec 1
+  assert.equal(localTimeToUtc(refDec, "America/New_York", 9 * 60).toISOString(), "2026-12-01T14:00:00.000Z");
+});
+
+// ---------------------------------------------------------------------------
+// 19–22: HOLD ACQUISITION (DB-backed) — secure API
+// ---------------------------------------------------------------------------
+
+test("SCHEDULING: (D) valid canonical slot can be held", async () => {
+  const bt = await createBookedType();
   const now = new Date("2026-10-27T12:00:00.000Z");
 
   const result = await acquireSlotHold({
     bookingTypeId: bt.id,
     startAt: SLOT_START,
-    endAt: SLOT_END,
-    ownerToken: "owner-A",
     now,
     ttlMinutes: 10,
   });
 
-  assert.ok(result.success);
+  assert.ok(result.success, JSON.stringify(result));
   assert.ok(result.hold);
-  assert.equal(result.hold!.ownerToken, "owner-A");
+  // (A) the safe view never carries the ownership token.
+  assert.equal(Object.keys(result.hold).includes("ownerToken"), false);
   assert.equal(result.hold!.status, "HELD");
   assert.equal(result.hold!.slotKey, buildSlotKey(bt.id, SLOT_START));
+  assert.equal(result.hold!.startAt.toISOString(), SLOT_START.toISOString());
+  // endAt derived from booking duration (60 min), not caller-supplied.
+  assert.equal(result.hold!.endAt.toISOString(), SLOT_END.toISOString());
   assert.equal(result.hold!.expiresAt.getTime(), now.getTime() + 10 * 60_000);
+  // (B) a server-generated lease token is returned ONLY to the winner.
+  assert.equal(TOKEN_RE.test(result.ownerToken ?? ""), true);
 });
 
-test("SCHEDULING: same owner acquire is idempotent", async () => {
-  const bt = await createBookingType(makeValidBookingTypeInput({ timezone: "America/New_York" }));
+test("SCHEDULING: (D) off-hours slot is rejected (not canonical)", async () => {
+  const bt = await createBookedType(); // Tue 09:00-17:00 window
+  const now = new Date("2026-10-27T12:00:00.000Z");
+  // 22:00 UTC = 6:00 PM EDT — outside the 9 AM-5 PM window.
+  const offHours = new Date("2026-10-27T22:00:00.000Z");
+  const result = await acquireSlotHold({ bookingTypeId: bt.id, startAt: offHours, now, ttlMinutes: 10 });
+  assert.equal(result.success, false);
+  assert.equal(result.reason, "POLICY");
+});
+
+test("SCHEDULING: (D) start outside minimum notice is rejected", async () => {
+  const bt = await createBookedType();
+  // now is late enough that the 9 AM slot (13:00 UTC) is within the window
+  // but before the 60-minute notice deadline.
+  const now = new Date("2026-10-27T12:35:00.000Z"); // 8:35 AM EDT -> deadline 13:35 UTC
+  const result = await acquireSlotHold({
+    bookingTypeId: bt.id,
+    startAt: SLOT_WITHIN_NOTICE, // 09:00 EDT = 13:00 UTC, < 13:35 deadline
+    now,
+    ttlMinutes: 10,
+  });
+  assert.equal(result.success, false);
+  assert.equal(result.reason, "POLICY");
+});
+
+test("SCHEDULING: (D) start outside booking horizon is rejected", async () => {
+  const bt = await createBookedType(); // 30-day horizon
+  const now = new Date("2026-10-27T12:00:00.000Z");
+  // Dec 1 is a Tuesday (window applies) but 35 days out (> 30-day horizon).
+  const result = await acquireSlotHold({ bookingTypeId: bt.id, startAt: SLOT_FAR, now, ttlMinutes: 10 });
+  assert.equal(result.success, false);
+  assert.equal(result.reason, "POLICY");
+});
+
+test("SCHEDULING: (D) inactive booking type is rejected", async () => {
+  const bt = await createBookedType();
+  const db = await getDb();
+  await db.update(bookingTypes).set({ active: false }).where(eq(bookingTypes.id, bt.id));
+
+  const now = new Date("2026-10-27T12:00:00.000Z");
+  const result = await acquireSlotHold({ bookingTypeId: bt.id, startAt: SLOT_START, now, ttlMinutes: 10 });
+  assert.equal(result.success, false);
+  assert.equal(result.reason, "POLICY");
+});
+
+test("SCHEDULING: (D) unknown booking type is rejected", async () => {
+  const now = new Date("2026-10-27T12:00:00.000Z");
+  const result = await acquireSlotHold({
+    bookingTypeId: "bt_does_not_exist",
+    startAt: SLOT_START,
+    now,
+    ttlMinutes: 10,
+  });
+  assert.equal(result.success, false);
+  assert.equal(result.reason, "UNAVAILABLE");
+});
+
+test("SCHEDULING: (J) browser cannot choose endAt or ownerToken", async () => {
+  const bt = await createBookedType();
   const now = new Date("2026-10-27T12:00:00.000Z");
 
-  const result1 = await acquireSlotHold({
+  // Caller attempts to inject a wrong endAt and a self-chosen ownerToken.
+  const bogusEnd = new Date(SLOT_START.getTime() + 5 * 60_000); // +5min, not the duration
+  // AcquireSlotHoldInput intentionally omits endAt/ownerToken. We cast here ONLY to
+  // inject bogus values at runtime and prove the server-side schema strips/ignores
+  // them rather than honoring browser input (browser must not choose the lease
+  // token or the slot duration).
+  const result = await acquireSlotHold({
     bookingTypeId: bt.id,
     startAt: SLOT_START,
-    endAt: SLOT_END,
-    ownerToken: "owner-A",
+    endAt: bogusEnd,
+    ownerToken: "browser-chosen-token",
     now,
     ttlMinutes: 10,
-  });
-  assert.ok(result1.success);
-  const holdId = result1.hold!.id;
+  } as AcquireSlotHoldInput);
 
-  // Re-acquire with same owner — should be idempotent (same hold, no new row).
-  const result2 = await acquireSlotHold({
-    bookingTypeId: bt.id,
-    startAt: SLOT_START,
-    endAt: SLOT_END,
-    ownerToken: "owner-A",
-    now,
-    ttlMinutes: 10,
-  });
-  assert.ok(result2.success);
-  assert.equal(result2.hold!.id, holdId);
-  assert.equal(result2.hold!.ownerToken, "owner-A");
-  assert.equal(result2.hold!.status, "HELD");
-
-  // Verify exactly one row in DB.
-  const db = await getDb();
-  const holds = await db
-    .select()
-    .from(slotHolds)
-    .where(eq(slotHolds.slotKey, buildSlotKey(bt.id, SLOT_START)));
-  assert.equal(holds.length, 1);
+  assert.ok(result.success);
+  // (B) the returned token is server-generated, NOT the browser-chosen one.
+  assert.notEqual(result.ownerToken, "browser-chosen-token");
+  assert.equal(TOKEN_RE.test(result.ownerToken ?? ""), true);
+  // (J) endAt is derived from duration (60 min), not the bogus caller value.
+  assert.equal(result.hold!.endAt.toISOString(), SLOT_END.toISOString());
+  assert.notEqual(result.hold!.endAt, bogusEnd);
 });
 
-test("SCHEDULING: different owner cannot acquire unexpired slot", async () => {
-  const bt = await createBookingType(makeValidBookingTypeInput({ timezone: "America/New_York" }));
+// ---------------------------------------------------------------------------
+// (A) Ownership token leak regression
+// ---------------------------------------------------------------------------
+
+test("SCHEDULING: (A) losing acquirer never receives the winner's token", async () => {
+  const bt = await createBookedType();
   const now = new Date("2026-10-27T12:00:00.000Z");
-  const slotKey = buildSlotKey(bt.id, SLOT_START);
 
-  // Owner A acquires.
-  const resultA = await acquireSlotHold({
-    bookingTypeId: bt.id,
-    startAt: SLOT_START,
-    endAt: SLOT_END,
-    ownerToken: "owner-A",
-    now,
-    ttlMinutes: 10,
-  });
-  assert.ok(resultA.success);
+  const winner = await acquireSlotHold({ bookingTypeId: bt.id, startAt: SLOT_START, now, ttlMinutes: 10 });
+  assert.ok(winner.success);
+  assert.ok(winner.ownerToken);
 
-  // Owner B tries to acquire (within TTL) — should be rejected.
-  const resultB = await acquireSlotHold({
-    bookingTypeId: bt.id,
-    startAt: SLOT_START,
-    endAt: SLOT_END,
-    ownerToken: "owner-B",
-    now,
-    ttlMinutes: 10,
-  });
-  assert.ok(!resultB.success);
-  assert.equal(resultB.reason, "TAKEN");
+  // Loser attempts the same slot.
+  const loser = await acquireSlotHold({ bookingTypeId: bt.id, startAt: SLOT_START, now, ttlMinutes: 10 });
+  assert.equal(loser.success, false);
+  assert.equal(loser.reason, "TAKEN");
 
-  // Verify the hold is still owned by A.
-  const db = await getDb();
-  const holds = await db
-    .select()
-    .from(slotHolds)
-    .where(eq(slotHolds.slotKey, slotKey));
-  assert.equal(holds.length, 1);
-  assert.equal(holds[0].ownerToken, "owner-A");
+  // (A) the loser's object graph must not contain the winner's token anywhere.
+  const serialized = JSON.stringify({ ...loser, hold: loser.hold });
+  assert.equal(serialized.includes(winner.ownerToken!), false);
+  assert.equal(loser.ownerToken, undefined);
+  assert.equal(Object.keys(loser.hold ?? {}).includes("ownerToken"), false);
 });
 
-test("SCHEDULING: expired hold can be reclaimed", async () => {
-  const bt = await createBookingType(makeValidBookingTypeInput({ timezone: "America/New_York" }));
-  const nowAcquire = new Date("2026-10-27T12:00:00.000Z");
-  const slotKey = buildSlotKey(bt.id, SLOT_START);
+test("SCHEDULING: (A) loser on a CONSUMED slot also receives no token", async () => {
+  const bt = await createBookedType();
+  const now = new Date("2026-10-27T12:00:00.000Z");
 
-  // Owner A acquires with a short TTL.
-  const resultA = await acquireSlotHold({
-    bookingTypeId: bt.id,
-    startAt: SLOT_START,
-    endAt: SLOT_END,
-    ownerToken: "owner-A",
-    now: nowAcquire,
-    ttlMinutes: 1, // 1-minute TTL
-  });
-  assert.ok(resultA.success);
+  const winner = await acquireSlotHold({ bookingTypeId: bt.id, startAt: SLOT_START, now, ttlMinutes: 10 });
+  assert.ok(winner.success);
+  assert.ok(winner.ownerToken);
+  await consumeSlotHold(bt.id, SLOT_START, winner.ownerToken!, now);
 
-  // Advance time past expiry.
-  const nowAfterExpiry = new Date(nowAcquire.getTime() + 2 * 60_000);
-
-  // Owner B reclaims the expired slot.
-  const resultB = await acquireSlotHold({
-    bookingTypeId: bt.id,
-    startAt: SLOT_START,
-    endAt: SLOT_END,
-    ownerToken: "owner-B",
-    now: nowAfterExpiry,
-    ttlMinutes: 10,
-  });
-  assert.ok(resultB.success, `expected success, got: ${JSON.stringify(resultB)}`);
-  assert.equal(resultB.hold!.ownerToken, "owner-B");
-  assert.equal(resultB.hold!.status, "HELD");
-
-  // DB should still have exactly one row, now owned by B.
-  const db = await getDb();
-  const holds = await db
-    .select()
-    .from(slotHolds)
-    .where(eq(slotHolds.slotKey, slotKey));
-  assert.equal(holds.length, 1);
-  assert.equal(holds[0].ownerToken, "owner-B");
+  const late = await acquireSlotHold({ bookingTypeId: bt.id, startAt: SLOT_START, now, ttlMinutes: 10 });
+  assert.equal(late.success, false);
+  assert.equal(late.reason, "CONSUMED");
+  assert.equal(late.ownerToken, undefined);
+  const serialized = JSON.stringify({ hold: late.hold });
+  assert.equal(serialized.includes(winner.ownerToken!), false);
+  assert.equal(Object.keys(late.hold ?? {}).includes("ownerToken"), false);
 });
 
 // ---------------------------------------------------------------------------
@@ -697,76 +854,49 @@ test("SCHEDULING: expired hold can be reclaimed", async () => {
 // ---------------------------------------------------------------------------
 
 test("SCHEDULING: two concurrent acquire attempts produce exactly one owner", async () => {
-  const bt = await createBookingType(makeValidBookingTypeInput({ timezone: "America/New_York" }));
+  const bt = await createBookedType();
   const now = new Date("2026-10-27T12:00:00.000Z");
 
   const [result1, result2] = await Promise.all([
-    acquireSlotHold({
-      bookingTypeId: bt.id,
-      startAt: SLOT_START,
-      endAt: SLOT_END,
-      ownerToken: "owner-1",
-      now,
-      ttlMinutes: 10,
-    }),
-    acquireSlotHold({
-      bookingTypeId: bt.id,
-      startAt: SLOT_START,
-      endAt: SLOT_END,
-      ownerToken: "owner-2",
-      now,
-      ttlMinutes: 10,
-    }),
+    acquireSlotHold({ bookingTypeId: bt.id, startAt: SLOT_START, now, ttlMinutes: 10 }),
+    acquireSlotHold({ bookingTypeId: bt.id, startAt: SLOT_START, now, ttlMinutes: 10 }),
   ]);
 
   const successCount = [result1, result2].filter((r) => r.success).length;
   const failCount = [result1, result2].filter((r) => !r.success).length;
-
   assert.equal(successCount, 1, "exactly one concurrent caller should win");
   assert.equal(failCount, 1, "exactly one concurrent caller should lose");
   const loser = [result1, result2].find((r) => !r.success)!;
   assert.equal(loser.reason, "TAKEN");
+  // (A) loser must not carry the winner's token.
+  const winner = [result1, result2].find((r) => r.success)!;
+  assert.equal(JSON.stringify(loser).includes(winner.ownerToken ?? ""), false);
 });
 
 test("SCHEDULING: database contains one canonical slot-hold record after concurrent acquire", async () => {
-  const bt = await createBookingType(makeValidBookingTypeInput({ timezone: "America/New_York" }));
+  const bt = await createBookedType();
   const now = new Date("2026-10-27T12:00:00.000Z");
   const slotKey = buildSlotKey(bt.id, SLOT_START);
 
-  await Promise.all([
-    acquireSlotHold({
-      bookingTypeId: bt.id,
-      startAt: SLOT_START,
-      endAt: SLOT_END,
-      ownerToken: "concurrent-1",
-      now,
-      ttlMinutes: 10,
-    }),
-    acquireSlotHold({
-      bookingTypeId: bt.id,
-      startAt: SLOT_START,
-      endAt: SLOT_END,
-      ownerToken: "concurrent-2",
-      now,
-      ttlMinutes: 10,
-    }),
-    acquireSlotHold({
-      bookingTypeId: bt.id,
-      startAt: SLOT_START,
-      endAt: SLOT_END,
-      ownerToken: "concurrent-3",
-      now,
-      ttlMinutes: 10,
-    }),
+  const results = await Promise.all([
+    acquireSlotHold({ bookingTypeId: bt.id, startAt: SLOT_START, now, ttlMinutes: 10 }),
+    acquireSlotHold({ bookingTypeId: bt.id, startAt: SLOT_START, now, ttlMinutes: 10 }),
+    acquireSlotHold({ bookingTypeId: bt.id, startAt: SLOT_START, now, ttlMinutes: 10 }),
   ]);
 
   const db = await getDb();
-  const holds = await db
-    .select()
-    .from(slotHolds)
-    .where(eq(slotHolds.slotKey, slotKey));
+  const holds = await db.select().from(slotHolds).where(eq(slotHolds.slotKey, slotKey));
   assert.equal(holds.length, 1, "exactly one canonical hold row must exist regardless of contention");
-  assert.ok(["concurrent-1", "concurrent-2", "concurrent-3"].includes(holds[0].ownerToken));
+  assert.equal(holds[0].status, "HELD");
+
+  // The winner is whichever acquire returned success; its server token matches
+  // the DB row, and losers did not receive it.
+  const winners = results.filter((r) => r.success);
+  assert.equal(winners.length, 1);
+  assert.equal(holds[0].ownerToken, winners[0].ownerToken);
+  for (const loser of results.filter((r) => !r.success)) {
+    assert.equal(loser.ownerToken, undefined);
+  }
 });
 
 // ---------------------------------------------------------------------------
@@ -774,205 +904,308 @@ test("SCHEDULING: database contains one canonical slot-hold record after concurr
 // ---------------------------------------------------------------------------
 
 test("SCHEDULING: previous owner cannot release after another owner reclaims", async () => {
-  const bt = await createBookingType(makeValidBookingTypeInput({ timezone: "America/New_York" }));
+  const bt = await createBookedType();
   const nowAcquire = new Date("2026-10-27T12:00:00.000Z");
   const slotKey = buildSlotKey(bt.id, SLOT_START);
 
-  // Owner A acquires (short TTL).
-  await acquireSlotHold({
-    bookingTypeId: bt.id,
-    startAt: SLOT_START,
-    endAt: SLOT_END,
-    ownerToken: "owner-A",
-    now: nowAcquire,
-    ttlMinutes: 1,
-  });
+  const a = await acquireSlotHold({ bookingTypeId: bt.id, startAt: SLOT_START, now: nowAcquire, ttlMinutes: 1 });
+  assert.ok(a.success);
 
   // Advance past expiry; Owner B reclaims.
   const nowAfter = new Date(nowAcquire.getTime() + 2 * 60_000);
-  await acquireSlotHold({
-    bookingTypeId: bt.id,
-    startAt: SLOT_START,
-    endAt: SLOT_END,
-    ownerToken: "owner-B",
-    now: nowAfter,
-    ttlMinutes: 10,
-  });
+  const b = await acquireSlotHold({ bookingTypeId: bt.id, startAt: SLOT_START, now: nowAfter, ttlMinutes: 10 });
+  assert.ok(b.success);
 
-  // Owner A (stale) tries to release — should be rejected.
+  // Owner A (stale token) tries to release — rejected.
   await assert.rejects(
-    releaseSlotHold(bt.id, SLOT_START, "owner-A", nowAfter),
+    releaseSlotHold(bt.id, SLOT_START, a.ownerToken!, nowAfter),
     /Only the current owner/,
   );
 
   // Verify the hold is still HELD by B (not RELEASED).
   const db = await getDb();
-  const holds = await db
-    .select()
-    .from(slotHolds)
-    .where(eq(slotHolds.slotKey, slotKey));
+  const holds = await db.select().from(slotHolds).where(eq(slotHolds.slotKey, slotKey));
   assert.equal(holds.length, 1);
-  assert.equal(holds[0].ownerToken, "owner-B");
+  assert.equal(holds[0].ownerToken, b.ownerToken);
   assert.equal(holds[0].status, "HELD");
 });
 
 test("SCHEDULING: previous owner cannot consume after another owner reclaims", async () => {
-  const bt = await createBookingType(makeValidBookingTypeInput({ timezone: "America/New_York" }));
+  const bt = await createBookedType();
   const nowAcquire = new Date("2026-10-27T12:00:00.000Z");
   const slotKey = buildSlotKey(bt.id, SLOT_START);
 
-  // Owner A acquires (short TTL).
-  await acquireSlotHold({
-    bookingTypeId: bt.id,
-    startAt: SLOT_START,
-    endAt: SLOT_END,
-    ownerToken: "owner-A",
-    now: nowAcquire,
-    ttlMinutes: 1,
-  });
+  const a = await acquireSlotHold({ bookingTypeId: bt.id, startAt: SLOT_START, now: nowAcquire, ttlMinutes: 1 });
+  assert.ok(a.success);
 
-  // Advance past expiry; Owner B reclaims.
   const nowAfter = new Date(nowAcquire.getTime() + 2 * 60_000);
-  await acquireSlotHold({
-    bookingTypeId: bt.id,
-    startAt: SLOT_START,
-    endAt: SLOT_END,
-    ownerToken: "owner-B",
-    now: nowAfter,
-    ttlMinutes: 10,
-  });
+  const b = await acquireSlotHold({ bookingTypeId: bt.id, startAt: SLOT_START, now: nowAfter, ttlMinutes: 10 });
+  assert.ok(b.success);
 
-  // Owner A (stale) tries to consume — should be rejected.
   await assert.rejects(
-    consumeSlotHold(bt.id, SLOT_START, "owner-A", nowAfter),
+    consumeSlotHold(bt.id, SLOT_START, a.ownerToken!, nowAfter),
     /Only the current owner/,
   );
 
-  // Verify the hold is still HELD by B (not CONSUMED).
   const db = await getDb();
-  const holds = await db
-    .select()
-    .from(slotHolds)
-    .where(eq(slotHolds.slotKey, slotKey));
+  const holds = await db.select().from(slotHolds).where(eq(slotHolds.slotKey, slotKey));
   assert.equal(holds.length, 1);
-  assert.equal(holds[0].ownerToken, "owner-B");
+  assert.equal(holds[0].ownerToken, b.ownerToken);
   assert.equal(holds[0].status, "HELD");
 });
 
 test("SCHEDULING: current owner can release", async () => {
-  const bt = await createBookingType(makeValidBookingTypeInput({ timezone: "America/New_York" }));
+  const bt = await createBookedType();
   const now = new Date("2026-10-27T12:00:00.000Z");
   const slotKey = buildSlotKey(bt.id, SLOT_START);
 
-  await acquireSlotHold({
-    bookingTypeId: bt.id,
-    startAt: SLOT_START,
-    endAt: SLOT_END,
-    ownerToken: "owner-A",
-    now,
-    ttlMinutes: 10,
-  });
+  const a = await acquireSlotHold({ bookingTypeId: bt.id, startAt: SLOT_START, now, ttlMinutes: 10 });
+  assert.ok(a.success);
 
-  // Current owner releases.
-  await releaseSlotHold(bt.id, SLOT_START, "owner-A", now);
+  await releaseSlotHold(bt.id, SLOT_START, a.ownerToken!, now);
 
-  // Verify the hold is now RELEASED.
   const db = await getDb();
-  const holds = await db
-    .select()
-    .from(slotHolds)
-    .where(eq(slotHolds.slotKey, slotKey));
+  const holds = await db.select().from(slotHolds).where(eq(slotHolds.slotKey, slotKey));
   assert.equal(holds.length, 1);
   assert.equal(holds[0].status, "RELEASED");
   assert.ok(holds[0].releasedAt !== null, "releasedAt should be set after release");
 });
 
 test("SCHEDULING: current owner can consume valid hold", async () => {
-  const bt = await createBookingType(makeValidBookingTypeInput({ timezone: "America/New_York" }));
+  const bt = await createBookedType();
   const now = new Date("2026-10-27T12:00:00.000Z");
 
-  await acquireSlotHold({
-    bookingTypeId: bt.id,
-    startAt: SLOT_START,
-    endAt: SLOT_END,
-    ownerToken: "owner-A",
-    now,
-    ttlMinutes: 10,
-  });
+  const a = await acquireSlotHold({ bookingTypeId: bt.id, startAt: SLOT_START, now, ttlMinutes: 10 });
+  assert.ok(a.success);
 
-  // Current owner consumes.
-  const consumed = await consumeSlotHold(bt.id, SLOT_START, "owner-A", now);
+  const consumed = await consumeSlotHold(bt.id, SLOT_START, a.ownerToken!, now);
   assert.ok(consumed);
   assert.equal(consumed!.status, "CONSUMED");
 
-  // Verify in DB.
   const db = await getDb();
-  const holds = await db
-    .select()
-    .from(slotHolds)
-    .where(eq(slotHolds.slotKey, buildSlotKey(bt.id, SLOT_START)));
+  const holds = await db.select().from(slotHolds).where(eq(slotHolds.slotKey, buildSlotKey(bt.id, SLOT_START)));
   assert.equal(holds.length, 1);
   assert.equal(holds[0].status, "CONSUMED");
   assert.ok(holds[0].consumedAt !== null);
 });
 
 test("SCHEDULING: expired hold cannot be consumed", async () => {
-  const bt = await createBookingType(makeValidBookingTypeInput({ timezone: "America/New_York" }));
+  const bt = await createBookedType();
   const nowAcquire = new Date("2026-10-27T12:00:00.000Z");
   const slotKey = buildSlotKey(bt.id, SLOT_START);
 
-  await acquireSlotHold({
-    bookingTypeId: bt.id,
-    startAt: SLOT_START,
-    endAt: SLOT_END,
-    ownerToken: "owner-A",
-    now: nowAcquire,
-    ttlMinutes: 1,
-  });
+  const a = await acquireSlotHold({ bookingTypeId: bt.id, startAt: SLOT_START, now: nowAcquire, ttlMinutes: 1 });
+  assert.ok(a.success);
 
-  // Advance past expiry.
   const nowAfter = new Date(nowAcquire.getTime() + 2 * 60_000);
-
-  await assert.rejects(
-    consumeSlotHold(bt.id, SLOT_START, "owner-A", nowAfter),
-    /expired/i,
-  );
+  await assert.rejects(consumeSlotHold(bt.id, SLOT_START, a.ownerToken!, nowAfter), /expired/i);
 
   // Verify still HELD (not CONSUMED).
   const db = await getDb();
-  const holds = await db
-    .select()
-    .from(slotHolds)
-    .where(eq(slotHolds.slotKey, slotKey));
+  const holds = await db.select().from(slotHolds).where(eq(slotHolds.slotKey, slotKey));
   assert.equal(holds[0].status, "HELD");
 });
 
 test("SCHEDULING: consumed slot cannot be reacquired", async () => {
-  const bt = await createBookingType(makeValidBookingTypeInput({ timezone: "America/New_York" }));
+  const bt = await createBookedType();
   const now = new Date("2026-10-27T12:00:00.000Z");
 
-  // Owner A acquires and consumes.
-  await acquireSlotHold({
-    bookingTypeId: bt.id,
-    startAt: SLOT_START,
-    endAt: SLOT_END,
-    ownerToken: "owner-A",
-    now,
-    ttlMinutes: 10,
-  });
-  await consumeSlotHold(bt.id, SLOT_START, "owner-A", now);
+  const a = await acquireSlotHold({ bookingTypeId: bt.id, startAt: SLOT_START, now, ttlMinutes: 10 });
+  assert.ok(a.success);
+  await consumeSlotHold(bt.id, SLOT_START, a.ownerToken!, now);
 
   // Even the same owner cannot re-acquire a consumed slot.
-  const result = await acquireSlotHold({
-    bookingTypeId: bt.id,
-    startAt: SLOT_START,
-    endAt: SLOT_END,
-    ownerToken: "owner-A",
-    now,
-    ttlMinutes: 10,
-  });
-  assert.ok(!result.success);
+  const result = await acquireSlotHold({ bookingTypeId: bt.id, startAt: SLOT_START, now, ttlMinutes: 10 });
+  assert.equal(result.success, false);
   assert.equal(result.reason, "CONSUMED");
+});
+
+test("SCHEDULING: expired hold can be reclaimed", async () => {
+  const bt = await createBookedType();
+  const nowAcquire = new Date("2026-10-27T12:00:00.000Z");
+  const slotKey = buildSlotKey(bt.id, SLOT_START);
+
+  const a = await acquireSlotHold({ bookingTypeId: bt.id, startAt: SLOT_START, now: nowAcquire, ttlMinutes: 1 });
+  assert.ok(a.success);
+
+  const nowAfter = new Date(nowAcquire.getTime() + 2 * 60_000);
+  const b = await acquireSlotHold({ bookingTypeId: bt.id, startAt: SLOT_START, now: nowAfter, ttlMinutes: 10 });
+  assert.ok(b.success, JSON.stringify(b));
+  assert.ok(TOKEN_RE.test(b.ownerToken ?? ""), "B should receive a server-generated token");
+  assert.notEqual(b.ownerToken, a.ownerToken, "reclaimer gets a fresh token, not the old one");
+
+  const db = await getDb();
+  const holds = await db.select().from(slotHolds).where(eq(slotHolds.slotKey, slotKey));
+  assert.equal(holds.length, 1);
+  assert.equal(holds[0].ownerToken, b.ownerToken);
+});
+
+// ---------------------------------------------------------------------------
+// (B) Ownership token is server-generated & unpredictable
+// ---------------------------------------------------------------------------
+
+test("SCHEDULING: (B) ownership token is server-generated and not derived from input", () => {
+  const t1 = generateOwnerToken();
+  const t2 = generateOwnerToken();
+  assert.ok(TOKEN_RE.test(t1));
+  assert.ok(TOKEN_RE.test(t2));
+  assert.notEqual(t1, t2, "tokens must be unpredictable per issuance");
+  assert.ok(!t1.includes("coach"), "token must not embed caller/booking data");
+});
+
+test("SCHEDULING: (B) acquired hold's token matches the server-issued token in the winner", async () => {
+  const bt = await createBookedType();
+  const now = new Date("2026-10-27T12:00:00.000Z");
+  const result = await acquireSlotHold({ bookingTypeId: bt.id, startAt: SLOT_START, now, ttlMinutes: 10 });
+  assert.ok(result.success);
+  const db = await getDb();
+  const row = await db.select().from(slotHolds).where(eq(slotHolds.slotKey, buildSlotKey(bt.id, SLOT_START))).get();
+  assert.equal(row!.ownerToken, result.ownerToken, "DB row token == server-issued winner token");
+});
+
+// ---------------------------------------------------------------------------
+// (I) Stale / forged owner token rejected on release & consume
+// ---------------------------------------------------------------------------
+
+test("SCHEDULING: (I) forged owner token is rejected on release and consume", async () => {
+  const bt = await createBookedType();
+  const now = new Date("2026-10-27T12:00:00.000Z");
+  await acquireSlotHold({ bookingTypeId: bt.id, startAt: SLOT_START, now, ttlMinutes: 10 });
+
+  await assert.rejects(releaseSlotHold(bt.id, SLOT_START, "forged-token", now), /Only the current owner/);
+  await assert.rejects(consumeSlotHold(bt.id, SLOT_START, "forged-token", now), /Only the current owner/);
+});
+
+test("SCHEDULING: (K) release/consume reject wrong-state with SchedulingProviderError", async () => {
+  const bt = await createBookedType();
+  const now = new Date("2026-10-27T12:00:00.000Z");
+  const a = await acquireSlotHold({ bookingTypeId: bt.id, startAt: SLOT_START, now, ttlMinutes: 10 });
+  assert.ok(a.success);
+
+  // Consume it, then releasing/consuming the consumed slot must throw a typed
+  // SchedulingProviderError (not a bare Error).
+  await consumeSlotHold(bt.id, SLOT_START, a.ownerToken!, now);
+
+  // release a CONSUMED hold -> WRONG_STATE
+  await assert.rejects(
+    releaseSlotHold(bt.id, SLOT_START, a.ownerToken!, now),
+    (err: unknown) => err instanceof SchedulingProviderError && /Cannot release a CONSUMED hold/.test(err.message),
+  );
+  // consume a CONSUMED hold -> idempotent (returns view, not throw). Covered
+  // separately by consumer re-consume semantics; here assert release typed error.
+
+  // Consume a RELEASED hold -> WRONG_STATE. Release, then consume the released.
+  const bt2 = await createBookedType();
+  const b = await acquireSlotHold({ bookingTypeId: bt2.id, startAt: SLOT_START, now, ttlMinutes: 10 });
+  assert.ok(b.success);
+  await releaseSlotHold(bt2.id, SLOT_START, b.ownerToken!, now);
+  await assert.rejects(
+    consumeSlotHold(bt2.id, SLOT_START, b.ownerToken!, now),
+    (err: unknown) => err instanceof SchedulingProviderError && /Cannot consume a RELEASED hold/.test(err.message),
+  );
+});
+
+// ---------------------------------------------------------------------------
+// (C) Boundary runtime validation of acquire / mutate inputs
+// ---------------------------------------------------------------------------
+
+test("SCHEDULING: (C) acquireSlotHoldSchema rejects invalid date and bad TTL", () => {
+  const base = { bookingTypeId: "bt_1", startAt: SLOT_START, now: new Date("2026-10-27T12:00:00.000Z"), ttlMinutes: 10 };
+  // invalid Date
+  const rBadDate = acquireSlotHoldSchema.safeParse({ ...base, startAt: new Date("not-a-date") });
+  assert.ok(!rBadDate.success);
+  // empty bookingTypeId
+  const rEmpty = acquireSlotHoldSchema.safeParse({ ...base, bookingTypeId: "   " });
+  assert.ok(!rEmpty.success);
+  // non-positive TTL
+  const rZero = acquireSlotHoldSchema.safeParse({ ...base, ttlMinutes: 0 });
+  assert.ok(!rZero.success);
+  const rNeg = acquireSlotHoldSchema.safeParse({ ...base, ttlMinutes: -5 });
+  assert.ok(!rNeg.success);
+});
+
+test("SCHEDULING: (C) acquireSlotHold throws ZodError on malformed input", async () => {
+  await assert.rejects(
+    acquireSlotHold({
+      bookingTypeId: "bt_1",
+      startAt: SLOT_START,
+      // @ts-expect-error — ttlMinutes is required and must be a positive int
+      ttlMinutes: "ten",
+      now: new Date("2026-10-27T12:00:00.000Z"),
+    }),
+    ZodError,
+  );
+});
+
+test("SCHEDULING: (C) mutateSlotHoldSchema rejects malformed input", () => {
+  const base = { bookingTypeId: "bt_1", startAt: SLOT_START, ownerToken: "token", now: new Date("2026-10-27T12:00:00.000Z") };
+  assert.ok(!mutateSlotHoldSchema.safeParse({ ...base, startAt: new Date("invalid") }).success);
+  assert.ok(!mutateSlotHoldSchema.safeParse({ ...base, ownerToken: "" }).success);
+  assert.ok(!mutateSlotHoldSchema.safeParse({ ...base, bookingTypeId: "" }).success);
+  assert.ok(!mutateSlotHoldSchema.safeParse({ ...base, now: new Date("invalid") }).success);
+});
+
+// ---------------------------------------------------------------------------
+// (H) Slug collision: throws (no silent merge / policy leak)
+// ---------------------------------------------------------------------------
+
+test("SCHEDULING: (H) duplicate slug throws a domain error naming the slug", async () => {
+  const slug = uniqueSlug("collision");
+  const first = await createBookingType(makeValidBookingTypeInput({ slug }));
+  assert.ok(first.id);
+
+  // Same slug, DIFFERENT policy (accessMode differs from FREE to PAID_SESSION).
+  let threw = false;
+  try {
+    await createBookingType(makeValidBookingTypeInput({ slug, accessMode: "PAID_SESSION" }));
+  } catch (e) {
+    threw = true;
+    assert.ok(String(e).includes(slug), "error must name the colliding slug");
+  }
+  assert.ok(threw, "duplicate slug must throw, not return the existing row");
+});
+
+test("SCHEDULING: (H) concurrent same-slug creation -> one winner, one duplicate error", async () => {
+  const slug = uniqueSlug("concurrent");
+  const results = await Promise.allSettled([
+    createBookingType(makeValidBookingTypeInput({ slug, accessMode: "FREE" })),
+    createBookingType(makeValidBookingTypeInput({ slug, accessMode: "PAID_SESSION" })),
+  ]);
+  const successes = results.filter((r) => r.status === "fulfilled");
+  const failures = results.filter((r) => r.status === "rejected");
+  assert.equal(successes.length, 1, "exactly one creator should win");
+  assert.equal(failures.length, 1, "exactly one creator should be rejected for duplicate slug");
+
+  // Winner is whatever resolved.
+  const winner = (successes[0] as PromiseFulfilledResult<BookingType>).value;
+  assert.equal(winner.slug, slug);
+
+  // The loser's rejection must mention the slug and must NOT yield the winner's
+  // policy to the loser.
+  const loserErr = (failures[0] as PromiseRejectedResult).reason as Error;
+  assert.ok(loserErr.message.includes(slug));
+  assert.notEqual(winner.accessMode, undefined);
+  // Both requested different policies; only the winner's is materialized.
+  assert.ok(winner.accessMode === "FREE" || winner.accessMode === "PAID_SESSION");
+});
+
+// ---------------------------------------------------------------------------
+// Additional: released slot can be reacquired by a different owner
+// ---------------------------------------------------------------------------
+
+test("SCHEDULING: released slot can be reacquired by a different owner", async () => {
+  const bt = await createBookedType();
+  const now = new Date("2026-10-27T12:00:00.000Z");
+
+  const a = await acquireSlotHold({ bookingTypeId: bt.id, startAt: SLOT_START, now, ttlMinutes: 10 });
+  assert.ok(a.success);
+  await releaseSlotHold(bt.id, SLOT_START, a.ownerToken!, now);
+
+  const b = await acquireSlotHold({ bookingTypeId: bt.id, startAt: SLOT_START, now, ttlMinutes: 10 });
+  assert.ok(b.success);
+  assert.ok(TOKEN_RE.test(b.ownerToken ?? ""), "re-acquirer receives a fresh server token");
+  assert.notEqual(b.ownerToken, a.ownerToken, "re-acquirer gets a distinct token");
+  assert.equal(b.hold!.status, "HELD");
 });
 
 // ---------------------------------------------------------------------------
@@ -1008,8 +1241,6 @@ test("SCHEDULING: unconfigured PaymentGateway fails closed", async () => {
 });
 
 test("SCHEDULING: no provider-specific type leaks into domain contract", () => {
-  // The CalendarProvider interface should not reference Google-specific types.
-  // We verify the contract shape compiles without any provider SDK types.
   const provider: CalendarProvider = {
     getFreeBusy: async () => [],
     createEvent: async () => ({ id: "evt_1", provider: "mock" }),
@@ -1021,7 +1252,6 @@ test("SCHEDULING: no provider-specific type leaks into domain contract", () => {
   assert.ok(typeof provider.cancelEvent === "function");
   assert.ok(typeof provider.updateEvent === "function");
 
-  // The PaymentGateway interface should not reference Stripe/Lemon Squeezy.
   const payment: PaymentGateway = {
     createCheckout: async () => ({ checkoutUrl: "https://example.com", checkoutId: "c_1" }),
     verifyCallback: async () => ({ verified: true, paid: true, checkoutId: "c_1" }),
@@ -1029,42 +1259,6 @@ test("SCHEDULING: no provider-specific type leaks into domain contract", () => {
   };
   assert.ok(typeof payment.createCheckout === "function");
 
-  // No provider-specific names in the contract surface.
   const contractSource = provider.toString();
   assert.ok(!contractSource.includes("google") && !contractSource.includes("stripe") && !contractSource.includes("lemon"));
-});
-
-// ---------------------------------------------------------------------------
-// Additional edge case: released slot can be reacquired by a different owner
-// ---------------------------------------------------------------------------
-
-test("SCHEDULING: released slot can be reacquired by a different owner", async () => {
-  const bt = await createBookingType(makeValidBookingTypeInput({ timezone: "America/New_York" }));
-  const now = new Date("2026-10-27T12:00:00.000Z");
-
-  // Owner A acquires.
-  await acquireSlotHold({
-    bookingTypeId: bt.id,
-    startAt: SLOT_START,
-    endAt: SLOT_END,
-    ownerToken: "owner-A",
-    now,
-    ttlMinutes: 10,
-  });
-
-  // Owner A releases.
-  await releaseSlotHold(bt.id, SLOT_START, "owner-A", now);
-
-  // Owner B reacquires the released slot.
-  const resultB = await acquireSlotHold({
-    bookingTypeId: bt.id,
-    startAt: SLOT_START,
-    endAt: SLOT_END,
-    ownerToken: "owner-B",
-    now,
-    ttlMinutes: 10,
-  });
-  assert.ok(resultB.success);
-  assert.equal(resultB.hold!.ownerToken, "owner-B");
-  assert.equal(resultB.hold!.status, "HELD");
 });

@@ -163,19 +163,30 @@ rather than stacking multiple rows per slot.
 All persisted instants (startAt, endAt, expiresAt, createdAt, updatedAt, etc.)
 are stored as UTC timestamps in D1.
 
-The booking type's `timezone` field (an IANA zone, validated at write time via
-`Intl.supportedValuesOf("timeZone")`) determines:
-
-- Local weekday matching against availability windows
-- Local opening/closing window boundaries (startMinute/endMinute = minutes after
-  local midnight in that zone)
+The booking type's `timezone` field is validated at write time. Validation first
+checks `Intl.supportedValuesOf("timeZone")` (canonical fast path) and then
+probes `Intl.DateTimeFormat` so platform-valid *aliases* (e.g. `UTC`,
+`Etc/UTC`) are accepted rather than rejected merely because they are absent from
+the canonical list. Bogus names (e.g. `Mars/Phobos`) throw `RangeError` in the
+probe and are rejected.
 
 No external date library is added. The implementation uses only platform
 `Intl` primitives (`Intl.DateTimeFormat` with `formatToParts`,
-`Intl.supportedValuesOf`, and `timeZoneName: "longOffset"`/`"shortOffset"` for
-DST-aware UTC offset resolution). `localTimeToUtc()` iteratively corrects for
-DST by resolving the wall-clock epoch against the per-instant offset, converging
-in at most 4 iterations.
+`Intl.supportedValuesOf`, and `timeZoneName: "longOffset"` / `"shortOffset"`
+for DST-aware UTC offset resolution).
+
+`localTimeToUtc()` converts a local wall-clock (reference date + local minutes)
+to its UTC instant with explicit DST semantics instead of the legacy "iterate the
+offset until it converges" approach:
+
+- **Normal local time** → exactly one valid UTC instant (round-trips to the same
+  wall-clock on the same local date).
+- **Nonexistent local time** (spring-forward gap, e.g. America/New_York
+  2026-03-08 02:30) → `NonexistentTimeError`; it is **not** silently mapped to
+  01:30, 03:30, or any other instant.
+- **Ambiguous local time** (fall-back overlap, e.g. 2026-11-01 01:30) → resolved
+  **deterministically** to the earlier UTC instant (the first / DST occurrence);
+  the policy is documented in code.
 
 ### Availability window policy
 
@@ -186,6 +197,17 @@ rejected (both by a pre-check SELECT and by the UNIQUE index backstop).
 
 Adjacent windows (e.g. 09:00–10:00 and 10:00–11:00) are NOT overlapping
 (half-open intervals: `[startMinute, endMinute)`).
+
+**DB-backed invariant (authoritative backstop):** `drizzle/migrations/0011_*.sql`
+adds a SQLite `BEFORE INSERT | UPDATE` trigger on `booking_availability_windows`
+that `RAISE(ABORT, …)` when a newly written window overlaps an existing one for
+the same booking type + weekday. Drizzle's SQLite dialect cannot express row
+triggers, so this is a hand-written custom migration rather than a declarative
+schema change — `drizzle-kit generate` reports "No schema changes, nothing to
+migrate" because the invariant lives in SQL, outside the declarative model.
+The trigger closes the read-then-write race two writers share when both pass the
+application pre-check SELECT and then both attempt to INSERT; under concurrent
+writes exactly one INSERT commits and the other is rolled back.
 
 ### Provider interfaces
 
@@ -215,29 +237,54 @@ No Google, Stripe, or Lemon Squeezy types appear in the domain contracts.
    mutate a newer lease.
 3. Two simultaneous `acquireSlotHold` calls produce exactly one winner and
    one loser (never two winners). The loser re-reads and returns the winner's
-   hold.
-4. Expired holds are reclaimed via atomic UPDATE (not INSERT), preserving the
+   hold — as a **safe view** that never carries the winner's `ownerToken`, so a
+   losing caller can never observe the lease secret.
+4. Expiry is derived (`status === "HELD" && expiresAt <= now`); expired holds
+   are reclaimed via atomic UPDATE (not INSERT), preserving the
    one-row-per-slot invariant.
+5. **Lease identity is server-generated.** `acquireSlotHold` does NOT accept an
+   `ownerToken` or `endAt` from the caller — both are derived server-side
+   (`generateOwnerToken()` uses the platform CSPRNG via `crypto.randomUUID()`;
+   `endAt = startAt + bookingType.durationMinutes`). The caller only ever
+   *presents* a previously-issued token to release or consume its own lease;
+   browser input can never choose or influence the authoritative lease token.
+6. **Authoritative acquisition.** `acquireSlotHold` loads the active booking
+   type, its windows, and resolves `startAt` against `generateCandidateSlots`
+   (single source of truth). A requested `startAt` that is not a valid
+   canonical slot (off-hours, non-aligned, outside notice/horizon, inactive
+   type) is rejected with `success: false, reason: "POLICY"` before any row is
+   written. The persisted `endAt` is always `startAt + duration`.
 
 ### Tests added
 
-`tests/mission-08-scheduling-core.test.ts` — 34 tests, all passing:
+`tests/mission-08-scheduling-core.test.ts` — 59 tests, all passing:
 
 | Area | Count |
 |---|---|
-| Booking type validation | 8 |
-| Availability windows | 4 |
+| Booking type validation + schema | 9 |
+| Availability windows (incl. DB trigger backstop) | 6 |
 | Canonical slot generation | 7 |
-| Hold acquisition | 4 |
+| Hold acquisition (policy-enforced) | 6 |
+| Ownership-token leak / server-generated token | 6 |
 | Concurrency | 2 |
-| Stale-owner protection | 6 |
+| Stale-owner / forged-token protection | 4 |
+| DST / IANA (nonexistent, ambiguous, alias) | 4 |
+| Boundary runtime validation | 3 |
+| Slug collision (no silent merge) | 2 |
 | Provider contracts | 2 |
-| Additional edge cases | 1 |
 
-### Migration
+The local D1 is reset of scheduling rows at suite start so fixed-collision and
+trigger tests are deterministic across repeated `tsx` runs.
 
-`drizzle/migrations/0010_old_nuke.sql` — generated via `npm run db:generate`.
-Second run confirms: "No schema changes, nothing to migrate."
+### Migrations
+
+- `drizzle/migrations/0010_old_nuke.sql` — generated via `npm run db:generate`.
+- `drizzle/migrations/0011_booking_window_overlap_trigger.sql` — hand-written
+  custom migration; `CREATE TRIGGER IF NOT EXISTS` (BEFORE INSERT | UPDATE on
+  `booking_availability_windows`). Idempotent: `migrateLocalDb` tolerates
+  `already exists` on re-runs. `drizzle-kit generate` reports
+  "No schema changes, nothing to migrate" — triggers live outside the declarative
+  schema.
 
 ### Deferred scope (not built in this slice)
 

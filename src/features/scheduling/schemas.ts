@@ -2,18 +2,28 @@
 // SCHEDULING ZOD SCHEMAS (Mission 08.1)
 // ----------------------------------------------------------------------------
 // Runtime validation schemas for scheduling domain inputs. These are used by
-// the policy/service layer before any DB interaction, so invalid configuration
+// the policy/service layer BEFORE any DB interaction, so invalid configuration
 // is rejected at the boundary.
 // ============================================================================
 
 import { z } from "zod";
 import { isValidIanaTimezone } from "./time";
 
+// A Date that is actually valid. z.date() accepts a Date object but also
+// accepts an `Invalid Date` (NaN), which we must reject at the boundary so
+// malformed wall-clock input cannot silently corrupt scheduling arithmetic.
+const validDate = z.date().refine((d) => !Number.isNaN(d.getTime()), {
+  message: "Invalid date.",
+});
+
 /**
  * IANA timezone validator. Uses platform Intl support — no external deps.
+ * Accepts canonical IANA identifiers AND platform-valid aliases (e.g. "UTC")
+ * so that a valid timezone is never rejected merely because
+ * `Intl.supportedValuesOf("timeZone")` omits its alias form.
  */
 export const IANAtimezoneSchema = z.string().refine(
-  (val) => isValidIanaTimezone(val),
+  (val): boolean => isValidIanaTimezone(val),
   { message: "Must be a valid IANA timezone (e.g. \"Europe/London\", \"Asia/Gaza\")." },
 );
 
@@ -28,13 +38,21 @@ export const meetingMethodSchema = z.enum([
 ]);
 
 /**
- * Input schema for creating a booking type. All fields are explicitly provided
- * (no silent defaults) so the caller must make policy decisions consciously.
+ * Input schema for creating a booking type. Policy-critical fields
+ * (confirmationPolicy, accessMode, meetingMethod, attendeeLimit) are REQUIRED:
+ * the application layer refuses silent defaults so the caller makes every
+ * policy decision consciously. DB-level defaults remain only as a defensive
+ * last line of defense.
  */
 export const createBookingTypeSchema = z.object({
-  slug: z.string().trim().min(1).max(120).regex(/^[a-z0-9-]+$/i, {
-    message: "Slug must contain only letters, numbers, and hyphens.",
-  }),
+  slug: z
+    .string()
+    .trim()
+    .min(1)
+    .max(120)
+    .regex(/^[a-z0-9-]+$/i, {
+      message: "Slug must contain only letters, numbers, and hyphens.",
+    }),
   title: z.string().trim().min(1).max(200),
   description: z.string().trim().max(2000).nullable().optional(),
   durationMinutes: z.number().int().positive(),
@@ -43,10 +61,10 @@ export const createBookingTypeSchema = z.object({
   minimumNoticeMinutes: z.number().int().nonnegative(),
   bookingHorizonDays: z.number().int().positive(),
   timezone: IANAtimezoneSchema,
-  confirmationPolicy: confirmationPolicySchema.optional(),
-  accessMode: bookingAccessModeSchema.optional(),
-  meetingMethod: meetingMethodSchema.optional(),
-  attendeeLimit: z.number().int().min(1).optional(),
+  confirmationPolicy: confirmationPolicySchema,
+  accessMode: bookingAccessModeSchema,
+  meetingMethod: meetingMethodSchema,
+  attendeeLimit: z.number().int().min(1),
 });
 
 /**
@@ -72,25 +90,32 @@ export const createAvailabilityWindowSchema = z
   });
 
 /**
- * Input schema for acquiring a slot hold.
+ * Input schema for ACQUIRING a slot hold.
+ *
+ * NOTE: there is intentionally NO `ownerToken` and NO `endAt` field.
+ *  - endAt is derived from the booking type's `durationMinutes` (see D.4).
+ *  - ownerToken is generated SERVER-SIDE via crypto.randomUUID() and returned
+ *    ONLY to the winning acquirer (see generateOwnerToken + holds.ts).
+ *  - The caller cannot choose the authoritative lease token, the slot
+ *    duration, or a wall-clock time outside the booking type's policy.
  */
 export const acquireSlotHoldSchema = z.object({
   bookingTypeId: z.string().trim().min(1),
-  startAt: z.date(),
-  endAt: z.date(),
-  ownerToken: z.string().trim().min(1),
-  now: z.date(),
+  startAt: validDate,
+  now: validDate,
   ttlMinutes: z.number().int().positive(),
 });
 
 /**
- * Input schema for releasing/consuming a slot hold.
+ * Input schema for releasing/consuming a slot hold. The caller presents the
+ * server-generated ownerToken they received on acquisition — this is the
+ * ownership-proving capability, NOT a value the browser gets to author.
  */
 export const mutateSlotHoldSchema = z.object({
   bookingTypeId: z.string().trim().min(1),
-  startAt: z.date(),
+  startAt: validDate,
   ownerToken: z.string().trim().min(1),
-  now: z.date(),
+  now: validDate,
 });
 
 // Type helpers — kept in sync with the schemas above.

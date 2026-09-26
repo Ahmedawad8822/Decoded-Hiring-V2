@@ -33,8 +33,11 @@ function newId(prefix: string): string {
 
 /**
  * Create a booking type. Rejects if the slug is already taken.
- * On a lost UNIQUE race (two concurrent inserts with the same slug),
- * returns the existing booking type.
+ *
+ * (H) On a lost UNIQUE(slug) race (two concurrent inserts with the same slug),
+ * the request is REJECTED with a clear domain error rather than silently
+ * returning the existing row. This guarantees a losing caller can never observe
+ * (or accidentally adopt) the winner's policy configuration.
  */
 export async function createBookingType(data: CreateBookingTypeInput): Promise<BookingType> {
   const parsed = createBookingTypeSchema.parse(data);
@@ -64,13 +67,10 @@ export async function createBookingType(data: CreateBookingTypeInput): Promise<B
     });
   } catch (error: unknown) {
     if (isUniqueConstraintError(error)) {
-      const existing = await db
-        .select()
-        .from(bookingTypes)
-        .where(eq(bookingTypes.slug, parsed.slug))
-        .get();
-      if (existing) return existing;
-      throw new Error(`Slug "${parsed.slug}" uniqueness violated but no row found on re-read.`);
+      // (H) Slug collision — reject explicitly, naming the slug. We deliberately
+      // do NOT return the existing row so a losing caller cannot observe the
+      // winner's policy.
+      throw new Error(`Booking type with slug "${parsed.slug}" already exists.`);
     }
     throw error;
   }

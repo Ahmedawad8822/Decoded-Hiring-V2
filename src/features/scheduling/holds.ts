@@ -10,15 +10,37 @@
 //     row is replaced rather than stacked.
 //   - All write mutations use CAS conditions (ownerToken + status + expiresAt)
 //     so a stale owner cannot mutate a newer lease.
-// ============================================================================
+//
+// SECURITY MODEL (Mission 08.1 remediation):
+//   - The ownership secret (ownerToken) is ALWAYS server-generated
+//     (generateOwnerToken). Browser input never chooses the authoritative
+//     lease token.
+//   - The `hold` exposed in every result is a SafeHoldView: it NEVER carries
+//     ownerToken. ownerToken is returned to the caller ONLY on a successful
+//     acquisition, and only so the winner can later release/consume its own
+//     lease. A losing caller never observes another owner's token.
+//   - Acquisition is authoritative: startAt/endAt/slotKey are derived from the
+//     booking type's policy server-side; caller-supplied wall-clock values are
+//     validated against the canonical slot set rather than trusted.
+// ====================================================================
 
 import { and, eq, gt } from "drizzle-orm";
 import { getDb } from "@/lib/db";
 import { slotHolds } from "@/lib/db";
 import { isUniqueConstraintError } from "@/lib/db/sqlite-errors";
-import { buildSlotKey } from "./availability";
-import type { SlotHold, SlotHoldLike, AcquireHoldResult } from "./types";
+import { buildSlotKey, generateCandidateSlots } from "./availability";
+import { getBookingTypeById, getBookingTypeWindows } from "./policy";
+import { SchedulingProviderError } from "./providers";
+import { acquireSlotHoldSchema, mutateSlotHoldSchema } from "./schemas";
 import type { AcquireSlotHoldInput } from "./schemas";
+import type {
+  SlotHold,
+  SlotHoldLike,
+  SafeHoldView,
+  AcquireHoldResult,
+  CanonicalSlot,
+} from "./types";
+import type { BookingType, BookingAvailabilityWindow } from "@/lib/db";
 
 const MS_PER_MINUTE = 60_000;
 
@@ -27,31 +49,137 @@ function newId(prefix: string): string {
 }
 
 /**
+ * Generate a server-side, cryptographically-random ownership token for a slot
+ * lease. Uses the platform CSPRNG via `crypto.randomUUID()` (UUID v4, ~122 bits
+ * of entropy) prefixed with a domain marker.
+ *
+ * The token is NOT derived from the booking type, the caller, a timestamp, or
+ * the slot key — it is opaque and unguessable, which is what makes it a sound
+ * lease identity.
+ *
+ * FUTURE PUBLIC-ACTION RULE: browser input must never choose or influence the
+ * authoritative lease token. Acquisition always calls this server-side and
+ * delivers the resulting secret ONLY to the winning acquirer. A browser may
+ * only PRESENT a previously-issued token to release/consume its own lease.
+ */
+export function generateOwnerToken(): string {
+  return `hold_${crypto.randomUUID()}`;
+}
+
+/** Convert a DB row into the public, token-free safe view. */
+export function safeView(hold: SlotHold): SafeHoldView {
+  return {
+    id: hold.id,
+    bookingTypeId: hold.bookingTypeId,
+    slotKey: hold.slotKey,
+    startAt: hold.startAt,
+    endAt: hold.endAt,
+    status: hold.status,
+    expiresAt: hold.expiresAt,
+    consumedAt: hold.consumedAt,
+    releasedAt: hold.releasedAt,
+  };
+}
+
+/**
+ * Resolve a requested startAt into the canonical slot it corresponds to under
+ * the booking type's policy. generateCandidateSlots is the single source of
+ * truth for "what is a valid slot" (within-window, duration-aligned, within
+ * notice/horizon, correct local weekday, DST-safe). We then require an exact
+ * match between the requested startAt and a generated candidate.
+ *
+ * Returns the canonical { startAt, endAt, slotKey } — with endAt derived from
+ * the booking type's duration (caller cannot influence endAt) — or null if the
+ * requested startAt is not a valid canonical slot.
+ */
+async function resolveCanonicalSlot(
+  bookingType: BookingType,
+  windows: BookingAvailabilityWindow[],
+  requestedStartAt: Date,
+  now: Date,
+): Promise<CanonicalSlot | null> {
+  const rangeStart = new Date(requestedStartAt);
+  const rangeEnd = new Date(
+    requestedStartAt.getTime() + bookingType.durationMinutes * MS_PER_MINUTE,
+  );
+  const candidates = generateCandidateSlots({
+    bookingType,
+    windows,
+    rangeStart,
+    rangeEnd,
+    now,
+  });
+  return (
+    candidates.find(
+      (c) => c.startAt.getTime() === requestedStartAt.getTime(),
+    ) ?? null
+  );
+}
+
+/**
  * Acquire (or re-acquire) a lease on a canonical slot.
  *
- * CASE A — slot does not exist → INSERT a new HELD row (owner wins).
- *   On UNIQUE race (two callers INSERT simultaneously): the loser re-reads
- *   and returns the winner's hold as unavailable.
+ * CASE A — slot does not exist -> INSERT a new HELD row (owner wins).
+ *   On UNIQUE(slotKey) race (two callers INSERT simultaneously): the loser
+ *   re-reads and returns the winner's hold as unavailable.
  *
- * CASE B — HELD + unexpired + SAME owner → idempotent return (no TTL extend).
+ * CASE B was removed: idempotency for the same owner required the browser to
+ *   identify itself, which conflicts with the "server generates the lease
+ *   token" rule. A caller without the server-issued token is treated as a
+ *   different owner; the legitimate owner instead uses the token returned at
+ *   acquisition to release/consume.
  *
- * CASE C — HELD + unexpired + DIFFERENT owner → reject (TAKEN).
+ * CASE C — HELD + unexpired + different owner -> reject (TAKEN).
+ * CASE D — HELD + expired -> atomic reclaim via CAS UPDATE.
+ * CASE E — RELEASED -> atomic re-acquire via CAS UPDATE.
+ * CASE F — CONSUMED -> reject (CONSUMED).
  *
- * CASE D — HELD + expired → atomic reclaim via CAS UPDATE.
- *
- * CASE E — RELEASED → atomic re-acquire via CAS UPDATE.
- *
- * CASE F — CONSUMED → reject (CONSUMED).
+ * The returned `hold` is a SafeHoldView (never carries ownerToken). The
+ * server-generated `ownerToken` is returned ONLY when success === true.
  */
 export async function acquireSlotHold(
   input: AcquireSlotHoldInput,
 ): Promise<AcquireHoldResult> {
-  const { bookingTypeId, startAt, endAt, ownerToken, now, ttlMinutes } = input;
+  // (C) Runtime validation at the boundary.
+  const parsed = acquireSlotHoldSchema.parse(input);
+  const { bookingTypeId, startAt, now, ttlMinutes } = parsed;
+
   const db = await getDb();
-  const slotKey = buildSlotKey(bookingTypeId, startAt);
+
+  // (D) Authoritative acquisition: enforce scheduling policy server-side.
+  const bookingType = await getBookingTypeById(bookingTypeId);
+  if (!bookingType) {
+    return {
+      success: false,
+      reason: "UNAVAILABLE",
+      error: `Booking type not found: ${bookingTypeId}.`,
+    };
+  }
+  if (!bookingType.active) {
+    return {
+      success: false,
+      reason: "POLICY",
+      error: "Booking type is inactive; slots cannot be acquired.",
+    };
+  }
+
+  const windows = await getBookingTypeWindows(bookingTypeId);
+  const canonical = await resolveCanonicalSlot(bookingType, windows, startAt, now);
+  if (!canonical) {
+    return {
+      success: false,
+      reason: "POLICY",
+      error:
+        "Requested startAt is not a valid canonical slot under this booking type's availability policy (off-hours, non-aligned time, or outside notice/horizon).",
+    };
+  }
+
+  const { startAt: canonicalStart, endAt: canonicalEnd, slotKey } = canonical;
+  // (B) Server-generated ownership secret — never sourced from caller input.
+  const ownerToken = generateOwnerToken();
   const expiresAt = new Date(now.getTime() + ttlMinutes * MS_PER_MINUTE);
 
-  // 1. Read existing hold for this slot key (if any).
+  // CASE A / race / CAS — keyed on the canonical slot.
   const existing = await db
     .select()
     .from(slotHolds)
@@ -66,8 +194,8 @@ export async function acquireSlotHold(
         id,
         bookingTypeId,
         slotKey,
-        startAt,
-        endAt,
+        startAt: canonicalStart,
+        endAt: canonicalEnd,
         ownerToken,
         status: "HELD" as const,
         expiresAt,
@@ -83,58 +211,74 @@ export async function acquireSlotHold(
           .where(eq(slotHolds.slotKey, slotKey))
           .get();
         if (winner) {
-          return {
-            success: false,
-            hold: toHoldLike(winner),
-            reason: classifyUnavailable(winner),
-          };
+          // (A) Loser gets a SAFE view only — never the winner's ownerToken.
+          return classifyUnavailableHold(winner);
         }
-        throw new Error("Slot hold unique constraint violation but row not found on re-read.");
+        throw new Error(
+          "Slot hold unique constraint violation but row not found on re-read.",
+        );
       }
       throw error;
     }
+
     const created = await db
       .select()
       .from(slotHolds)
       .where(eq(slotHolds.slotKey, slotKey))
       .get();
-    return { success: true, hold: toHoldLike(created!) };
+    return { success: true, hold: safeView(created!), ownerToken }; // token only to winner
   }
 
   // Existing hold — classify by state.
-  const isHeldUnexpired = existing.status === "HELD" && existing.expiresAt > now;
-
-  // CASE F — consumed: terminal state, cannot be acquired.
   if (existing.status === "CONSUMED") {
-    return { success: false, hold: toHoldLike(existing), reason: "CONSUMED" };
+    return classifyUnavailableHold(existing);
   }
-
-  // CASE B — HELD + unexpired + SAME owner → idempotent return (no TTL extend).
-  if (existing.status === "HELD" && isHeldUnexpired && existing.ownerToken === ownerToken) {
-    return { success: true, hold: toHoldLike(existing) };
-  }
-
-  // CASE B (expired, same owner) — same owner reclaiming their own expired lease.
-  if (existing.status === "HELD" && !isHeldUnexpired && existing.ownerToken === ownerToken) {
-    return reclaimSlot(existing, ownerToken, bookingTypeId, slotKey, startAt, endAt, expiresAt, now, db);
-  }
-
-  // CASE C — HELD + unexpired + DIFFERENT owner → reject.
+  const isHeldUnexpired = existing.status === "HELD" && existing.expiresAt > now;
   if (isHeldUnexpired) {
-    return { success: false, hold: toHoldLike(existing), reason: "TAKEN" };
+    // CASE C — held + unexpired + unknown/different owner -> reject.
+    return classifyUnavailableHold(existing);
   }
+  // CASE D (expired HELD) or CASE E (RELEASED) — reclaim via CAS UPDATE.
+  // Any caller may reclaim an expired or released lease.
+  return reclaimSlot(
+    existing,
+    ownerToken,
+    bookingTypeId,
+    slotKey,
+    canonicalStart,
+    canonicalEnd,
+    expiresAt,
+    now,
+    db,
+  );
+}
 
-  // CASE D (expired, different owner) or CASE E (RELEASED) — reclaim via CAS.
-  return reclaimSlot(existing, ownerToken, bookingTypeId, slotKey, startAt, endAt, expiresAt, now, db);
+/**
+ * Classify an existing hold during acquire/reclaim-reread as unavailable.
+ * ALWAYS returns a SafeHoldView (no ownerToken) so a losing caller can never
+ * observe the current owner's lease secret.
+ */
+function classifyUnavailableHold(hold: SlotHold): AcquireHoldResult {
+  const reason: "TAKEN" | "CONSUMED" =
+    hold.status === "CONSUMED" ? "CONSUMED" : "TAKEN";
+  return {
+    success: false,
+    hold: safeView(hold),
+    reason,
+    error:
+      reason === "CONSUMED"
+        ? "Slot is already consumed and cannot be acquired."
+        : "Slot is already held by another owner.",
+  };
 }
 
 /**
  * Atomically reclaim a slot via CAS UPDATE.
  *
  * The WHERE clause locks on (slotKey, ownerToken, status, expiresAt) so that
- * if any of those changed since the read (e.g. another caller won a race,
- * or the owner already re-acquired), the UPDATE affects 0 rows and we fall
- * back to a re-read + classify.
+ * if any of those changed since the read (e.g. another caller won a race, or
+ * the owner already re-acquired), the UPDATE affects 0 rows and we fall back
+ * to a re-read + classify.
  */
 async function reclaimSlot(
   existing: SlotHold,
@@ -169,7 +313,7 @@ async function reclaimSlot(
     .get();
 
   if (updated) {
-    return { success: true, hold: toHoldLike(updated) };
+    return { success: true, hold: safeView(updated), ownerToken: newOwnerToken };
   }
 
   // CAS lost — re-read and classify the current state.
@@ -203,13 +347,11 @@ async function reclaimSlot(
           .where(eq(slotHolds.slotKey, slotKey))
           .get();
         if (winner) {
-          return {
-            success: false,
-            hold: toHoldLike(winner),
-            reason: classifyUnavailable(winner),
-          };
+          return classifyUnavailableHold(winner);
         }
-        throw new Error("Slot hold unique constraint violation but row not found on re-read.");
+        throw new Error(
+          "Slot hold unique constraint violation but row not found on re-read.",
+        );
       }
       throw error;
     }
@@ -218,51 +360,10 @@ async function reclaimSlot(
       .from(slotHolds)
       .where(eq(slotHolds.slotKey, slotKey))
       .get();
-    return { success: true, hold: toHoldLike(created!) };
+    return { success: true, hold: safeView(created!), ownerToken: newOwnerToken };
   }
 
-  return classifyHoldForAcquire(reread, newOwnerToken, now);
-}
-
-/**
- * Classify an existing hold during acquire, given the requester's ownerToken.
- */
-function classifyHoldForAcquire(
-  hold: SlotHold,
-  ownerToken: string,
-  now: Date,
-): AcquireHoldResult {
-  if (hold.status === "CONSUMED") {
-    return { success: false, hold: toHoldLike(hold), reason: "CONSUMED" };
-  }
-  if (hold.status === "HELD" && hold.expiresAt > now) {
-    if (hold.ownerToken === ownerToken) {
-      return { success: true, hold: toHoldLike(hold) };
-    }
-    return { success: false, hold: toHoldLike(hold), reason: "TAKEN" };
-  }
-  // expired HELD or RELEASED by this point — CAS should have succeeded;
-  // if we're here via reclassify, treat as TAKEN (safe fallback).
-  return { success: false, hold: toHoldLike(hold), reason: "TAKEN" };
-}
-
-function classifyUnavailable(hold: SlotHold): "TAKEN" | "CONSUMED" {
-  return hold.status === "CONSUMED" ? "CONSUMED" : "TAKEN";
-}
-
-function toHoldLike(hold: SlotHold): SlotHoldLike {
-  return {
-    id: hold.id,
-    bookingTypeId: hold.bookingTypeId,
-    slotKey: hold.slotKey,
-    startAt: hold.startAt,
-    endAt: hold.endAt,
-    ownerToken: hold.ownerToken,
-    status: hold.status,
-    expiresAt: hold.expiresAt,
-    consumedAt: hold.consumedAt,
-    releasedAt: hold.releasedAt,
-  };
+  return classifyUnavailableHold(reread);
 }
 
 /**
@@ -278,8 +379,15 @@ export async function releaseSlotHold(
   ownerToken: string,
   now: Date,
 ): Promise<void> {
+  // (C) Runtime validation at the boundary.
+  const parsed = mutateSlotHoldSchema.parse({
+    bookingTypeId,
+    startAt,
+    ownerToken,
+    now,
+  });
   const db = await getDb();
-  const slotKey = buildSlotKey(bookingTypeId, startAt);
+  const slotKey = buildSlotKey(parsed.bookingTypeId, parsed.startAt);
 
   const existing = await db
     .select()
@@ -288,31 +396,40 @@ export async function releaseSlotHold(
     .get();
 
   if (!existing) {
-    throw new Error("Slot hold not found.");
+    throw new SchedulingProviderError("Slot hold not found.", "HOLD_NOT_FOUND");
   }
-  if (existing.ownerToken !== ownerToken) {
-    throw new Error("Only the current owner can release this hold.");
+  if (existing.ownerToken !== parsed.ownerToken) {
+    throw new SchedulingProviderError(
+      "Only the current owner can release this hold.",
+      "NOT_OWNER",
+    );
   }
   if (existing.status !== "HELD") {
-    throw new Error(`Cannot release a ${existing.status} hold.`);
+    throw new SchedulingProviderError(
+      `Cannot release a ${existing.status} hold.`,
+      "WRONG_STATE",
+    );
   }
-  if (existing.expiresAt <= now) {
-    throw new Error("Hold has expired; cannot release an expired lease.");
+  if (existing.expiresAt <= parsed.now) {
+    throw new SchedulingProviderError(
+      "Hold has expired; cannot release an expired lease.",
+      "EXPIRED",
+    );
   }
 
   const updated = await db
     .update(slotHolds)
     .set({
       status: "RELEASED" as const,
-      releasedAt: now,
-      updatedAt: now,
+      releasedAt: parsed.now,
+      updatedAt: parsed.now,
     })
     .where(
       and(
         eq(slotHolds.slotKey, slotKey),
-        eq(slotHolds.ownerToken, ownerToken),
+        eq(slotHolds.ownerToken, parsed.ownerToken),
         eq(slotHolds.status, "HELD"),
-        gt(slotHolds.expiresAt, now),
+        gt(slotHolds.expiresAt, parsed.now),
         eq(slotHolds.expiresAt, existing.expiresAt),
       ),
     )
@@ -320,45 +437,53 @@ export async function releaseSlotHold(
     .get();
 
   if (!updated) {
-    // CAS lost — re-read to give a precise error.
+    // CAS lost — re-read to give a precise, consistent error.
     const reread = await db
       .select()
       .from(slotHolds)
       .where(eq(slotHolds.slotKey, slotKey))
       .get();
-    if (!reread) throw new Error("Slot hold was deleted before release could complete.");
-    if (reread.ownerToken !== ownerToken) {
-      throw new Error("Only the current owner can release this hold.");
+    if (!reread) {
+      throw new SchedulingProviderError("Slot hold was deleted before release could complete.", "HOLD_NOT_FOUND");
+    }
+    if (reread.ownerToken !== parsed.ownerToken) {
+      throw new SchedulingProviderError("Only the current owner can release this hold.", "NOT_OWNER");
     }
     if (reread.status !== "HELD") {
-      throw new Error(`Cannot release a ${reread.status} hold.`);
+      throw new SchedulingProviderError(`Cannot release a ${reread.status} hold.`, "WRONG_STATE");
     }
-    if (reread.expiresAt <= now) {
-      throw new Error("Hold has expired; cannot release an expired lease.");
+    if (reread.expiresAt <= parsed.now) {
+      throw new SchedulingProviderError("Hold has expired; cannot release an expired lease.", "EXPIRED");
     }
-    throw new Error("Release failed: concurrent modification detected.");
+    throw new SchedulingProviderError("Release failed: concurrent modification detected.", "CONCURRENT_MODIFICATION");
   }
 }
 
 /**
- * Consume a hold lease (transitions HELD → CONSUMED).
+ * Consume a hold lease (HELD -> CONSUMED).
  *
  * Rules:
  * - Hold must be unexpired (expiresAt > now).
  * - Exact current owner token required (CAS on ownerToken).
  * - Stale owner cannot consume (CAS fails).
  * - RELEASED cannot be consumed (status check).
- * - CONSUMED by same owner is idempotent (re-CAS succeeds with 0 rows if
- *   already consumed, so we re-read and return success for same owner).
+ * - CONSUMED by same owner is idempotent (re-CAS succeeds with 0 rows).
  */
 export async function consumeSlotHold(
   bookingTypeId: string,
   startAt: Date,
   ownerToken: string,
   now: Date,
-): Promise<SlotHoldLike | null> {
+): Promise<SafeHoldView | null> {
+  // (C) Runtime validation at the boundary.
+  const parsed = mutateSlotHoldSchema.parse({
+    bookingTypeId,
+    startAt,
+    ownerToken,
+    now,
+  });
   const db = await getDb();
-  const slotKey = buildSlotKey(bookingTypeId, startAt);
+  const slotKey = buildSlotKey(parsed.bookingTypeId, parsed.startAt);
 
   const existing = await db
     .select()
@@ -367,35 +492,41 @@ export async function consumeSlotHold(
     .get();
 
   if (!existing) {
-    throw new Error("Slot hold not found.");
+    throw new SchedulingProviderError("Slot hold not found.", "HOLD_NOT_FOUND");
   }
-  if (existing.ownerToken !== ownerToken) {
-    throw new Error("Only the current owner can consume this hold.");
+  if (existing.ownerToken !== parsed.ownerToken) {
+    throw new SchedulingProviderError(
+      "Only the current owner can consume this hold.",
+      "NOT_OWNER",
+    );
   }
   if (existing.status === "RELEASED") {
-    throw new Error("Cannot consume a RELEASED hold.");
+    throw new SchedulingProviderError("Cannot consume a RELEASED hold.", "WRONG_STATE");
   }
   if (existing.status === "CONSUMED") {
     // Idempotent re-consume by the same owner.
-    return toHoldLike(existing);
+    return safeView(existing);
   }
-  if (existing.expiresAt <= now) {
-    throw new Error("Hold has expired; cannot consume an expired lease.");
+  if (existing.expiresAt <= parsed.now) {
+    throw new SchedulingProviderError(
+      "Hold has expired; cannot consume an expired lease.",
+      "EXPIRED",
+    );
   }
 
   const updated = await db
     .update(slotHolds)
     .set({
       status: "CONSUMED" as const,
-      consumedAt: now,
-      updatedAt: now,
+      consumedAt: parsed.now,
+      updatedAt: parsed.now,
     })
     .where(
       and(
         eq(slotHolds.slotKey, slotKey),
-        eq(slotHolds.ownerToken, ownerToken),
+        eq(slotHolds.ownerToken, parsed.ownerToken),
         eq(slotHolds.status, "HELD"),
-        gt(slotHolds.expiresAt, now),
+        gt(slotHolds.expiresAt, parsed.now),
         eq(slotHolds.expiresAt, existing.expiresAt),
       ),
     )
@@ -403,7 +534,7 @@ export async function consumeSlotHold(
     .get();
 
   if (updated) {
-    return toHoldLike(updated);
+    return safeView(updated);
   }
 
   // CAS lost — re-read to classify.
@@ -412,18 +543,23 @@ export async function consumeSlotHold(
     .from(slotHolds)
     .where(eq(slotHolds.slotKey, slotKey))
     .get();
-  if (!reread) throw new Error("Slot hold was deleted before consume could complete.");
-  if (reread.ownerToken !== ownerToken) {
-    throw new Error("Only the current owner can consume this hold.");
+  if (!reread) {
+    throw new SchedulingProviderError("Slot hold was deleted before consume could complete.", "HOLD_NOT_FOUND");
+  }
+  if (reread.ownerToken !== parsed.ownerToken) {
+    throw new SchedulingProviderError("Only the current owner can consume this hold.", "NOT_OWNER");
   }
   if (reread.status === "RELEASED") {
-    throw new Error("Cannot consume a RELEASED hold.");
+    throw new SchedulingProviderError("Cannot consume a RELEASED hold.", "WRONG_STATE");
   }
   if (reread.status === "CONSUMED") {
-    return toHoldLike(reread);
+    return safeView(reread);
   }
-  if (reread.expiresAt <= now) {
-    throw new Error("Hold has expired; cannot consume an expired lease.");
+  if (reread.expiresAt <= parsed.now) {
+    throw new SchedulingProviderError("Hold has expired; cannot consume an expired lease.", "EXPIRED");
   }
-  throw new Error("Consume failed: concurrent modification detected.");
+  throw new SchedulingProviderError("Consume failed: concurrent modification detected.", "CONCURRENT_MODIFICATION");
 }
+
+// Re-exported for tests/seams: the token generator that acquisition relies on.
+export { type SlotHoldLike };

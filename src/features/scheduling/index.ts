@@ -10,7 +10,10 @@ export type {
   SlotHoldStatus,
   CanonicalSlot,
   AcquireHoldResult,
+  HoldRejectionReason,
   SlotHoldLike,
+  SafeHoldView,
+  MutateHoldResult,
   BookingType,
   BookingAvailabilityWindow,
   SlotHold,
@@ -38,10 +41,12 @@ export {
 export {
   isValidIanaTimezone,
   getLocalDateParts,
+  getLocalWallClock,
   getWeekdayInTz,
   getTimezoneOffsetMs,
   localTimeToUtc,
 } from "./time";
+export { NonexistentTimeError, AmbiguousTimeError } from "./time";
 
 // Canonical slot generation
 export { buildSlotKey, generateCandidateSlots } from "./availability";
@@ -51,6 +56,8 @@ export {
   acquireSlotHold,
   releaseSlotHold,
   consumeSlotHold,
+  generateOwnerToken,
+  safeView,
 } from "./holds";
 
 // Policy / service layer
