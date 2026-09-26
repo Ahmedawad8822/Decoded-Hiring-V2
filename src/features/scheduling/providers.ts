@@ -322,7 +322,7 @@ export interface ResolvedMeetingLocation {
 
 // -- Fail-closed unconfigured providers ---------------------------------------
 
-export const UnconfiguredPaymentGateway: PaymentGateway = Object.freeze({
+export const UnconfiguredPaymentGateway = Object.freeze<PaymentGateway>({
   getStatus: async () => ({
     kind: "payment",
     provider: null,
@@ -367,7 +367,7 @@ export const UnconfiguredPaymentGateway: PaymentGateway = Object.freeze({
     ),
 });
 
-export const NullCalendarProvider: CalendarProvider = Object.freeze({
+export const NullCalendarProvider = Object.freeze<CalendarProvider>({
   getStatus: async () => ({
     kind: "calendar",
     provider: null,
@@ -400,7 +400,7 @@ export const NullCalendarProvider: CalendarProvider = Object.freeze({
     ),
 });
 
-export const UnconfiguredMailboxProvider: MailboxProvider = Object.freeze({
+export const UnconfiguredMailboxProvider = Object.freeze<MailboxProvider>({
   getStatus: async () => ({
     kind: "mailbox",
     provider: null,
@@ -485,7 +485,7 @@ function requireHttpsUrl(value: string, operation: string): string {
  * Static, caller-supplied locations remain usable because they do not require
  * an external provider. Provider-generated meeting methods fail closed.
  */
-export const UnconfiguredMeetingProvider: MeetingProvider = Object.freeze({
+export const UnconfiguredMeetingProvider = Object.freeze<MeetingProvider>({
   getStatus: async () => ({
     kind: "meeting",
     provider: null,
