@@ -304,6 +304,25 @@ test("PROVIDERS 08.4: static meeting configuration rejects missing or unsafe loc
   );
 });
 
+test("PROVIDERS 08.4: unconfigured provider status is explicit and side-effect free", async () => {
+  const statuses = await Promise.all([
+    UnconfiguredPaymentGateway.getStatus(),
+    NullCalendarProvider.getStatus(),
+    UnconfiguredMailboxProvider.getStatus(),
+    UnconfiguredMeetingProvider.getStatus(),
+  ]);
+
+  assert.deepEqual(
+    statuses.map((status) => status.kind),
+    ["payment", "calendar", "mailbox", "meeting"],
+  );
+  for (const status of statuses) {
+    assert.equal(status.configured, false);
+    assert.equal(status.provider, null);
+    assert.ok(status.capabilities.length > 0);
+  }
+});
+
 test("PROVIDERS 08.4: safe default bundle contains only unconfigured adapters", () => {
   assert.equal(
     UnconfiguredCommerceSchedulingProviders.payment,
@@ -326,6 +345,12 @@ test("PROVIDERS 08.4: safe default bundle contains only unconfigured adapters", 
 
 test("PROVIDERS 08.4: calendar contract supports provider event + location metadata without SDK types", async () => {
   const deterministicAdapter: CalendarProvider = {
+    getStatus: async () => ({
+      kind: "calendar",
+      provider: "test-adapter",
+      configured: true,
+      capabilities: ["free_busy", "create_event"],
+    }),
     getFreeBusy: async () => [],
     createEvent: async (params) => ({
       event: { id: `event-for-${params.bookingId}`, provider: "test-adapter" },
@@ -359,6 +384,12 @@ test("PROVIDERS 08.4: calendar contract supports provider event + location metad
 
 test("PROVIDERS 08.4: payment contract can normalize provider state without provider SDK types", async () => {
   const deterministicAdapter: PaymentGateway = {
+    getStatus: async () => ({
+      kind: "payment",
+      provider: "test-adapter",
+      configured: true,
+      capabilities: ["checkout", "state_normalization"],
+    }),
     createCheckout: async (params) => ({
       checkoutUrl: "https://pay.example.com/session",
       providerCheckoutId: `checkout-${params.orderId}`,
