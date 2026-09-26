@@ -12,7 +12,12 @@ import {
   updateCourseAction,
 } from "@/features/courses/actions";
 
-type CourseRow = Course & { enrollmentCount: number };
+type CourseRow = Course & {
+  enrollmentCount: number;
+  offerId: string | null;
+  offerActive: boolean | null;
+  effectiveAccessMode: string;
+};
 
 const ACCESS_MODES = ["FREE", "PAID_ONE_TIME", "MANUAL_INVOICE", "PAYMENT_DISABLED"] as const;
 
@@ -81,7 +86,7 @@ export function CoursesClient({
         title: title.trim(),
         slug: slug.trim(),
         description: description.trim() || null,
-        accessMode,
+        ...(!editing?.offerId ? { accessMode } : {}),
       };
       const res = editing
         ? await updateCourseAction({ id: editing.id, ...payload })
@@ -219,13 +224,21 @@ export function CoursesClient({
             <textarea aria-label="Course description" value={description} onChange={(e) => setDescription(e.target.value)} rows={3} maxLength={2000} style={{ padding: "10px 14px", borderRadius: 8, border: "1px solid var(--line-strong)", fontSize: 14 }} />
           </label>
           <label style={{ display: "grid", gap: 6, fontSize: 12.5, fontWeight: 600 }}>
-            Access mode
-            <select aria-label="Access mode" value={accessMode} onChange={(e) => setAccessMode(e.target.value)} style={{ padding: "10px 14px", borderRadius: 8, border: "1px solid var(--line-strong)", fontSize: 14 }}>
+            {editing?.offerId ? "Legacy access fallback" : "Access mode"}
+            <select
+              aria-label="Access mode"
+              value={accessMode}
+              onChange={(e) => setAccessMode(e.target.value)}
+              disabled={Boolean(editing?.offerId)}
+              style={{ padding: "10px 14px", borderRadius: 8, border: "1px solid var(--line-strong)", fontSize: 14 }}
+            >
               {ACCESS_MODES.map((m) => <option key={m} value={m}>{m}</option>)}
             </select>
           </label>
           <p className="help" style={{ fontSize: 12, color: "var(--muted)" }}>
-            Only FREE enrolls automatically. PAID_ONE_TIME / MANUAL_INVOICE / PAYMENT_DISABLED show honest guidance — no checkout in Mission 06.
+            {editing?.offerId
+              ? `Commercial access is owned by linked Offer ${editing.offerId} (${editing.effectiveAccessMode}${editing.offerActive === false ? ", inactive" : ""}). The legacy course field is retained only as a fallback and cannot be edited here.`
+              : "This is the Mission 06 fallback until a Commerce Offer is linked. Only FREE enrolls automatically; paid modes remain fail-closed without checkout."}
           </p>
           <div style={{ display: "flex", gap: 10 }}>
             <button className="btn primary small" type="submit" disabled={busy === "save"}>
@@ -246,7 +259,9 @@ export function CoursesClient({
               <div>
                 <b style={{ fontSize: 16 }}>{course.title}</b>
                 <p className="muted" style={{ fontSize: 12.5, marginTop: 4 }}>
-                  /{course.slug} · {course.accessMode} · {course.enrollmentCount} enrolled
+                  /{course.slug} · {course.effectiveAccessMode}
+                  {course.offerId ? ` via Offer${course.offerActive === false ? " (inactive)" : ""}` : " legacy"}
+                  {" · "}{course.enrollmentCount} enrolled
                 </p>
               </div>
               <span className={`lifecycle ${course.status}`}>{course.status.toUpperCase()}</span>
