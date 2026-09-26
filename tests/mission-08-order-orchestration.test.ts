@@ -47,8 +47,10 @@ import {
   getPaymentEvents,
 } from "@/features/commerce/orders";
 import {
+  enqueueOrchestrationEffect,
   getOrchestrationEffect,
   getOrchestrationHistory,
+  listRunnableOrchestrationEffects,
   processOrchestrationEffect,
   resumeConfiguredBlockedEffects,
 } from "@/features/commerce/orchestration";
@@ -1158,8 +1160,57 @@ test("COMMERCE 08.5: PAID_SESSION AUTO_CONFIRM completes through durable fulfill
   assert.ok(bookingEffects.some((effect) => effect.effectType === "MAIL_CONFIRMATION"));
 });
 
+test("COMMERCE 08.5: paid AUTO_CONFIRM fulfillment survives later Offer deactivation", async () => {
+  const setup = await createPaidBooking("AUTO_CONFIRM");
+
+  const paid = await applyVerifiedPaymentCallback(
+    verifiedGateway({
+      amountMinor: 20000,
+      eventId: "event-paid-before-offer-deactivation",
+    }),
+    {
+      orderId: setup.order.id,
+      callbackKey: "callback-paid-before-offer-deactivation",
+      callbackPayload: JSON.stringify({ orderId: setup.order.id }),
+      provider: "test-pay",
+      now: NOW,
+    },
+  );
+  assert.equal(paid.status, "PAID");
+
+  await updateOffer({
+    id: setup.offer.id,
+    active: false,
+  });
+
+  const db = await getDb();
+  const fulfillment = await db
+    .select()
+    .from(orchestrationEffects)
+    .where(eq(orchestrationEffects.subjectId, paid.id))
+    .all()
+    .then((rows) => rows.find((row) => row.effectType === "ORDER_FULFILL"));
+  assert.ok(fulfillment);
+
+  const completed = await processOrchestrationEffect({
+    effectId: fulfillment.id,
+    now: new Date(NOW.getTime() + 1000),
+  });
+  assert.equal(completed.status, "SUCCEEDED");
+  assert.equal((await __commerceTestOnly!.getOrder(paid.id))?.status, "FULFILLED");
+  assert.equal(
+    (await __bookingLifecycleTestOnly!.getBooking(setup.booking.id))?.status,
+    "CONFIRMED",
+  );
+});
+
 test("COMMERCE 08.5: PAID_SESSION booking cannot confirm until matching order is PAID", async () => {
   const setup = await createPaidBooking();
+
+  await updateOffer({
+    id: setup.offer.id,
+    active: false,
+  });
 
   await assert.rejects(
     __bookingLifecycleTestOnly!.approve({
@@ -1332,6 +1383,114 @@ test("COMMERCE 08.5: booking confirmation commits calendar -> mail dependency ou
   assert.equal(calendarCounter.calls, 1);
   assert.equal(mailCounter.calls, 1);
   assert.equal(exportedDescription, null);
+});
+
+test("COMMERCE 08.5: unmet dependent work cannot starve later runnable effects before LIMIT", async () => {
+  const db = await getDb();
+  const base = new Date(NOW.getTime() - 3_600_000);
+  const key = crypto.randomUUID();
+
+  const parent = await enqueueOrchestrationEffect({
+    subjectType: "ORDER",
+    subjectId: `starvation-parent-${key}`,
+    effectType: "ORDER_FULFILL",
+    providerKind: "internal",
+    idempotencyKey: `starvation-parent:${key}`,
+    payload: { orderId: `missing-parent-${key}` },
+    now: base,
+  });
+  await db
+    .update(orchestrationEffects)
+    .set({
+      status: "TERMINAL_FAILURE",
+      lastErrorCode: "TEST_TERMINAL",
+      updatedAt: base,
+    })
+    .where(eq(orchestrationEffects.id, parent.id));
+
+  const child = await enqueueOrchestrationEffect({
+    subjectType: "BOOKING",
+    subjectId: `starvation-child-${key}`,
+    effectType: "MAIL_REMINDER",
+    providerKind: "mailbox",
+    idempotencyKey: `starvation-child:${key}`,
+    dependsOnEffectId: parent.id,
+    payload: { bookingId: `missing-child-${key}` },
+    now: new Date(base.getTime() + 1000),
+  });
+
+  const later = await enqueueOrchestrationEffect({
+    subjectType: "ORDER",
+    subjectId: `starvation-later-${key}`,
+    effectType: "ORDER_FULFILL",
+    providerKind: "internal",
+    idempotencyKey: `starvation-later:${key}`,
+    payload: { orderId: `missing-later-${key}` },
+    now: new Date(base.getTime() + 2000),
+  });
+
+  const runnable = await listRunnableOrchestrationEffects(
+    new Date(NOW.getTime() + 60_000),
+    1,
+  );
+
+  assert.equal(runnable.length, 1);
+  assert.equal(runnable[0].id, later.id);
+  assert.notEqual(runnable[0].id, child.id);
+});
+
+test("COMMERCE 08.5: non-resumable BLOCKED rows cannot starve later provider recovery before LIMIT", async () => {
+  const db = await getDb();
+  const base = new Date(NOW.getTime() - 7_200_000);
+  const key = crypto.randomUUID();
+
+  const invalid = await enqueueOrchestrationEffect({
+    subjectType: "BOOKING",
+    subjectId: `invalid-block-${key}`,
+    effectType: "MAIL_REMINDER",
+    providerKind: "mailbox",
+    idempotencyKey: `invalid-block:${key}`,
+    payload: { bookingId: `invalid-block-${key}` },
+    now: base,
+  });
+  await db
+    .update(orchestrationEffects)
+    .set({
+      status: "BLOCKED",
+      lastErrorCode: "INVALID_CONFIGURATION",
+      lastErrorMessage: "safe invalid configuration",
+      updatedAt: base,
+    })
+    .where(eq(orchestrationEffects.id, invalid.id));
+
+  const resumable = await enqueueOrchestrationEffect({
+    subjectType: "BOOKING",
+    subjectId: `provider-block-${key}`,
+    effectType: "MAIL_REMINDER",
+    providerKind: "mailbox",
+    idempotencyKey: `provider-block:${key}`,
+    payload: { bookingId: `provider-block-${key}` },
+    now: new Date(base.getTime() + 1000),
+  });
+  await db
+    .update(orchestrationEffects)
+    .set({
+      status: "BLOCKED",
+      lastErrorCode: "PROVIDER_NOT_CONFIGURED",
+      lastErrorMessage: "safe provider not configured",
+      updatedAt: new Date(base.getTime() + 1000),
+    })
+    .where(eq(orchestrationEffects.id, resumable.id));
+
+  const resumed = await resumeConfiguredBlockedEffects(
+    NOW,
+    providerBundle({ mailbox: configuredMailbox() }),
+    1,
+  );
+
+  assert.equal(resumed, 1);
+  assert.equal((await getOrchestrationEffect(invalid.id))?.status, "BLOCKED");
+  assert.equal((await getOrchestrationEffect(resumable.id))?.status, "PENDING");
 });
 
 test("COMMERCE 08.5: configured providers resume BLOCKED work into bounded worker flow", async () => {
