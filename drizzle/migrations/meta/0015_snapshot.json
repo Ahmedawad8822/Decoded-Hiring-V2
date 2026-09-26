@@ -3101,6 +3101,34 @@
           "notNull": true,
           "autoincrement": false
         },
+        "offer_kind": {
+          "name": "offer_kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "access_mode": {
+          "name": "access_mode",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "course_id": {
+          "name": "course_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "booking_type_id": {
+          "name": "booking_type_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
         "booking_id": {
           "name": "booking_id",
           "type": "text",
@@ -3280,6 +3308,20 @@
             "customer_email"
           ],
           "isUnique": false
+        },
+        "orders_course_idx": {
+          "name": "orders_course_idx",
+          "columns": [
+            "course_id"
+          ],
+          "isUnique": false
+        },
+        "orders_booking_type_idx": {
+          "name": "orders_booking_type_idx",
+          "columns": [
+            "booking_type_id"
+          ],
+          "isUnique": false
         }
       },
       "foreignKeys": {
@@ -3316,6 +3358,32 @@
             "user_id"
           ],
           "tableTo": "user",
+          "columnsTo": [
+            "id"
+          ],
+          "onUpdate": "no action",
+          "onDelete": "no action"
+        },
+        "orders_course_id_courses_id_fk": {
+          "name": "orders_course_id_courses_id_fk",
+          "tableFrom": "orders",
+          "columnsFrom": [
+            "course_id"
+          ],
+          "tableTo": "courses",
+          "columnsTo": [
+            "id"
+          ],
+          "onUpdate": "no action",
+          "onDelete": "no action"
+        },
+        "orders_booking_type_id_booking_types_id_fk": {
+          "name": "orders_booking_type_id_booking_types_id_fk",
+          "tableFrom": "orders",
+          "columnsFrom": [
+            "booking_type_id"
+          ],
+          "tableTo": "booking_types",
           "columnsTo": [
             "id"
           ],
