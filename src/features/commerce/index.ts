@@ -20,6 +20,8 @@ export {
   getOrchestrationEffect,
   getEffectByIdempotencyKey,
   getOrchestrationHistory,
+  listRunnableOrchestrationEffects,
+  processDueOrchestrationEffects,
   processOrchestrationEffect,
 } from "./orchestration";
 
