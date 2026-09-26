@@ -491,6 +491,35 @@ async function applyVerifiedPaymentObservation(params: {
       order.version,
     );
 
+  const transitionEvent = d1
+    .prepare(
+      `INSERT INTO payment_events
+        (id, order_id, callback_key, source, provider, provider_event_id,
+         provider_checkout_id, provider_payment_id, state, amount_minor,
+         currency, created_at)
+       SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+       FROM orders
+       WHERE id = ? AND transition_key = ? AND version = ? AND status = ?`,
+    )
+    .bind(
+      eventId,
+      order.id,
+      params.callbackKey,
+      params.source,
+      params.provider ?? null,
+      params.providerEventId ?? null,
+      params.providerCheckoutId ?? null,
+      params.providerPaymentId ?? null,
+      params.state,
+      params.amountMinor ?? null,
+      params.currency ?? null,
+      nowSec,
+      order.id,
+      transition,
+      targetVersion,
+      target,
+    );
+
   const audit = d1
     .prepare(
       `INSERT INTO order_history
@@ -518,7 +547,7 @@ async function applyVerifiedPaymentObservation(params: {
       target,
     );
 
-  const statements = [insertEvent, updateOrder, audit];
+  const statements = [updateOrder, transitionEvent, audit];
 
   if (target === "PAID") {
     const effectId = `fx_order_${order.id}_fulfill`;
@@ -619,6 +648,16 @@ async function applyVerifiedPaymentObservation(params: {
     updated.version !== targetVersion ||
     updated.transitionKey !== transition
   ) {
+    const winner =
+      (await findPaymentEvent(params.callbackKey)) ??
+      (await findPaymentEventByProviderIdentity(
+        params.provider,
+        params.providerEventId,
+      ));
+    if (winner?.orderId === order.id) {
+      const current = await getOrderById(order.id);
+      if (current) return current;
+    }
     throw new CommerceDomainError(
       "Order payment transition lost a concurrent modification.",
       "CONCURRENT_MODIFICATION",
