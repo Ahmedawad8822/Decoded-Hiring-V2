@@ -126,7 +126,6 @@ export {
   rescheduleBookingSchema,
 } from "./booking-schemas";
 export type {
-  BookingActor,
   CreateBookingRequestInput,
   BookingTransitionInput,
   BookingDecisionInput,
