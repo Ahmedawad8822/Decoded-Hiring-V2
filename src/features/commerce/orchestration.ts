@@ -986,7 +986,9 @@ export async function resumeConfiguredBlockedEffects(
       configured = status.configured;
       statusCache.set(effect.providerKind, configured);
     }
-    if (!configured) continue;
+    if (!configured || effect.lastErrorCode !== "PROVIDER_NOT_CONFIGURED") {
+      continue;
+    }
 
     const transition = `fxtr_${crypto.randomUUID()}`;
     await d1.batch([
