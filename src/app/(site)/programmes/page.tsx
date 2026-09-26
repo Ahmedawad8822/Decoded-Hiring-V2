@@ -9,7 +9,7 @@ export const metadata = publicMetadata({
   path: "/programmes",
   title: "Recruitment Programmes | Decoded Hiring",
   description:
-    "Choose between the Mission 01 classroom, team workshop, focused coaching or the AI Recruiter OS research list.",
+    "Choose between the Mission 01 classroom, team workshop, focused coaching or AI Recruiter OS.",
 });
 
 const programmes = [
@@ -50,13 +50,13 @@ const programmes = [
     signal: "UNTANGLE ONE CONSEQUENTIAL DECISION",
   },
   {
-    marker: "Research list",
+    marker: "Future programme",
     title: "AI Recruiter OS",
     description:
       "Help shape the future programme for recruiters building agents, memory and guardrails.",
-    detail: "In development · waitlist only",
+    detail: "Research-led programme · evolving scope",
     href: "/ai-recruiter-os" as const,
-    cta: "Join the research list",
+    cta: "Explore AI Recruiter OS",
     tone: "paper",
     icon: Bot,
     signal: "HELP DESIGN WHAT COMES NEXT",
