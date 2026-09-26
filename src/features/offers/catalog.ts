@@ -8,4 +8,5 @@ export const PUBLIC_OFFER_SLUGS = {
   mission01: "mission-01",
   coaching: "coaching",
   workshop: "workshop",
+  aiRecruiterOs: "ai-recruiter-os",
 } as const;
