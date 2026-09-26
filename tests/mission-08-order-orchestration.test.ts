@@ -614,7 +614,8 @@ test("COMMERCE 08.5: internal course fulfillment grants durable enrollment atomi
     .select()
     .from(orchestrationEffects)
     .where(eq(orchestrationEffects.subjectId, paid.id))
-    .get();
+    .all()
+    .then((rows) => rows.find((row) => row.effectType === "ORDER_FULFILL"));
   assert.ok(effect);
 
   const completed = await processOrchestrationEffect({
@@ -658,7 +659,8 @@ test("COMMERCE 08.5: refund before fulfillment closes obsolete effect without gr
     .select()
     .from(orchestrationEffects)
     .where(eq(orchestrationEffects.subjectId, paid.id))
-    .get();
+    .all()
+    .then((rows) => rows.find((row) => row.effectType === "ORDER_FULFILL"));
   assert.ok(effect);
 
   const refunded = await applyVerifiedPaymentCallback(
@@ -682,6 +684,19 @@ test("COMMERCE 08.5: refund before fulfillment closes obsolete effect without gr
   });
   assert.equal(closed.status, "SUCCEEDED");
 
+  const refundEffect = await db
+    .select()
+    .from(orchestrationEffects)
+    .where(eq(orchestrationEffects.subjectId, paid.id))
+    .all()
+    .then((rows) => rows.find((row) => row.effectType === "ORDER_REFUND_RECONCILE"));
+  assert.ok(refundEffect);
+  const reconciled = await processOrchestrationEffect({
+    effectId: refundEffect.id,
+    now: new Date(NOW.getTime() + 3000),
+  });
+  assert.equal(reconciled.status, "SUCCEEDED");
+
   const enrollment = await db
     .select()
     .from(enrollments)
@@ -689,6 +704,79 @@ test("COMMERCE 08.5: refund before fulfillment closes obsolete effect without gr
     .get();
   assert.equal(enrollment, undefined);
   assert.equal((await __commerceTestOnly!.getOrder(paid.id))?.status, "REFUNDED");
+});
+
+test("COMMERCE 08.5: refund after fulfillment revokes only access owned by that order", async () => {
+  const setup = await createPaidCourseOrder();
+  const paid = await applyVerifiedPaymentCallback(
+    verifiedGateway({ eventId: "event-refund-after-fulfillment-paid" }),
+    {
+      orderId: setup.order.id,
+      callbackKey: "callback-refund-after-fulfillment-paid",
+      callbackPayload: "opaque-paid",
+      provider: "test-pay",
+      now: NOW,
+    },
+  );
+
+  const db = await getDb();
+  const fulfillment = await db
+    .select()
+    .from(orchestrationEffects)
+    .where(eq(orchestrationEffects.subjectId, paid.id))
+    .all()
+    .then((rows) => rows.find((row) => row.effectType === "ORDER_FULFILL"));
+  assert.ok(fulfillment);
+
+  await processOrchestrationEffect({
+    effectId: fulfillment.id,
+    now: new Date(NOW.getTime() + 1000),
+  });
+
+  const granted = await db
+    .select()
+    .from(enrollments)
+    .where(eq(enrollments.userId, setup.userId))
+    .get();
+  assert.equal(granted?.status, "active");
+  assert.equal(granted?.accessSource, `order:${paid.id}`);
+
+  const refunded = await applyVerifiedPaymentCallback(
+    verifiedGateway({
+      state: "REFUNDED",
+      eventId: "event-refund-after-fulfillment-final",
+    }),
+    {
+      orderId: paid.id,
+      callbackKey: "callback-refund-after-fulfillment-final",
+      callbackPayload: "opaque-refund",
+      provider: "test-pay",
+      now: new Date(NOW.getTime() + 2000),
+    },
+  );
+  assert.equal(refunded.status, "REFUNDED");
+
+  const refundEffect = await db
+    .select()
+    .from(orchestrationEffects)
+    .where(eq(orchestrationEffects.subjectId, paid.id))
+    .all()
+    .then((rows) => rows.find((row) => row.effectType === "ORDER_REFUND_RECONCILE"));
+  assert.ok(refundEffect);
+
+  const reconciled = await processOrchestrationEffect({
+    effectId: refundEffect.id,
+    now: new Date(NOW.getTime() + 3000),
+  });
+  assert.equal(reconciled.status, "SUCCEEDED");
+
+  const revoked = await db
+    .select()
+    .from(enrollments)
+    .where(eq(enrollments.userId, setup.userId))
+    .get();
+  assert.equal(revoked?.status, "cancelled");
+  assert.equal(revoked?.accessSource, `order:${paid.id}`);
 });
 
 test("COMMERCE 08.5: payment checkout side effect is retry-safe and transitions order to REQUIRES_ACTION", async () => {
