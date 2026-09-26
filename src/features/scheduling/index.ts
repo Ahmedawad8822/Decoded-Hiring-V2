@@ -103,3 +103,38 @@ export type {
   MeetingLocationParams,
   ResolvedMeetingLocation,
 } from "./providers";
+
+
+// Booking lifecycle (Mission 08.2)
+export {
+  createBookingRequest,
+  getBookingById,
+  getBookingByRequestKey,
+  getBookingHistory,
+  confirmBooking,
+  approveBooking,
+  declineBooking,
+  cancelBooking,
+  completeBooking,
+  rescheduleBooking,
+} from "./bookings";
+export {
+  bookingActorSchema,
+  createBookingRequestSchema,
+  bookingTransitionSchema,
+  bookingDecisionSchema,
+  rescheduleBookingSchema,
+} from "./booking-schemas";
+export type {
+  BookingActor,
+  CreateBookingRequestInput,
+  BookingTransitionInput,
+  BookingDecisionInput,
+  RescheduleBookingInput,
+} from "./booking-schemas";
+export type {
+  Booking,
+  BookingHistory,
+  BookingStatus,
+  BookingHistoryAction,
+} from "@/lib/db";
