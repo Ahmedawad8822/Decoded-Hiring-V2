@@ -562,7 +562,12 @@ async function applyVerifiedPaymentObservation(params: {
     await d1.batch(statements);
   } catch (error: unknown) {
     if (isUniqueConstraintError(error)) {
-      const winner = await findPaymentEvent(params.callbackKey);
+      const winner =
+        (await findPaymentEvent(params.callbackKey)) ??
+        (await findPaymentEventByProviderIdentity(
+          params.provider,
+          params.providerEventId,
+        ));
       if (winner?.orderId === order.id) return (await getOrderById(order.id))!;
     }
     throw error;
@@ -604,11 +609,31 @@ export async function applyVerifiedPaymentCallback(
       "PAYMENT_EVIDENCE_INVALID",
     );
   }
+
+  const runtime = await gateway.getStatus();
+  if (
+    runtime.provider &&
+    parsed.provider &&
+    runtime.provider !== parsed.provider
+  ) {
+    throw new CommerceDomainError(
+      "Callback provider metadata does not match the configured payment adapter.",
+      "PAYMENT_EVIDENCE_INVALID",
+    );
+  }
+  const provider = runtime.provider ?? parsed.provider ?? null;
+  if (verified.providerEventId && !provider) {
+    throw new CommerceDomainError(
+      "Verified provider event identity requires an authoritative provider name.",
+      "PAYMENT_EVIDENCE_INVALID",
+    );
+  }
+
   return applyVerifiedPaymentObservation({
     orderId: parsed.orderId,
     callbackKey: parsed.callbackKey,
     source: "CALLBACK",
-    provider: parsed.provider ?? null,
+    provider,
     providerEventId: verified.providerEventId ?? null,
     providerCheckoutId: verified.providerCheckoutId ?? null,
     providerPaymentId: verified.providerPaymentId ?? null,
@@ -664,16 +689,35 @@ export async function applyVerifiedPaymentWebhook(
     );
   }
 
+  const runtime = await gateway.getStatus();
+  if (
+    runtime.provider &&
+    parsed.provider &&
+    runtime.provider !== parsed.provider
+  ) {
+    throw new CommerceDomainError(
+      "Webhook provider metadata does not match the configured payment adapter.",
+      "PAYMENT_EVIDENCE_INVALID",
+    );
+  }
+  const provider = runtime.provider ?? parsed.provider ?? null;
+  if (signature.providerEventId && !provider) {
+    throw new CommerceDomainError(
+      "Verified webhook event identity requires an authoritative provider name.",
+      "PAYMENT_EVIDENCE_INVALID",
+    );
+  }
+
   const bodyHash = await sha256Hex(parsed.rawBody);
   const callbackKey = signature.providerEventId
-    ? `webhook:${parsed.provider ?? "provider"}:${signature.providerEventId}`
+    ? `webhook:${provider}:${signature.providerEventId}`
     : `webhook:sha256:${bodyHash}`;
 
   return applyVerifiedPaymentObservation({
     orderId: parsed.orderId,
     callbackKey,
     source: "WEBHOOK",
-    provider: parsed.provider ?? null,
+    provider,
     providerEventId: signature.providerEventId ?? null,
     state: normalized.state,
     amountMinor: normalized.amountMinor ?? null,
