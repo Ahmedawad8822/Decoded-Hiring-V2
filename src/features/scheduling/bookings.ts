@@ -321,7 +321,6 @@ export async function createBookingRequest(
       {
         bookingId: created.id,
         expectedVersion: created.version,
-        actor: { id: "system:auto-confirm", role: "system" },
         now: parsed.now,
       },
       "AUTO_CONFIRMED",
@@ -367,7 +366,6 @@ async function confirmBoundBooking(
         "AUTHORIZATION_REQUIRED",
       );
     }
-  } else {
   }
 
   if (bookingType.accessMode !== "FREE") {
@@ -510,13 +508,13 @@ async function confirmBoundBooking(
 }
 
 export async function confirmBooking(input: BookingTransitionInput): Promise<Booking> {
-  return confirmBoundBooking(input, "CONFIRMED");
+  const actor = await resolveAdminActor();
+  return confirmBoundBooking(input, "CONFIRMED", actor);
 }
 
 export async function approveBooking(input: BookingTransitionInput): Promise<Booking> {
-  const parsed = bookingTransitionSchema.parse(input);
-  assertAdmin(parsed.actor);
-  return confirmBoundBooking(parsed, "APPROVED");
+  const actor = await resolveAdminActor();
+  return confirmBoundBooking(input, "APPROVED", actor);
 }
 
 async function simpleTerminalTransition(params: {
