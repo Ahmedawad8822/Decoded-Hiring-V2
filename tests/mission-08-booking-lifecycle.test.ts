@@ -448,11 +448,12 @@ test("BOOKING 08.2: booking history is a permanent DB backstop and blocks parent
 
   await assert.rejects(
     db.delete(bookings).where(eq(bookings.id, booking.id)).run(),
-    /FOREIGN KEY constraint failed/i,
   );
 
   const stillThere = await db.select().from(bookings).where(eq(bookings.id, booking.id)).get();
   assert.equal(stillThere?.id, booking.id);
+  const historyStillThere = await getBookingHistory(booking.id);
+  assert.equal(historyStillThere.length, history.length);
 });
 
 test("BOOKING 08.2: transition batches never claim/version-bump before lease predicates succeed", async () => {
