@@ -435,9 +435,9 @@ test("PROVIDERS 08.4: payment contract can normalize provider state without prov
       providerCheckoutId: `checkout-${params.orderId}`,
       provider: "test-adapter",
     }),
-    verifyCallback: async (params) => ({
+    verifyCallback: async () => ({
       verified: true,
-      orderId: params.orderId,
+      orderId: "order_contract",
       state: "PAID",
       providerPaymentId: "payment-opaque",
     }),
@@ -445,9 +445,9 @@ test("PROVIDERS 08.4: payment contract can normalize provider state without prov
       valid: true,
       providerEventId: "event-opaque",
     }),
-    verifyWebhookPayment: async (params) => ({
+    verifyWebhookPayment: async () => ({
       verified: true,
-      orderId: params.orderId,
+      orderId: "order_contract",
       state: "PAID",
       providerEventId: "event-opaque",
       providerPaymentId: "payment-opaque",
