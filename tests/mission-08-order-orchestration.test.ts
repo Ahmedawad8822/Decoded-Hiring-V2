@@ -38,11 +38,7 @@ import {
   createOrder,
   enqueueBookingReminder,
   enqueuePaymentCheckout,
-  getOrchestrationEffect,
-  getOrchestrationHistory,
   processDueOrchestrationEffects,
-  processOrchestrationEffect,
-  resumeConfiguredBlockedEffects,
 } from "@/features/commerce";
 import { createOffer, updateOffer } from "@/features/offers/service";
 import {
@@ -50,6 +46,12 @@ import {
   getOrderHistory,
   getPaymentEvents,
 } from "@/features/commerce/orders";
+import {
+  getOrchestrationEffect,
+  getOrchestrationHistory,
+  processOrchestrationEffect,
+  resumeConfiguredBlockedEffects,
+} from "@/features/commerce/orchestration";
 import {
   SchedulingProviderError,
   NullCalendarProvider,
@@ -1049,6 +1051,33 @@ test("COMMERCE 08.5: paid standalone PRODUCT stays PAID when no fulfillment stra
   assert.equal((await __commerceTestOnly!.getOrder(order.id))?.status, "PAID");
 });
 
+test("COMMERCE 08.5: MANUAL_INVOICE cannot enqueue provider checkout work", async () => {
+  const setup = await createPaidCourseOrder("MANUAL_INVOICE");
+
+  await assert.rejects(
+    enqueuePaymentCheckout({
+      orderId: setup.order.id,
+      successUrl: "https://example.com/success",
+      cancelUrl: "https://example.com/cancel",
+      now: NOW,
+    }),
+    (error: unknown) =>
+      error instanceof CommerceDomainError &&
+      error.code === "ORDER_NOT_ALLOWED",
+  );
+
+  const db = await getDb();
+  const effects = await db
+    .select()
+    .from(orchestrationEffects)
+    .where(eq(orchestrationEffects.subjectId, setup.order.id))
+    .all();
+  assert.equal(
+    effects.some((effect) => effect.effectType === "PAYMENT_CHECKOUT_CREATE"),
+    false,
+  );
+});
+
 test("COMMERCE 08.5: payment checkout side effect is retry-safe and transitions order to REQUIRES_ACTION", async () => {
   const setup = await createPaidCourseOrder();
   const effect = await enqueuePaymentCheckout({
@@ -1223,6 +1252,11 @@ test("COMMERCE 08.5: paid booking matching remains bound to immutable Order book
 
 test("COMMERCE 08.5: booking confirmation commits calendar -> mail dependency outbox atomically", async () => {
   const setup = await createPaidBooking();
+  const db = await getDb();
+  await db
+    .update(bookings)
+    .set({ notes: "PRIVATE_INTAKE_NOTE_SHOULD_NOT_LEAVE_D1" })
+    .where(eq(bookings.id, setup.booking.id));
   await applyVerifiedPaymentCallback(
     verifiedGateway({ amountMinor: 20000, eventId: "event-outbox-booking" }),
     {
@@ -1239,7 +1273,6 @@ test("COMMERCE 08.5: booking confirmation commits calendar -> mail dependency ou
     now: NOW,
   });
 
-  const db = await getDb();
   const effects = await db
     .select()
     .from(orchestrationEffects)
@@ -1265,8 +1298,24 @@ test("COMMERCE 08.5: booking confirmation commits calendar -> mail dependency ou
 
   const calendarCounter = { calls: 0 };
   const mailCounter = { calls: 0 };
+  let exportedDescription: string | null | undefined = "not-called";
+  const baseCalendar = configuredCalendar(calendarCounter);
+  const calendar: CalendarProvider = {
+    ...baseCalendar,
+    createEvent: async (input) => {
+      calendarCounter.calls += 1;
+      exportedDescription = input.description;
+      return {
+        event: { id: `event-${input.bookingId}`, provider: "test-calendar" },
+        location: null,
+      };
+    },
+  };
+  // The custom createEvent replaces configuredCalendar.createEvent, so reset
+  // the counter to count only the actual provider call.
+  calendarCounter.calls = 0;
   const providers = providerBundle({
-    calendar: configuredCalendar(calendarCounter),
+    calendar,
     mailbox: configuredMailbox(mailCounter),
   });
   const calendarDone = await processOrchestrationEffect(
@@ -1282,6 +1331,7 @@ test("COMMERCE 08.5: booking confirmation commits calendar -> mail dependency ou
   assert.equal(mailDone.status, "SUCCEEDED");
   assert.equal(calendarCounter.calls, 1);
   assert.equal(mailCounter.calls, 1);
+  assert.equal(exportedDescription, null);
 });
 
 test("COMMERCE 08.5: configured providers resume BLOCKED work into bounded worker flow", async () => {
@@ -1469,7 +1519,7 @@ test("COMMERCE 08.5: retryable provider failure waits then recovers with same ef
       calls += 1;
       if (calls === 1) {
         throw new SchedulingProviderError({
-          message: "Temporary provider outage",
+          message: "Temporary provider outage SECRET_TOKEN=super-secret-provider-token",
           code: "INVALID_PROVIDER_RESPONSE",
           providerKind: "mailbox",
           operation: "sendReminder",
@@ -1486,6 +1536,17 @@ test("COMMERCE 08.5: retryable provider failure waits then recovers with same ef
   );
   assert.equal(first.status, "RETRYABLE_FAILURE");
   assert.ok(first.nextAttemptAt);
+  assert.equal(
+    first.lastErrorMessage?.includes("super-secret-provider-token"),
+    false,
+  );
+  const failureHistory = await getOrchestrationHistory(reminder.id);
+  assert.equal(
+    failureHistory.some((entry) =>
+      entry.detail?.includes("super-secret-provider-token"),
+    ),
+    false,
+  );
 
   const tooEarly = await processOrchestrationEffect(
     { effectId: reminder.id, now: new Date(NOW.getTime() + 1000) },
@@ -1543,6 +1604,32 @@ test("COMMERCE 08.5: expired processing lease is recoverable and auditable", asy
   assert.equal(recovered.status, "SUCCEEDED");
   const history = await getOrchestrationHistory(reminder.id);
   assert.ok(history.some((entry) => entry.action === "LEASE_RECOVERED"));
+});
+
+test("COMMERCE 08.5: public commerce barrel does not expose low-level outbox controls", async () => {
+  const { readFileSync } = await import("node:fs");
+  const { join } = await import("node:path");
+  const source = readFileSync(
+    join(process.cwd(), "src", "features", "commerce", "index.ts"),
+    "utf8",
+  );
+
+  for (const forbidden of [
+    "enqueueOrchestrationEffect",
+    "getOrchestrationEffect",
+    "getEffectByIdempotencyKey",
+    "getOrchestrationHistory",
+    "listRunnableOrchestrationEffects",
+    "resumeConfiguredBlockedEffects",
+    "processOrchestrationEffect",
+  ]) {
+    assert.equal(
+      source.includes(forbidden),
+      false,
+      `public commerce barrel must not export low-level orchestration primitive ${forbidden}`,
+    );
+  }
+  assert.ok(source.includes("processDueOrchestrationEffects"));
 });
 
 test("COMMERCE 08.5: migration journal/snapshot include unique 0015 identity", async () => {
