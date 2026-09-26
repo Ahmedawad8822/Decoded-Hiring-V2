@@ -246,7 +246,7 @@ async function dependencySatisfied(effect: OrchestrationEffect): Promise<boolean
 
 async function claimEffect(
   effect: OrchestrationEffect,
-  input: ProcessEffectInput,
+  input: { effectId: string; now: Date; leaseSeconds: number },
 ): Promise<OrchestrationEffect | null> {
   const nowSec = toUnixSeconds(input.now);
 
