@@ -938,6 +938,7 @@ export const orchestrationEffects = sqliteTable(
     effectType: text("effect_type").$type<OrchestrationEffectType>().notNull(),
     providerKind: text("provider_kind").$type<OrchestrationProviderKind>().notNull(),
     idempotencyKey: text("idempotency_key").notNull().unique(),
+    dependsOnEffectId: text("depends_on_effect_id"),
     payload: text("payload").notNull(),
     status: text("status").$type<OrchestrationEffectStatus>().notNull().default("PENDING"),
     attemptCount: integer("attempt_count").notNull().default(0),
@@ -955,6 +956,7 @@ export const orchestrationEffects = sqliteTable(
   (table) => [
     index("orchestration_effects_subject_idx").on(table.subjectType, table.subjectId),
     index("orchestration_effects_status_idx").on(table.status),
+    index("orchestration_effects_dependency_idx").on(table.dependsOnEffectId),
     index("orchestration_effects_next_attempt_idx").on(table.nextAttemptAt),
   ],
 );
