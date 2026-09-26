@@ -1,10 +1,5 @@
 import { z } from "zod";
 
-export const bookingActorSchema = z.object({
-  id: z.string().trim().min(1).max(200),
-  role: z.enum(["admin", "system"]),
-});
-
 export const createBookingRequestSchema = z.object({
   bookingTypeId: z.string().trim().min(1),
   holdId: z.string().trim().min(1),
@@ -20,7 +15,6 @@ export const createBookingRequestSchema = z.object({
 export const bookingTransitionSchema = z.object({
   bookingId: z.string().trim().min(1),
   expectedVersion: z.number().int().positive(),
-  actor: bookingActorSchema,
   now: z.date(),
 });
 
@@ -34,7 +28,6 @@ export const rescheduleBookingSchema = bookingTransitionSchema.extend({
   reason: z.string().trim().max(2000).optional().nullable(),
 });
 
-export type BookingActor = z.infer<typeof bookingActorSchema>;
 export type CreateBookingRequestInput = z.infer<typeof createBookingRequestSchema>;
 export type BookingTransitionInput = z.infer<typeof bookingTransitionSchema>;
 export type BookingDecisionInput = z.infer<typeof bookingDecisionSchema>;
