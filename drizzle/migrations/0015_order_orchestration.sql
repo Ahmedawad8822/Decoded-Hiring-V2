@@ -76,6 +76,7 @@ CREATE TABLE `orchestration_effects` (
 	`status` text DEFAULT 'PENDING' NOT NULL,
 	`attempt_count` integer DEFAULT 0 NOT NULL,
 	`claim_token` text,
+	`transition_key` text,
 	`lease_expires_at` integer,
 	`next_attempt_at` integer,
 	`provider_ref` text,
