@@ -167,7 +167,7 @@ test("BOOKING 08.2: AHMED_APPROVAL stays pending until explicit admin approval",
     now: NOW,
   });
   assert.equal(approved.status, "CONFIRMED");
-  assert.equal(approved.approvedBy, ADMIN.id);
+  assert.equal(approved.approvedBy, "test-admin");
   assert.ok(approved.approvedAt);
 
   const history = await getBookingHistory(pending.id);
