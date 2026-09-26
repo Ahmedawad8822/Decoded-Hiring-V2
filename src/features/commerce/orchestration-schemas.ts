@@ -45,6 +45,7 @@ export const paymentCheckoutPayloadSchema = z.object({
 
 export const bookingEffectPayloadSchema = z.object({
   bookingId: z.string().trim().min(1),
+  bookingVersion: z.number().int().positive().optional(),
 });
 
 export type EnqueueEffectInput = z.infer<typeof enqueueEffectSchema>;
