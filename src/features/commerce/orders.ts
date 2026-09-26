@@ -182,6 +182,13 @@ async function validateOrderTarget(
     );
   }
 
+  if ((offer.courseId || offer.bookingTypeId) && input.quantity !== 1) {
+    throw new CommerceDomainError(
+      "Course and booking-linked orders must use quantity 1.",
+      "ORDER_NOT_ALLOWED",
+    );
+  }
+
   if (offer.kind === "COURSE") {
     if (!offer.courseId || !input.userId) {
       throw new CommerceDomainError(
