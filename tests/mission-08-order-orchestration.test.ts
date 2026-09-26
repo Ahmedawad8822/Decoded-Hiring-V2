@@ -40,7 +40,9 @@ import {
   enqueuePaymentCheckout,
   getOrchestrationEffect,
   getOrchestrationHistory,
+  processDueOrchestrationEffects,
   processOrchestrationEffect,
+  resumeConfiguredBlockedEffects,
 } from "@/features/commerce";
 import { createOffer } from "@/features/offers/service";
 import {
@@ -504,6 +506,30 @@ test("COMMERCE 08.5: verified webhook dedupes by provider event identity", async
   assert.equal((await getPaymentEvents(paid.id)).length, 1);
 });
 
+test("COMMERCE 08.5: provider event identity dedupes even when local callback key changes", async () => {
+  const setup = await createPaidCourseOrder();
+  const gateway = verifiedGateway({ eventId: "provider-event-stable" });
+
+  const first = await applyVerifiedPaymentCallback(gateway, {
+    orderId: setup.order.id,
+    callbackKey: "callback-local-a",
+    callbackPayload: "opaque-a",
+    provider: "test-pay",
+    now: NOW,
+  });
+  const second = await applyVerifiedPaymentCallback(gateway, {
+    orderId: setup.order.id,
+    callbackKey: "callback-local-b",
+    callbackPayload: "opaque-b",
+    provider: "test-pay",
+    now: new Date(NOW.getTime() + 1000),
+  });
+
+  assert.equal(first.status, "PAID");
+  assert.equal(second.version, first.version);
+  assert.equal((await getPaymentEvents(first.id)).length, 1);
+});
+
 test("COMMERCE 08.5: manual invoice requires trusted admin transition and enqueues fulfillment", async () => {
   const setup = await createPaidCourseOrder("MANUAL_INVOICE");
   const paid = await __commerceTestOnly!.recordManualPayment({
@@ -711,6 +737,70 @@ test("COMMERCE 08.5: booking confirmation commits calendar -> mail dependency ou
   assert.equal(mailDone.status, "SUCCEEDED");
   assert.equal(calendarCounter.calls, 1);
   assert.equal(mailCounter.calls, 1);
+});
+
+test("COMMERCE 08.5: configured providers resume BLOCKED work into bounded worker flow", async () => {
+  const setup = await createPaidBooking();
+  await applyVerifiedPaymentCallback(
+    verifiedGateway({ amountMinor: 20000, eventId: "event-worker-resume" }),
+    {
+      orderId: setup.order.id,
+      callbackKey: "callback-worker-resume",
+      callbackPayload: "opaque",
+      provider: "test-pay",
+      now: NOW,
+    },
+  );
+  const confirmed = await __bookingLifecycleTestOnly!.approve({
+    bookingId: setup.booking.id,
+    expectedVersion: setup.booking.version,
+    now: NOW,
+  });
+
+  const db = await getDb();
+  const calendar = await db
+    .select()
+    .from(orchestrationEffects)
+    .where(eq(orchestrationEffects.subjectId, confirmed.id))
+    .all()
+    .then((rows) => rows.find((row) => row.effectType === "CALENDAR_CREATE"));
+  const mail = await db
+    .select()
+    .from(orchestrationEffects)
+    .where(eq(orchestrationEffects.subjectId, confirmed.id))
+    .all()
+    .then((rows) => rows.find((row) => row.effectType === "MAIL_CONFIRMATION"));
+  assert.ok(calendar);
+  assert.ok(mail);
+
+  const blocked = await processOrchestrationEffect({
+    effectId: calendar.id,
+    now: NOW,
+  });
+  assert.equal(blocked.status, "BLOCKED");
+
+  const providers = providerBundle({
+    calendar: configuredCalendar(),
+    mailbox: configuredMailbox(),
+  });
+  const resumed = await resumeConfiguredBlockedEffects(
+    new Date(NOW.getTime() + 1000),
+    providers,
+  );
+  assert.ok(resumed >= 1);
+  assert.equal((await getOrchestrationEffect(calendar.id))?.status, "PENDING");
+
+  const firstPass = await processDueOrchestrationEffects(
+    { now: new Date(NOW.getTime() + 2000), limit: 20 },
+    providers,
+  );
+  assert.ok(firstPass.some((effect) => effect.id === calendar.id && effect.status === "SUCCEEDED"));
+
+  const secondPass = await processDueOrchestrationEffects(
+    { now: new Date(NOW.getTime() + 3000), limit: 20 },
+    providers,
+  );
+  assert.ok(secondPass.some((effect) => effect.id === mail.id && effect.status === "SUCCEEDED"));
 });
 
 test("COMMERCE 08.5: concurrent workers collapse to one provider side effect", async () => {
