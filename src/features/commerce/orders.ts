@@ -807,7 +807,6 @@ async function recordManualPaymentAsActor(
   actorId: string,
 ): Promise<Order> {
   const parsed = manualPaymentSchema.parse(input);
-  const db = await getDb();
   const order = await getOrderById(parsed.orderId);
   if (!order) throw new CommerceDomainError("Order not found.", "ORDER_NOT_FOUND");
   if (order.version !== parsed.expectedVersion) {
