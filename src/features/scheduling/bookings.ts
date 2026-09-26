@@ -123,6 +123,23 @@ function historyDetail(input: Record<string, unknown>): string {
   return JSON.stringify(input);
 }
 
+function assertRequestKeyBinding(
+  existing: Booking,
+  input: CreateBookingRequestInput,
+): Booking {
+  if (
+    existing.bookingTypeId !== input.bookingTypeId ||
+    existing.holdId !== input.holdId ||
+    existing.holdAcquisitionKey !== input.holdAcquisitionKey
+  ) {
+    throw new SchedulingDomainError(
+      "This requestKey is already bound to a different booking attempt.",
+      "IDEMPOTENCY_CONFLICT",
+    );
+  }
+  return existing;
+}
+
 export async function getBookingById(id: string): Promise<Booking | undefined> {
   const db = await getDb();
   return db.select().from(bookings).where(eq(bookings.id, id)).get();
@@ -199,7 +216,7 @@ export async function createBookingRequest(
   const db = await getDb();
 
   const byRequest = await getBookingByRequestKey(parsed.requestKey);
-  if (byRequest) return byRequest;
+  if (byRequest) return assertRequestKeyBinding(byRequest, parsed);
 
   const bookingType = await db
     .select()
@@ -295,7 +312,7 @@ export async function createBookingRequest(
   } catch (error: unknown) {
     if (isUniqueConstraintError(error)) {
       const retryByRequest = await getBookingByRequestKey(parsed.requestKey);
-      if (retryByRequest) return retryByRequest;
+      if (retryByRequest) return assertRequestKeyBinding(retryByRequest, parsed);
       const retryByGeneration = await findByHoldGeneration(
         parsed.holdId,
         parsed.holdAcquisitionKey,
@@ -382,14 +399,10 @@ async function confirmBoundBooking(
   const d1 = await getD1Database();
   const approved = action === "APPROVED";
 
-  const claim = d1
-    .prepare(
-      `UPDATE bookings
-       SET version = version + 1, transition_key = ?, updated_at = ?
-       WHERE id = ? AND status = ? AND version = ?`,
-    )
-    .bind(token, nowSec, booking.id, booking.status, booking.version);
-
+  // Consume first, but only while the booking is still at the exact state/version
+  // observed above. D1 batch statements execute transactionally and serially.
+  // If the hold was reclaimed/expired before the batch starts, this is a no-op
+  // and the booking row is left untouched.
   const consume = d1
     .prepare(
       `UPDATE slot_holds
@@ -402,7 +415,11 @@ async function confirmBoundBooking(
          AND expires_at > ?
          AND EXISTS (
            SELECT 1 FROM bookings
-           WHERE id = ? AND transition_key = ? AND version = ?
+           WHERE id = ?
+             AND status = ?
+             AND version = ?
+             AND hold_id = ?
+             AND hold_acquisition_key = ?
          )`,
     )
     .bind(
@@ -414,8 +431,10 @@ async function confirmBoundBooking(
       booking.holdAcquisitionKey,
       nowSec,
       booking.id,
-      token,
-      targetVersion,
+      booking.status,
+      booking.version,
+      booking.holdId,
+      booking.holdAcquisitionKey,
     );
 
   const approvalSql = approved
@@ -424,11 +443,13 @@ async function confirmBoundBooking(
   const confirmArgs: unknown[] = [
     nowSec,
     nowSec,
+    token,
     ...(approved ? [actor.id, nowSec] : []),
     booking.id,
-    token,
-    targetVersion,
     booking.status,
+    booking.version,
+    booking.holdId,
+    booking.holdAcquisitionKey,
     liveHold.id,
     booking.holdAcquisitionKey,
   ];
@@ -437,12 +458,15 @@ async function confirmBoundBooking(
       `UPDATE bookings
        SET status = 'CONFIRMED',
            confirmed_at = ?,
-           updated_at = ?
+           updated_at = ?,
+           version = version + 1,
+           transition_key = ?
            ${approvalSql}
        WHERE id = ?
-         AND transition_key = ?
-         AND version = ?
          AND status = ?
+         AND version = ?
+         AND hold_id = ?
+         AND hold_acquisition_key = ?
          AND EXISTS (
            SELECT 1 FROM slot_holds
            WHERE id = ?
@@ -476,7 +500,7 @@ async function confirmBoundBooking(
       targetVersion,
     );
 
-  await d1.batch([claim, consume, confirm, audit]);
+  await d1.batch([consume, confirm, audit]);
 
   const updated = await getBookingById(booking.id);
   if (
@@ -732,14 +756,9 @@ async function rescheduleBookingAsActor(
   const nowSec = toUnixSeconds(parsed.now);
   const d1 = await getD1Database();
 
-  const claim = d1
-    .prepare(
-      `UPDATE bookings
-       SET version = version + 1, transition_key = ?, updated_at = ?
-       WHERE id = ? AND status = 'CONFIRMED' AND version = ?`,
-    )
-    .bind(token, nowSec, booking.id, booking.version);
-
+  // The target hold is consumed only if the booking is still at the exact
+  // CONFIRMED version observed above. If the target lease was reclaimed or the
+  // booking changed before the batch begins, both statements remain no-ops.
   const consume = d1
     .prepare(
       `UPDATE slot_holds
@@ -751,7 +770,7 @@ async function rescheduleBookingAsActor(
          AND expires_at > ?
          AND EXISTS (
            SELECT 1 FROM bookings
-           WHERE id = ? AND transition_key = ? AND version = ? AND status = 'CONFIRMED'
+           WHERE id = ? AND status = 'CONFIRMED' AND version = ?
          )`,
     )
     .bind(
@@ -762,8 +781,7 @@ async function rescheduleBookingAsActor(
       parsed.newHoldAcquisitionKey,
       nowSec,
       booking.id,
-      token,
-      targetVersion,
+      booking.version,
     );
 
   const move = d1
@@ -774,9 +792,10 @@ async function rescheduleBookingAsActor(
            slot_key = ?,
            start_at = ?,
            end_at = ?,
-           updated_at = ?
+           updated_at = ?,
+           version = version + 1,
+           transition_key = ?
        WHERE id = ?
-         AND transition_key = ?
          AND version = ?
          AND status = 'CONFIRMED'
          AND EXISTS (
@@ -791,9 +810,9 @@ async function rescheduleBookingAsActor(
       toUnixSeconds(newHold.startAt),
       toUnixSeconds(newHold.endAt),
       nowSec,
-      booking.id,
       token,
-      targetVersion,
+      booking.id,
+      booking.version,
       newHold.id,
       parsed.newHoldAcquisitionKey,
     );
@@ -874,7 +893,7 @@ async function rescheduleBookingAsActor(
       parsed.newHoldAcquisitionKey,
     );
 
-  await d1.batch([claim, consume, move, releaseOld, audit]);
+  await d1.batch([consume, move, releaseOld, audit]);
 
   const updated = await getBookingById(booking.id);
   if (
