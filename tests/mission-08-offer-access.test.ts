@@ -455,6 +455,10 @@ test("OFFER 08.3: public product pages are wired to Offer lookup with safe fallb
   const { readFileSync } = await import("node:fs");
   const { join } = await import("node:path");
 
+  const mission01 = readFileSync(
+    join(process.cwd(), "src", "app", "(site)", "mission-01", "page.tsx"),
+    "utf8",
+  );
   const coaching = readFileSync(
     join(process.cwd(), "src", "app", "(site)", "coaching", "page.tsx"),
     "utf8",
@@ -468,6 +472,8 @@ test("OFFER 08.3: public product pages are wired to Offer lookup with safe fallb
     "utf8",
   );
 
+  assert.ok(mission01.includes("PUBLIC_OFFER_SLUGS.mission01"));
+  assert.ok(mission01.includes('"COURSE"'));
   assert.ok(coaching.includes('getOfferBySlugForKind(PUBLIC_OFFER_SLUGS.coaching, "COACHING")'));
   assert.ok(workshop.includes('getOfferBySlugForKind(PUBLIC_OFFER_SLUGS.workshop, "WORKSHOP")'));
   assert.ok(coursePage.includes("getEffectiveCourseAccessPolicy(course)"));
