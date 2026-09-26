@@ -565,13 +565,21 @@ async function simpleTerminalTransition(params: {
       booking.version,
     );
 
+  // DECLINED/CANCELLED must free the exact lease generation they own.
+  // This is the ONLY 08.2 path that can retire a previously CONSUMED hold:
+  // it is guarded by the booking CAS transition + exact acquisition generation,
+  // so generic hold acquisition still treats CONSUMED as terminal.
+  const releaseStatusPredicate =
+    params.toStatus === "DECLINED" || params.toStatus === "CANCELLED"
+      ? "status IN ('HELD', 'CONSUMED')"
+      : "1 = 0";
   const maybeRelease = d1
     .prepare(
       `UPDATE slot_holds
        SET status = 'RELEASED', released_at = ?, updated_at = ?
        WHERE id = ?
          AND acquisition_key = ?
-         AND status = 'HELD'
+         AND ${releaseStatusPredicate}
          AND EXISTS (
            SELECT 1 FROM bookings
            WHERE id = ? AND transition_key = ? AND version = ? AND status = ?
@@ -610,9 +618,8 @@ async function simpleTerminalTransition(params: {
       params.toStatus,
     );
 
-  // Releasing only affects a still-HELD lease generation. CONFIRMED bookings
-  // have CONSUMED holds, so cancellation/completion cannot accidentally mutate
-  // the terminal 08.1 hold state.
+  // Cancellation/decline release only the exact generation owned by this
+  // booking; completion deliberately leaves the consumed slot historical.
   await d1.batch([mutate, maybeRelease, audit]);
 
   const updated = await getBookingById(booking.id);
@@ -824,7 +831,42 @@ export async function rescheduleBooking(
       parsed.newHoldAcquisitionKey,
     );
 
-  await d1.batch([claim, consume, move, audit]);
+  const releaseOld = d1
+    .prepare(
+      `UPDATE slot_holds
+       SET status = 'RELEASED', released_at = ?, updated_at = ?
+       WHERE id = ?
+         AND acquisition_key = ?
+         AND status = 'CONSUMED'
+         AND EXISTS (
+           SELECT 1 FROM bookings
+           WHERE id = ?
+             AND transition_key = ?
+             AND version = ?
+             AND status = 'CONFIRMED'
+             AND hold_id = ?
+             AND hold_acquisition_key = ?
+         )
+         AND EXISTS (
+           SELECT 1 FROM slot_holds
+           WHERE id = ? AND acquisition_key = ? AND status = 'CONSUMED'
+         )`,
+    )
+    .bind(
+      nowSec,
+      nowSec,
+      booking.holdId,
+      booking.holdAcquisitionKey,
+      booking.id,
+      token,
+      targetVersion,
+      newHold.id,
+      parsed.newHoldAcquisitionKey,
+      newHold.id,
+      parsed.newHoldAcquisitionKey,
+    );
+
+  await d1.batch([claim, consume, move, releaseOld, audit]);
 
   const updated = await getBookingById(booking.id);
   if (
