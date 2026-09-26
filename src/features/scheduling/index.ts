@@ -113,6 +113,8 @@ export type {
   VerifyCallbackResult,
   VerifyWebhookSignatureParams,
   VerifyWebhookSignatureResult,
+  VerifyWebhookPaymentParams,
+  VerifyWebhookPaymentResult,
   NormalizePaymentStateParams,
   NormalizePaymentStateResult,
   RefundOrCancelParams,
