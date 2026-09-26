@@ -4,6 +4,8 @@ import {
   bookingTypes,
   courses,
   offers,
+  type BookingAccessMode,
+  type BookingType,
   type Course,
   type CourseAccessMode,
   type Offer,
@@ -323,6 +325,46 @@ export async function updateOffer(input: UpdateOfferInput): Promise<Offer> {
   const updated = await getOfferById(current.id);
   if (!updated) throw new Error("Offer update committed but could not be re-read.");
   return updated;
+}
+
+export type EffectiveBookingAccessPolicy = {
+  source: "OFFER" | "LEGACY_BOOKING_TYPE";
+  mode: OfferAccessMode | BookingAccessMode;
+  available: boolean;
+  offer: Offer | null;
+};
+
+/**
+ * Mission 08 booking monetization hand-off.
+ *
+ * A linked Offer is authoritative for NEW booking access/payment decisions,
+ * mirroring the course hand-off below. BookingType.accessMode remains a
+ * compatibility fallback only until the booking type receives its first Offer.
+ *
+ * Deactivated, PAYMENT_DISABLED, or COMING_SOON linked Offers fail closed.
+ */
+export async function getEffectiveBookingAccessPolicy(
+  bookingType: Pick<BookingType, "id" | "accessMode">,
+): Promise<EffectiveBookingAccessPolicy> {
+  const offer = await getOfferForBookingType(bookingType.id);
+  if (!offer) {
+    return {
+      source: "LEGACY_BOOKING_TYPE",
+      mode: bookingType.accessMode,
+      available: bookingType.accessMode !== "PAYMENT_DISABLED",
+      offer: null,
+    };
+  }
+
+  return {
+    source: "OFFER",
+    mode: offer.accessMode,
+    available:
+      offer.active &&
+      offer.accessMode !== "PAYMENT_DISABLED" &&
+      offer.accessMode !== "COMING_SOON",
+    offer,
+  };
 }
 
 export type EffectiveCourseAccessPolicy = {
