@@ -44,7 +44,7 @@ import {
   processOrchestrationEffect,
   resumeConfiguredBlockedEffects,
 } from "@/features/commerce";
-import { createOffer } from "@/features/offers/service";
+import { createOffer, updateOffer } from "@/features/offers/service";
 import {
   __commerceTestOnly,
   getOrderHistory,
@@ -381,6 +381,139 @@ test("COMMERCE 08.5: order request is idempotent and snapshots Offer price", asy
   const history = await getOrderHistory(setup.order.id);
   assert.equal(history.length, 1);
   assert.equal(history[0].toStatus, "PENDING");
+});
+
+test("COMMERCE 08.5: course fulfillment/refund remain bound to immutable Order snapshot after Offer drift", async () => {
+  const setup = await createPaidCourseOrder();
+  const db = await getDb();
+  const otherCourseId = id("course");
+  await db.insert(courses).values({
+    id: otherCourseId,
+    title: "Different Course",
+    slug: slug("different-course"),
+    description: "Offer drift target",
+    status: "published",
+    accessMode: "PAID_ONE_TIME",
+    coverImage: null,
+    createdAt: NOW,
+    updatedAt: NOW,
+    publishedAt: NOW,
+  });
+
+  await updateOffer({
+    id: setup.offer.id,
+    courseId: otherCourseId,
+  });
+
+  const snapshotted = await __commerceTestOnly!.getOrder(setup.order.id);
+  assert.equal(snapshotted?.offerKind, "COURSE");
+  assert.equal(snapshotted?.accessMode, "PAID_ONE_TIME");
+  assert.equal(snapshotted?.courseId, setup.courseId);
+
+  const paid = await applyVerifiedPaymentCallback(
+    verifiedGateway({ eventId: "event-course-snapshot-drift" }),
+    {
+      orderId: setup.order.id,
+      callbackKey: "callback-course-snapshot-drift",
+      callbackPayload: JSON.stringify({ orderId: setup.order.id }),
+      provider: "test-pay",
+      now: NOW,
+    },
+  );
+
+  const fulfill = await db
+    .select()
+    .from(orchestrationEffects)
+    .where(eq(orchestrationEffects.subjectId, paid.id))
+    .get();
+  assert.ok(fulfill);
+  await processOrchestrationEffect({
+    effectId: fulfill.id,
+    now: new Date(NOW.getTime() + 1000),
+  });
+
+  const originalEnrollment = await db
+    .select()
+    .from(enrollments)
+    .where(eq(enrollments.userId, setup.userId))
+    .all();
+  assert.ok(
+    originalEnrollment.some(
+      (row) =>
+        row.courseId === setup.courseId &&
+        row.status === "active" &&
+        row.accessSource === `order:${paid.id}`,
+    ),
+  );
+  assert.equal(
+    originalEnrollment.some((row) => row.courseId === otherCourseId),
+    false,
+  );
+
+  const refunded = await applyVerifiedPaymentCallback(
+    verifiedGateway({
+      state: "REFUNDED",
+      eventId: "event-course-snapshot-refund",
+    }),
+    {
+      orderId: paid.id,
+      callbackKey: "callback-course-snapshot-refund",
+      callbackPayload: JSON.stringify({ orderId: paid.id }),
+      provider: "test-pay",
+      now: new Date(NOW.getTime() + 2000),
+    },
+  );
+  assert.equal(refunded.status, "REFUNDED");
+
+  const refundEffect = await db
+    .select()
+    .from(orchestrationEffects)
+    .where(eq(orchestrationEffects.id, `fx_order_${paid.id}_refund_reconcile`))
+    .get();
+  assert.ok(refundEffect);
+  await processOrchestrationEffect({
+    effectId: refundEffect.id,
+    now: new Date(NOW.getTime() + 3000),
+  });
+
+  const originalAfterRefund = await db
+    .select()
+    .from(enrollments)
+    .where(eq(enrollments.userId, setup.userId))
+    .all();
+  assert.ok(
+    originalAfterRefund.some(
+      (row) => row.courseId === setup.courseId && row.status === "cancelled",
+    ),
+  );
+  assert.equal(
+    originalAfterRefund.some((row) => row.courseId === otherCourseId),
+    false,
+  );
+});
+
+test("COMMERCE 08.5: manual-payment authority remains the Order snapshot after Offer access-mode drift", async () => {
+  const setup = await createPaidCourseOrder("MANUAL_INVOICE");
+
+  await updateOffer({
+    id: setup.offer.id,
+    accessMode: "PAID_ONE_TIME",
+    currency: "USD",
+    amountMinor: 9900,
+  });
+
+  const current = await __commerceTestOnly!.getOrder(setup.order.id);
+  assert.equal(current?.accessMode, "MANUAL_INVOICE");
+  assert.equal(current?.amountMinor, null);
+  assert.equal(current?.currency, null);
+
+  const paid = await __commerceTestOnly!.recordManualPayment({
+    orderId: setup.order.id,
+    expectedVersion: setup.order.version,
+    now: NOW,
+    note: "Original manual invoice contract remains authoritative",
+  });
+  assert.equal(paid.status, "PAID");
 });
 
 test("COMMERCE 08.5: linked course orders reject quantity greater than one", async () => {
@@ -1042,6 +1175,50 @@ test("COMMERCE 08.5: PAID_SESSION booking cannot confirm until matching order is
     now: new Date(NOW.getTime() + 1000),
   });
   assert.equal((await __commerceTestOnly!.getOrder(paid.id))?.status, "FULFILLED");
+});
+
+test("COMMERCE 08.5: paid booking matching remains bound to immutable Order bookingType snapshot after Offer drift", async () => {
+  const setup = await createPaidBooking("AHMED_APPROVAL");
+  const driftTarget = await createBookingType({
+    slug: slug("drift-target"),
+    title: "Drift Target",
+    durationMinutes: 60,
+    bufferBeforeMinutes: 0,
+    bufferAfterMinutes: 0,
+    minimumNoticeMinutes: 0,
+    bookingHorizonDays: 30,
+    timezone: "America/New_York",
+    confirmationPolicy: "AHMED_APPROVAL",
+    accessMode: "PAID_SESSION",
+    meetingMethod: "TO_BE_CONFIRMED",
+    attendeeLimit: 1,
+  });
+
+  await updateOffer({
+    id: setup.offer.id,
+    bookingTypeId: driftTarget.id,
+  });
+
+  const stored = await __commerceTestOnly!.getOrder(setup.order.id);
+  assert.equal(stored?.bookingTypeId, setup.bookingType.id);
+
+  await applyVerifiedPaymentCallback(
+    verifiedGateway({ amountMinor: 20000, eventId: "event-booking-snapshot-drift" }),
+    {
+      orderId: setup.order.id,
+      callbackKey: "callback-booking-snapshot-drift",
+      callbackPayload: JSON.stringify({ orderId: setup.order.id }),
+      provider: "test-pay",
+      now: NOW,
+    },
+  );
+
+  const confirmed = await __bookingLifecycleTestOnly!.approve({
+    bookingId: setup.booking.id,
+    expectedVersion: setup.booking.version,
+    now: NOW,
+  });
+  assert.equal(confirmed.status, "CONFIRMED");
 });
 
 test("COMMERCE 08.5: booking confirmation commits calendar -> mail dependency outbox atomically", async () => {
