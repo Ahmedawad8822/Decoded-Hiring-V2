@@ -6,9 +6,9 @@ import { LeadForm } from "@/features/leads/lead-form";
 import { publicMetadata } from "@/lib/seo";
 import { PUBLIC_OFFER_SLUGS } from "@/features/offers/catalog";
 import { resolveOfferPublicPresentation } from "@/features/offers/presentation";
-import { getPublicOfferBySlug } from "@/features/offers/service";
+import { getOfferBySlug } from "@/features/offers/service";
 
-export const metadata = publicMetadata({
+export const dynamic = "force-dynamic";\n\nexport const metadata = publicMetadata({
   title: "Recruitment Decision Coaching | Ahmed Awad",
   description:
     "A private 60-minute decision room for a live recruitment, leadership or workflow challenge.",
@@ -16,7 +16,7 @@ export const metadata = publicMetadata({
 });
 
 export default async function CoachingPage() {
-  const offer = await getPublicOfferBySlug(PUBLIC_OFFER_SLUGS.coaching);
+  const offer = await getOfferBySlug(PUBLIC_OFFER_SLUGS.coaching);
   const offerPresentation = offer
     ? resolveOfferPublicPresentation(offer, {
         freeHref: "#hg-coaching-brief",
@@ -46,13 +46,19 @@ export default async function CoachingPage() {
             {offerPresentation?.priceLabel && <span>{offerPresentation.priceLabel}</span>}
           </div>
           <div className="hg-actions">
-            <a
-              className="hg-primary"
-              href={offerPresentation?.ctaHref ?? "#hg-coaching-brief"}
-            >
-              {offerPresentation?.ctaLabel ?? "Open a decision brief"}{" "}
-              <ArrowDownRight aria-hidden="true" />
-            </a>
+            {offer && !offerPresentation?.ctaHref ? (
+              <span className="hg-primary" aria-disabled="true">
+                Currently unavailable
+              </span>
+            ) : (
+              <a
+                className="hg-primary"
+                href={offerPresentation?.ctaHref ?? "#hg-coaching-brief"}
+              >
+                {offerPresentation?.ctaLabel ?? "Open a decision brief"}{" "}
+                <ArrowDownRight aria-hidden="true" />
+              </a>
+            )}
           </div>
         </div>
         <figure className="hg-product-portrait hg-product-portrait--coaching">
