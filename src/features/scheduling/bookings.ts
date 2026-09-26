@@ -20,6 +20,8 @@ import {
   bookingHistory,
   bookings,
   bookingTypes,
+  offers,
+  orders,
   slotHolds,
   type Booking,
   type BookingHistory,
@@ -204,6 +206,42 @@ async function getBookingWithTypeAndHold(id: string): Promise<{
   }
   const hold = await db.select().from(slotHolds).where(eq(slotHolds.id, booking.holdId)).get();
   return { booking, bookingType, hold };
+}
+
+async function hasSatisfiedBookingPayment(
+  bookingId: string,
+  bookingTypeId: string,
+): Promise<boolean> {
+  const db = await getDb();
+  const row = await db
+    .select({ orderId: orders.id })
+    .from(orders)
+    .innerJoin(offers, eq(offers.id, orders.offerId))
+    .where(
+      and(
+        eq(orders.bookingId, bookingId),
+        eq(offers.bookingTypeId, bookingTypeId),
+      ),
+    )
+    .all();
+  if (row.length === 0) return false;
+
+  const linkedOrders = await db
+    .select({ status: orders.status })
+    .from(orders)
+    .innerJoin(offers, eq(offers.id, orders.offerId))
+    .where(
+      and(
+        eq(orders.bookingId, bookingId),
+        eq(offers.bookingTypeId, bookingTypeId),
+      ),
+    )
+    .all();
+
+  return linkedOrders.some(
+    (candidate) =>
+      candidate.status === "PAID" || candidate.status === "FULFILLED",
+  );
 }
 
 async function findByHoldGeneration(
@@ -406,11 +444,26 @@ async function confirmBoundBooking(
     }
   }
 
-  if (bookingType.accessMode !== "FREE") {
+  if (bookingType.accessMode === "PAYMENT_DISABLED") {
     throw new SchedulingDomainError(
-      `Booking access mode ${bookingType.accessMode} cannot be confirmed before commerce/payment state is authoritative.`,
+      "Booking payment/access is disabled for this booking type.",
       "PAYMENT_REQUIRED",
     );
+  }
+  if (
+    bookingType.accessMode === "PAID_SESSION" ||
+    bookingType.accessMode === "MANUAL_INVOICE"
+  ) {
+    const paymentSatisfied = await hasSatisfiedBookingPayment(
+      booking.id,
+      booking.bookingTypeId,
+    );
+    if (!paymentSatisfied) {
+      throw new SchedulingDomainError(
+        "A matching internal order must be PAID before this booking can be confirmed.",
+        "PAYMENT_REQUIRED",
+      );
+    }
   }
 
   const liveHold = assertLiveBoundHold(booking, hold, parsed.now);
