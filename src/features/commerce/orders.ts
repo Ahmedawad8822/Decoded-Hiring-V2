@@ -872,7 +872,11 @@ export async function fulfillPaidOrderFromOrchestration(
         .prepare(
           `INSERT INTO enrollments
            (id, user_id, course_id, status, access_source, enrolled_at, completed_at)
-           VALUES (?, ?, ?, 'active', ?, ?, NULL)
+           SELECT ?, ?, ?, 'active', ?, ?, NULL
+           WHERE EXISTS (
+             SELECT 1 FROM orders
+             WHERE id=? AND status='PAID' AND version=?
+           )
            ON CONFLICT(user_id, course_id) DO UPDATE SET
              status='active',
              access_source=excluded.access_source,
@@ -884,6 +888,8 @@ export async function fulfillPaidOrderFromOrchestration(
           offer.courseId,
           `order:${order.id}`,
           nowSec,
+          order.id,
+          order.version,
         ),
     );
   }
