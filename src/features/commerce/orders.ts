@@ -196,10 +196,10 @@ async function validateOrderTarget(
     }
   }
 
-  if (offer.accessMode === "PAID_SESSION") {
-    if (!offer.bookingTypeId || !input.bookingId) {
+  if (offer.bookingTypeId) {
+    if (!input.bookingId) {
       throw new CommerceDomainError(
-        "Paid-session orders require a linked booking.",
+        "Booking-linked Offers require the exact booking identity on the order.",
         "ORDER_NOT_ALLOWED",
       );
     }
@@ -214,18 +214,11 @@ async function validateOrderTarget(
         "ORDER_NOT_ALLOWED",
       );
     }
-  } else if (input.bookingId && offer.bookingTypeId) {
-    const booking = await db
-      .select({ id: bookings.id, bookingTypeId: bookings.bookingTypeId })
-      .from(bookings)
-      .where(eq(bookings.id, input.bookingId))
-      .get();
-    if (!booking || booking.bookingTypeId !== offer.bookingTypeId) {
-      throw new CommerceDomainError(
-        "Order booking does not match the Offer booking type.",
-        "ORDER_NOT_ALLOWED",
-      );
-    }
+  } else if (offer.accessMode === "PAID_SESSION") {
+    throw new CommerceDomainError(
+      "PAID_SESSION Offers must be linked to a booking type.",
+      "ORDER_NOT_ALLOWED",
+    );
   }
 }
 
