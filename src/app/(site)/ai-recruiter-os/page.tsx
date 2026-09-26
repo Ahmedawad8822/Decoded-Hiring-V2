@@ -3,6 +3,11 @@ import Image from "next/image";
 
 import { LeadForm } from "@/features/leads/lead-form";
 import { publicMetadata } from "@/lib/seo";
+import { PUBLIC_OFFER_SLUGS } from "@/features/offers/catalog";
+import { resolveOfferPublicPresentation } from "@/features/offers/presentation";
+import { getOfferBySlugForKind } from "@/features/offers/service";
+
+export const dynamic = "force-dynamic";
 
 export const metadata = publicMetadata({
   title: "AI Recruiter OS | Ahmed Awad",
@@ -11,7 +16,21 @@ export const metadata = publicMetadata({
   path: "/ai-recruiter-os",
 });
 
-export default function AiRecruiterOsPage() {
+export default async function AiRecruiterOsPage() {
+  const offer = await getOfferBySlugForKind(
+    PUBLIC_OFFER_SLUGS.aiRecruiterOs,
+    "PRODUCT",
+  );
+  const offerPresentation = offer
+    ? resolveOfferPublicPresentation(offer, {
+        freeHref: "#ai-os-waitlist",
+        freeLabel: "Join the waitlist",
+        contactHref: "#ai-os-waitlist",
+        contactLabel: "Join the waitlist",
+      })
+    : null;
+  const isUnavailable = Boolean(offer && !offerPresentation?.ctaHref);
+
   return (
     <article className="hg-page is-active">
       <section className="hg-section hg-os-waitlist">
@@ -22,9 +41,19 @@ export default function AiRecruiterOsPage() {
             recruitment judgment across the entire hiring process.
           </p>
           <div className="hg-actions">
-            <a className="hg-primary" href="#ai-os-waitlist">
-              Join the waitlist <ArrowUpRight aria-hidden="true" />
-            </a>
+            {isUnavailable ? (
+              <span className="hg-primary" aria-disabled="true">
+                Currently unavailable
+              </span>
+            ) : (
+              <a
+                className="hg-primary"
+                href={offerPresentation?.ctaHref ?? "#ai-os-waitlist"}
+              >
+                {offerPresentation?.ctaLabel ?? "Join the waitlist"}{" "}
+                <ArrowUpRight aria-hidden="true" />
+              </a>
+            )}
           </div>
         </div>
         <figure className="hg-product-portrait hg-product-portrait--os">
