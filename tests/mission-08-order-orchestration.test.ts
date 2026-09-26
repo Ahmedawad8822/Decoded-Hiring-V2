@@ -48,7 +48,7 @@ import {
 import { createOffer } from "@/features/offers/service";
 import {
   SchedulingProviderError,
-  UnconfiguredCalendarProvider,
+  NullCalendarProvider,
   UnconfiguredCommerceSchedulingProviders,
   UnconfiguredMailboxProvider,
   UnconfiguredMeetingProvider,
@@ -240,7 +240,7 @@ function configuredMailbox(counter?: { calls: number }): MailboxProvider {
 function providerBundle(overrides: Partial<CommerceSchedulingProviders> = {}): CommerceSchedulingProviders {
   return {
     payment: overrides.payment ?? UnconfiguredPaymentGateway,
-    calendar: overrides.calendar ?? UnconfiguredCalendarProvider,
+    calendar: overrides.calendar ?? NullCalendarProvider,
     mailbox: overrides.mailbox ?? UnconfiguredMailboxProvider,
     meeting: overrides.meeting ?? UnconfiguredMeetingProvider,
   };
