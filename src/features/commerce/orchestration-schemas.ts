@@ -48,5 +48,5 @@ export const bookingEffectPayloadSchema = z.object({
   bookingVersion: z.number().int().positive().optional(),
 });
 
-export type EnqueueEffectInput = z.infer<typeof enqueueEffectSchema>;
-export type ProcessEffectInput = z.infer<typeof processEffectSchema>;
+export type EnqueueEffectInput = z.input<typeof enqueueEffectSchema>;
+export type ProcessEffectInput = z.input<typeof processEffectSchema>;
