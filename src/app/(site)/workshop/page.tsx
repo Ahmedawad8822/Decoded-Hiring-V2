@@ -8,9 +8,9 @@ import { LeadForm } from "@/features/leads/lead-form";
 import { publicMetadata } from "@/lib/seo";
 import { PUBLIC_OFFER_SLUGS } from "@/features/offers/catalog";
 import { resolveOfferPublicPresentation } from "@/features/offers/presentation";
-import { getPublicOfferBySlug } from "@/features/offers/service";
+import { getOfferBySlug } from "@/features/offers/service";
 
-export const metadata = publicMetadata({
+export const dynamic = "force-dynamic";\n\nexport const metadata = publicMetadata({
   title: "AI-Powered Recruitment Workshop | Ahmed Awad",
   description:
     "A four-day practical recruitment workshop that turns activity into an evidence-to-recommendation operating system.",
@@ -18,7 +18,7 @@ export const metadata = publicMetadata({
 });
 
 export default async function WorkshopPage() {
-  const offer = await getPublicOfferBySlug(PUBLIC_OFFER_SLUGS.workshop);
+  const offer = await getOfferBySlug(PUBLIC_OFFER_SLUGS.workshop);
   const offerPresentation = offer
     ? resolveOfferPublicPresentation(offer, {
         freeHref: "#workshop-brief",
@@ -49,13 +49,19 @@ export default async function WorkshopPage() {
             {offerPresentation?.priceLabel && <span>{offerPresentation.priceLabel}</span>}
           </div>
           <div className="hg-actions">
-            <a
-              className="hg-primary"
-              href={offerPresentation?.ctaHref ?? "#workshop-brief"}
-            >
-              {offerPresentation?.ctaLabel ?? "Bring this to my team"}{" "}
-              <ArrowUpRight aria-hidden="true" />
-            </a>
+            {offer && !offerPresentation?.ctaHref ? (
+              <span className="hg-primary" aria-disabled="true">
+                Currently unavailable
+              </span>
+            ) : (
+              <a
+                className="hg-primary"
+                href={offerPresentation?.ctaHref ?? "#workshop-brief"}
+              >
+                {offerPresentation?.ctaLabel ?? "Bring this to my team"}{" "}
+                <ArrowUpRight aria-hidden="true" />
+              </a>
+            )}
             <a className="hg-secondary" href="#workshop-brief">
               Join the open-cohort list
             </a>
