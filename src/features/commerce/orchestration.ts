@@ -796,6 +796,18 @@ function classifyFailure(
 
   if (
     error instanceof CommerceDomainError &&
+    error.code === "FULFILLMENT_NOT_CONFIGURED"
+  ) {
+    return {
+      status: "BLOCKED",
+      code: error.code,
+      message: error.message,
+      nextAttemptAt: null,
+    };
+  }
+
+  if (
+    error instanceof CommerceDomainError &&
     error.code === "DEPENDENCY_NOT_READY"
   ) {
     return {
