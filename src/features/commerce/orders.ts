@@ -12,6 +12,7 @@
 import { and, asc, eq } from "drizzle-orm";
 import {
   bookings,
+  enrollments,
   offers,
   orderHistory,
   orders,
@@ -558,6 +559,44 @@ async function applyVerifiedPaymentObservation(params: {
     );
   }
 
+  if (target === "REFUNDED") {
+    const effectId = `fx_order_${order.id}_refund_reconcile`;
+    statements.push(
+      d1
+        .prepare(
+          `INSERT OR IGNORE INTO orchestration_effects
+           (id, subject_type, subject_id, effect_type, provider_kind,
+            idempotency_key, payload, status, attempt_count, created_at, updated_at)
+           SELECT ?, 'ORDER', id, 'ORDER_REFUND_RECONCILE', 'internal', ?, ?, 'PENDING', 0, ?, ?
+           FROM orders
+           WHERE id = ? AND transition_key = ? AND version = ? AND status = 'REFUNDED'`,
+        )
+        .bind(
+          effectId,
+          `order:${order.id}:refund-reconcile`,
+          detail({ orderId: order.id }),
+          nowSec,
+          nowSec,
+          order.id,
+          transition,
+          targetVersion,
+        ),
+      d1
+        .prepare(
+          `INSERT OR IGNORE INTO orchestration_history
+           (id, effect_id, action, from_status, to_status, detail, created_at)
+           SELECT ?, id, 'ENQUEUED', NULL, 'PENDING', ?, ?
+           FROM orchestration_effects WHERE id = ?`,
+        )
+        .bind(
+          `fxh_${effectId}_enqueued`,
+          detail({ reason: "payment_refunded" }),
+          nowSec,
+          effectId,
+        ),
+    );
+  }
+
   try {
     await d1.batch(statements);
   } catch (error: unknown) {
@@ -932,9 +971,18 @@ export async function fulfillPaidOrderFromOrchestration(
              WHERE id=? AND status='PAID' AND version=?
            )
            ON CONFLICT(user_id, course_id) DO UPDATE SET
-             status='active',
-             access_source=excluded.access_source,
-             completed_at=NULL`,
+             status=CASE
+               WHEN enrollments.status='cancelled' THEN 'active'
+               ELSE enrollments.status
+             END,
+             access_source=CASE
+               WHEN enrollments.status='cancelled' THEN excluded.access_source
+               ELSE enrollments.access_source
+             END,
+             completed_at=CASE
+               WHEN enrollments.status='cancelled' THEN NULL
+               ELSE enrollments.completed_at
+             END`,
         )
         .bind(
           `enroll_order_${order.id}`,
@@ -996,6 +1044,37 @@ export async function fulfillPaidOrderFromOrchestration(
     );
   }
   return updated;
+}
+
+export async function reconcileRefundedOrderAccessFromOrchestration(
+  orderId: string,
+): Promise<Order> {
+  const db = await getDb();
+  const order = await getOrderById(orderId);
+  if (!order) throw new CommerceDomainError("Order not found.", "ORDER_NOT_FOUND");
+
+  if (order.status !== "REFUNDED") {
+    return order;
+  }
+
+  const offer = await db.select().from(offers).where(eq(offers.id, order.offerId)).get();
+  if (!offer) throw new CommerceDomainError("Offer not found.", "OFFER_NOT_FOUND");
+
+  if (offer.kind === "COURSE" && offer.courseId && order.userId) {
+    await db
+      .update(enrollments)
+      .set({ status: "cancelled", completedAt: null })
+      .where(
+        and(
+          eq(enrollments.userId, order.userId),
+          eq(enrollments.courseId, offer.courseId),
+          eq(enrollments.accessSource, `order:${order.id}`),
+        ),
+      )
+      .run();
+  }
+
+  return order;
 }
 
 const commerceTestApi = {
