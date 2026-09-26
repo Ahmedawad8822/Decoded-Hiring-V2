@@ -230,6 +230,35 @@ export type VerifyWebhookSignatureResult =
       providerEventId?: never;
     };
 
+export interface VerifyWebhookPaymentParams {
+  orderId: string;
+  rawBody: string | Uint8Array;
+  signature: string;
+  headers?: Readonly<Record<string, string>>;
+}
+
+export type VerifyWebhookPaymentResult =
+  | {
+      verified: true;
+      orderId: string;
+      state: NormalizedPaymentState;
+      providerEventId?: string | null;
+      providerCheckoutId?: string | null;
+      providerPaymentId?: string | null;
+      amountMinor?: number | null;
+      currency?: string | null;
+    }
+  | {
+      verified: false;
+      orderId: string;
+      state?: never;
+      providerEventId?: never;
+      providerCheckoutId?: never;
+      providerPaymentId?: never;
+      amountMinor?: never;
+      currency?: never;
+    };
+
 export interface NormalizePaymentStateParams {
   orderId: string;
   providerState: string;
@@ -261,6 +290,15 @@ export interface PaymentGateway {
   verifyWebhookSignature(
     params: VerifyWebhookSignatureParams,
   ): Promise<VerifyWebhookSignatureResult>;
+  /**
+   * Security-critical compound boundary for live webhook orchestration.
+   * Implementations MUST verify the signature and derive normalized payment
+   * truth from the same signed rawBody. Callers must not supply state/amount
+   * separately from the signed envelope.
+   */
+  verifyWebhookPayment(
+    params: VerifyWebhookPaymentParams,
+  ): Promise<VerifyWebhookPaymentResult>;
   normalizePaymentState(
     params: NormalizePaymentStateParams,
   ): Promise<NormalizePaymentStateResult>;
@@ -331,6 +369,7 @@ export const UnconfiguredPaymentGateway = Object.freeze<PaymentGateway>({
       "checkout",
       "callback_verification",
       "webhook_signature_verification",
+      "verified_webhook_payment",
       "state_normalization",
       "refund_or_cancel",
     ],
@@ -352,6 +391,12 @@ export const UnconfiguredPaymentGateway = Object.freeze<PaymentGateway>({
       "payment",
       "verifyWebhookSignature",
       "Payment provider is not configured. Cannot verify webhook signatures.",
+    ),
+  verifyWebhookPayment: async () =>
+    notConfigured(
+      "payment",
+      "verifyWebhookPayment",
+      "Payment provider is not configured. Cannot verify webhook payment evidence.",
     ),
   normalizePaymentState: async () =>
     notConfigured(
