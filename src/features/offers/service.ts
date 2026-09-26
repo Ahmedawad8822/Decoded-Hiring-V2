@@ -143,6 +143,20 @@ export async function getOfferBySlug(slug: string): Promise<Offer | null> {
   return (await db.select().from(offers).where(eq(offers.slug, slug)).get()) ?? null;
 }
 
+export async function getOfferBySlugForKind(
+  slug: string,
+  kind: Offer["kind"],
+): Promise<Offer | null> {
+  const db = await getDb();
+  return (
+    (await db
+      .select()
+      .from(offers)
+      .where(and(eq(offers.slug, slug), eq(offers.kind, kind)))
+      .get()) ?? null
+  );
+}
+
 export async function getPublicOfferBySlug(slug: string): Promise<Offer | null> {
   const db = await getDb();
   return (
