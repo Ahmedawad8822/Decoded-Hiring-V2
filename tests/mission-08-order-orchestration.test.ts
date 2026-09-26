@@ -144,6 +144,16 @@ async function createPaidCourseOrder(
   return { ...setup, order, requestKey };
 }
 
+function testEvidenceOrderId(payload: string | Uint8Array): string {
+  const text =
+    typeof payload === "string" ? payload : new TextDecoder().decode(payload);
+  const parsed = JSON.parse(text) as { orderId?: unknown };
+  if (typeof parsed.orderId !== "string") {
+    throw new Error("Test payment evidence is missing orderId metadata.");
+  }
+  return parsed.orderId;
+}
+
 function verifiedGateway(params: {
   state?: "PENDING" | "REQUIRES_ACTION" | "PAID" | "CANCELLED" | "FAILED" | "REFUNDED";
   amountMinor?: number;
@@ -162,29 +172,35 @@ function verifiedGateway(params: {
       providerCheckoutId: `checkout-${input.orderId}`,
       provider: "test-pay",
     }),
-    verifyCallback: async (input) => ({
-      verified: true,
-      orderId: input.orderId,
-      state: params.state ?? "PAID",
-      providerCheckoutId: `checkout-${input.orderId}`,
-      providerPaymentId: `payment-${input.orderId}`,
-      providerEventId: params.eventId ?? `event-${input.orderId}`,
-      amountMinor: params.amountMinor ?? 12500,
-      currency: params.currency ?? "USD",
-    }),
+    verifyCallback: async (input) => {
+      const orderId = testEvidenceOrderId(input.callbackPayload);
+      return {
+        verified: true,
+        orderId,
+        state: params.state ?? "PAID",
+        providerCheckoutId: `checkout-${orderId}`,
+        providerPaymentId: `payment-${orderId}`,
+        providerEventId: params.eventId ?? `event-${orderId}`,
+        amountMinor: params.amountMinor ?? 12500,
+        currency: params.currency ?? "USD",
+      };
+    },
     verifyWebhookSignature: async () => ({
       valid: true,
       providerEventId: params.eventId ?? "webhook-event",
     }),
-    verifyWebhookPayment: async (input) => ({
-      verified: true,
-      orderId: input.orderId,
-      state: params.state ?? "PAID",
-      providerEventId: params.eventId ?? "webhook-event",
-      providerPaymentId: `payment-${input.orderId}`,
-      amountMinor: params.amountMinor ?? 12500,
-      currency: params.currency ?? "USD",
-    }),
+    verifyWebhookPayment: async (input) => {
+      const orderId = testEvidenceOrderId(input.rawBody);
+      return {
+        verified: true,
+        orderId,
+        state: params.state ?? "PAID",
+        providerEventId: params.eventId ?? "webhook-event",
+        providerPaymentId: `payment-${orderId}`,
+        amountMinor: params.amountMinor ?? 12500,
+        currency: params.currency ?? "USD",
+      };
+    },
     normalizePaymentState: async (input) => ({
       orderId: input.orderId,
       providerState: input.providerState,
@@ -442,9 +458,8 @@ test("COMMERCE 08.5: unverified callback cannot mutate Order truth", async () =>
   const setup = await createPaidCourseOrder();
   const gateway: PaymentGateway = {
     ...verifiedGateway(),
-    verifyCallback: async (input) => ({
+    verifyCallback: async () => ({
       verified: false,
-      orderId: input.orderId,
     }),
   };
 
@@ -452,7 +467,7 @@ test("COMMERCE 08.5: unverified callback cannot mutate Order truth", async () =>
     applyVerifiedPaymentCallback(gateway, {
       orderId: setup.order.id,
       callbackKey: "callback-unverified",
-      callbackPayload: "opaque",
+      callbackPayload: JSON.stringify({ orderId: setup.order.id }),
       provider: "test-pay",
       now: NOW,
     }),
@@ -472,7 +487,7 @@ test("COMMERCE 08.5: verified PAID callback is durable and callback-idempotent",
   const input = {
     orderId: setup.order.id,
     callbackKey: "callback-paid-idempotent",
-    callbackPayload: "opaque",
+    callbackPayload: JSON.stringify({ orderId: setup.order.id }),
     provider: "test-pay",
     now: NOW,
   };
@@ -503,7 +518,7 @@ test("COMMERCE 08.5: payment amount mismatch is rejected before persistence", as
       {
         orderId: setup.order.id,
         callbackKey: "callback-wrong-amount",
-        callbackPayload: "opaque",
+        callbackPayload: JSON.stringify({ orderId: setup.order.id }),
         provider: "test-pay",
         now: NOW,
       },
@@ -520,9 +535,8 @@ test("COMMERCE 08.5: webhook payment truth comes only from the verified signed-e
   let legacySplitCalls = 0;
   const gateway: PaymentGateway = {
     ...verifiedGateway(),
-    verifyWebhookPayment: async (input) => ({
+    verifyWebhookPayment: async () => ({
       verified: false,
-      orderId: input.orderId,
     }),
     verifyWebhookSignature: async () => {
       legacySplitCalls += 1;
@@ -561,7 +575,13 @@ test("COMMERCE 08.5: verified webhook dedupes by provider event identity", async
   const gateway = verifiedGateway({ eventId: "webhook-event-unique" });
   const input = {
     orderId: setup.order.id,
-    rawBody: '{"event":"same","state":"paid","amountMinor":12500,"currency":"USD"}',
+    rawBody: JSON.stringify({
+      orderId: setup.order.id,
+      event: "same",
+      state: "paid",
+      amountMinor: 12500,
+      currency: "USD",
+    }),
     signature: "valid",
     provider: "test-pay",
     now: NOW,
@@ -581,14 +601,14 @@ test("COMMERCE 08.5: provider event identity dedupes even when local callback ke
   const first = await applyVerifiedPaymentCallback(gateway, {
     orderId: setup.order.id,
     callbackKey: "callback-local-a",
-    callbackPayload: "opaque-a",
+    callbackPayload: JSON.stringify({ orderId: setup.order.id }),
     provider: "test-pay",
     now: NOW,
   });
   const second = await applyVerifiedPaymentCallback(gateway, {
     orderId: setup.order.id,
     callbackKey: "callback-local-b",
-    callbackPayload: "opaque-b",
+    callbackPayload: JSON.stringify({ orderId: setup.order.id }),
     provider: "test-pay",
     now: new Date(NOW.getTime() + 1000),
   });
@@ -606,14 +626,14 @@ test("COMMERCE 08.5: concurrent same provider event collapses across different l
     applyVerifiedPaymentCallback(gateway, {
       orderId: setup.order.id,
       callbackKey: "callback-concurrent-a",
-      callbackPayload: "opaque-a",
+      callbackPayload: JSON.stringify({ orderId: setup.order.id }),
       provider: "test-pay",
       now: NOW,
     }),
     applyVerifiedPaymentCallback(gateway, {
       orderId: setup.order.id,
       callbackKey: "callback-concurrent-b",
-      callbackPayload: "opaque-b",
+      callbackPayload: JSON.stringify({ orderId: setup.order.id }),
       provider: "test-pay",
       now: NOW,
     }),
@@ -633,7 +653,7 @@ test("COMMERCE 08.5: callback provider metadata cannot contradict adapter identi
       {
         orderId: setup.order.id,
         callbackKey: "callback-provider-mismatch",
-        callbackPayload: "opaque",
+        callbackPayload: JSON.stringify({ orderId: setup.order.id }),
         provider: "spoofed-provider",
         now: NOW,
       },
@@ -672,7 +692,7 @@ test("COMMERCE 08.5: internal course fulfillment grants durable enrollment atomi
     {
       orderId: setup.order.id,
       callbackKey: "callback-course-fulfill",
-      callbackPayload: "opaque",
+      callbackPayload: JSON.stringify({ orderId: setup.order.id }),
       provider: "test-pay",
       now: NOW,
     },
@@ -716,7 +736,7 @@ test("COMMERCE 08.5: refund before fulfillment closes obsolete effect without gr
   const paid = await applyVerifiedPaymentCallback(paidGateway, {
     orderId: setup.order.id,
     callbackKey: "callback-paid-before-refund",
-    callbackPayload: "opaque-paid",
+    callbackPayload: JSON.stringify({ orderId: setup.order.id }),
     provider: "test-pay",
     now: NOW,
   });
@@ -739,7 +759,7 @@ test("COMMERCE 08.5: refund before fulfillment closes obsolete effect without gr
     {
       orderId: paid.id,
       callbackKey: "callback-refund-final",
-      callbackPayload: "opaque-refund",
+      callbackPayload: JSON.stringify({ orderId: paid.id }),
       provider: "test-pay",
       now: new Date(NOW.getTime() + 1000),
     },
@@ -781,7 +801,7 @@ test("COMMERCE 08.5: refund after fulfillment revokes only access owned by that 
     {
       orderId: setup.order.id,
       callbackKey: "callback-refund-after-fulfillment-paid",
-      callbackPayload: "opaque-paid",
+      callbackPayload: JSON.stringify({ orderId: setup.order.id }),
       provider: "test-pay",
       now: NOW,
     },
@@ -817,7 +837,7 @@ test("COMMERCE 08.5: refund after fulfillment revokes only access owned by that 
     {
       orderId: paid.id,
       callbackKey: "callback-refund-after-fulfillment-final",
-      callbackPayload: "opaque-refund",
+      callbackPayload: JSON.stringify({ orderId: paid.id }),
       provider: "test-pay",
       now: new Date(NOW.getTime() + 2000),
     },
@@ -871,7 +891,7 @@ test("COMMERCE 08.5: paid standalone PRODUCT stays PAID when no fulfillment stra
     {
       orderId: order.id,
       callbackKey: "callback-product-no-fulfillment",
-      callbackPayload: "opaque",
+      callbackPayload: JSON.stringify({ orderId: order.id }),
       provider: "test-pay",
       now: NOW,
     },
@@ -941,7 +961,7 @@ test("COMMERCE 08.5: PAID_SESSION AUTO_CONFIRM completes through durable fulfill
     {
       orderId: setup.order.id,
       callbackKey: "callback-paid-auto-confirm",
-      callbackPayload: "opaque",
+      callbackPayload: JSON.stringify({ orderId: setup.order.id }),
       provider: "test-pay",
       now: NOW,
     },
@@ -996,7 +1016,7 @@ test("COMMERCE 08.5: PAID_SESSION booking cannot confirm until matching order is
     {
       orderId: setup.order.id,
       callbackKey: "callback-paid-session",
-      callbackPayload: "opaque",
+      callbackPayload: JSON.stringify({ orderId: setup.order.id }),
       provider: "test-pay",
       now: NOW,
     },
@@ -1031,7 +1051,7 @@ test("COMMERCE 08.5: booking confirmation commits calendar -> mail dependency ou
     {
       orderId: setup.order.id,
       callbackKey: "callback-outbox-booking",
-      callbackPayload: "opaque",
+      callbackPayload: JSON.stringify({ orderId: setup.order.id }),
       provider: "test-pay",
       now: NOW,
     },
@@ -1094,7 +1114,7 @@ test("COMMERCE 08.5: configured providers resume BLOCKED work into bounded worke
     {
       orderId: setup.order.id,
       callbackKey: "callback-worker-resume",
-      callbackPayload: "opaque",
+      callbackPayload: JSON.stringify({ orderId: setup.order.id }),
       provider: "test-pay",
       now: NOW,
     },
@@ -1158,7 +1178,7 @@ test("COMMERCE 08.5: invalid provider configuration stays BLOCKED and is not aut
     {
       orderId: setup.order.id,
       callbackKey: "callback-invalid-config",
-      callbackPayload: "opaque",
+      callbackPayload: JSON.stringify({ orderId: setup.order.id }),
       provider: "test-pay",
       now: NOW,
     },
@@ -1215,7 +1235,7 @@ test("COMMERCE 08.5: concurrent workers collapse to one provider side effect", a
     {
       orderId: setup.order.id,
       callbackKey: "callback-concurrent-reminder",
-      callbackPayload: "opaque",
+      callbackPayload: JSON.stringify({ orderId: setup.order.id }),
       provider: "test-pay",
       now: NOW,
     },
@@ -1249,7 +1269,7 @@ test("COMMERCE 08.5: retryable provider failure waits then recovers with same ef
     {
       orderId: setup.order.id,
       callbackKey: "callback-retry-mail",
-      callbackPayload: "opaque",
+      callbackPayload: JSON.stringify({ orderId: setup.order.id }),
       provider: "test-pay",
       now: NOW,
     },
@@ -1313,7 +1333,7 @@ test("COMMERCE 08.5: expired processing lease is recoverable and auditable", asy
     {
       orderId: setup.order.id,
       callbackKey: "callback-lease-recovery",
-      callbackPayload: "opaque",
+      callbackPayload: JSON.stringify({ orderId: setup.order.id }),
       provider: "test-pay",
       now: NOW,
     },
