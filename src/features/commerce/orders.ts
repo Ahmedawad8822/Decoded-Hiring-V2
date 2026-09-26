@@ -142,6 +142,7 @@ function assertExistingOrderBinding(existing: Order, input: CreateOrderInput): O
     existing.offerId !== input.offerId ||
     (existing.bookingId ?? null) !== (input.bookingId ?? null) ||
     (existing.userId ?? null) !== (input.userId ?? null) ||
+    existing.quantity !== (input.quantity ?? 1) ||
     existing.customerEmail !== input.customerEmail.toLowerCase()
   ) {
     throw new CommerceDomainError(
