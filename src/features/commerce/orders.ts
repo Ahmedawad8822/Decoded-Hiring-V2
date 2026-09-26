@@ -680,7 +680,6 @@ export async function applyVerifiedPaymentCallback(
 ): Promise<Order> {
   const parsed = verifiedCallbackApplicationSchema.parse(input);
   const verified: VerifyCallbackResult = await gateway.verifyCallback({
-    orderId: parsed.orderId,
     callbackPayload: parsed.callbackPayload,
   });
   if (!verified.verified) {
@@ -746,7 +745,6 @@ export async function applyVerifiedPaymentWebhook(
   // derives normalized payment truth from the same signed raw body.
   const verified: VerifyWebhookPaymentResult =
     await gateway.verifyWebhookPayment({
-      orderId: parsed.orderId,
       rawBody: parsed.rawBody,
       signature: parsed.signature,
       headers: parsed.headers,
