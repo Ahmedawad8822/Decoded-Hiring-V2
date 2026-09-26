@@ -943,6 +943,7 @@ export const orchestrationEffects = sqliteTable(
     status: text("status").$type<OrchestrationEffectStatus>().notNull().default("PENDING"),
     attemptCount: integer("attempt_count").notNull().default(0),
     claimToken: text("claim_token"),
+    transitionKey: text("transition_key"),
     leaseExpiresAt: integer("lease_expires_at", { mode: "timestamp" }),
     nextAttemptAt: integer("next_attempt_at", { mode: "timestamp" }),
     providerRef: text("provider_ref"),
