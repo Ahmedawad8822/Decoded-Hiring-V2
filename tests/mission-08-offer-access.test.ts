@@ -406,6 +406,26 @@ test("OFFER 08.3: updating a linked Offer changes effective access without mutat
   assert.equal(policy.mode, "COMING_SOON");
 });
 
+test("OFFER 08.3: inactive Offer presentation exposes no CTA or price", async () => {
+  const offer = await createOffer({
+    kind: "PRODUCT",
+    title: "Inactive priced product",
+    slug: id("offer"),
+    accessMode: "PAID_ONE_TIME",
+    currency: "USD",
+    amountMinor: 5000,
+    active: false,
+  });
+
+  const presentation = resolveOfferPublicPresentation(offer, {
+    freeHref: "/login",
+  });
+  assert.equal(presentation.action, "UNAVAILABLE");
+  assert.equal(presentation.ctaHref, null);
+  assert.equal(presentation.ctaLabel, null);
+  assert.equal(presentation.priceLabel, null);
+});
+
 test("OFFER 08.3: public product pages are wired to Offer lookup with safe fallback", async () => {
   const { readFileSync } = await import("node:fs");
   const { join } = await import("node:path");
@@ -423,8 +443,8 @@ test("OFFER 08.3: public product pages are wired to Offer lookup with safe fallb
     "utf8",
   );
 
-  assert.ok(coaching.includes("getOfferBySlug(PUBLIC_OFFER_SLUGS.coaching)"));
-  assert.ok(workshop.includes("getOfferBySlug(PUBLIC_OFFER_SLUGS.workshop)"));
+  assert.ok(coaching.includes('getOfferBySlugForKind(PUBLIC_OFFER_SLUGS.coaching, "COACHING")'));
+  assert.ok(workshop.includes('getOfferBySlugForKind(PUBLIC_OFFER_SLUGS.workshop, "WORKSHOP")'));
   assert.ok(coursePage.includes("getEffectiveCourseAccessPolicy(course)"));
   assert.ok(coursePage.includes("resolveOfferPublicPresentation"));
 });
