@@ -215,11 +215,11 @@ export async function enqueueBookingReminder(params: {
   });
 }
 
-async function providerStatus(
-  effect: OrchestrationEffect,
+async function providerKindStatus(
+  kind: OrchestrationEffect["providerKind"],
   providers: CommerceSchedulingProviders,
 ): Promise<ProviderRuntimeStatus> {
-  switch (effect.providerKind) {
+  switch (kind) {
     case "payment":
       return providers.payment.getStatus();
     case "calendar":
@@ -236,6 +236,13 @@ async function providerStatus(
         capabilities: ["internal_fulfillment"],
       };
   }
+}
+
+async function providerStatus(
+  effect: OrchestrationEffect,
+  providers: CommerceSchedulingProviders,
+): Promise<ProviderRuntimeStatus> {
+  return providerKindStatus(effect.providerKind, providers);
 }
 
 async function dependencySatisfied(effect: OrchestrationEffect): Promise<boolean> {
@@ -912,7 +919,6 @@ export async function listRunnableOrchestrationEffects(
           inArray(orchestrationEffects.status, [
             "PENDING",
             "RETRYABLE_FAILURE",
-            "BLOCKED",
           ]),
           and(
             eq(orchestrationEffects.status, "PROCESSING"),
@@ -955,6 +961,73 @@ export async function listRunnableOrchestrationEffects(
   );
 }
 
+export async function resumeConfiguredBlockedEffects(
+  now: Date,
+  providers: CommerceSchedulingProviders =
+    UnconfiguredCommerceSchedulingProviders,
+  limit = 100,
+): Promise<number> {
+  const db = await getDb();
+  const blocked = await db
+    .select()
+    .from(orchestrationEffects)
+    .where(eq(orchestrationEffects.status, "BLOCKED"))
+    .orderBy(asc(orchestrationEffects.createdAt))
+    .limit(Math.max(1, Math.min(limit, 500)));
+
+  const statusCache = new Map<string, boolean>();
+  let resumed = 0;
+  const d1 = await getD1Database();
+  const nowSec = toUnixSeconds(now);
+
+  for (const effect of blocked) {
+    let configured = statusCache.get(effect.providerKind);
+    if (configured === undefined) {
+      const status = await providerKindStatus(effect.providerKind, providers);
+      configured = status.configured;
+      statusCache.set(effect.providerKind, configured);
+    }
+    if (!configured) continue;
+
+    const transition = `fxtr_${crypto.randomUUID()}`;
+    await d1.batch([
+      d1
+        .prepare(
+          `UPDATE orchestration_effects
+           SET status='PENDING',
+               transition_key=?,
+               next_attempt_at=NULL,
+               last_error_code=NULL,
+               last_error_message=NULL,
+               updated_at=?
+           WHERE id=? AND status='BLOCKED'`,
+        )
+        .bind(transition, nowSec, effect.id),
+      d1
+        .prepare(
+          `INSERT INTO orchestration_history
+           (id, effect_id, action, from_status, to_status, detail, created_at)
+           SELECT ?, id, 'RESET', 'BLOCKED', 'PENDING', ?, ?
+           FROM orchestration_effects
+           WHERE id=? AND status='PENDING' AND transition_key=?`,
+        )
+        .bind(
+          newId("fxh"),
+          detail({ reason: "provider_configured" }),
+          nowSec,
+          effect.id,
+          transition,
+        ),
+    ]);
+
+    const updated = await getOrchestrationEffect(effect.id);
+    if (updated?.status === "PENDING" && updated.transitionKey === transition) {
+      resumed += 1;
+    }
+  }
+  return resumed;
+}
+
 export async function processDueOrchestrationEffects(
   params: {
     now: Date;
@@ -964,6 +1037,11 @@ export async function processDueOrchestrationEffects(
   providers: CommerceSchedulingProviders =
     UnconfiguredCommerceSchedulingProviders,
 ): Promise<OrchestrationEffect[]> {
+  await resumeConfiguredBlockedEffects(
+    params.now,
+    providers,
+    Math.max(100, (params.limit ?? 25) * 4),
+  );
   const candidates = await listRunnableOrchestrationEffects(
     params.now,
     params.limit ?? 25,
