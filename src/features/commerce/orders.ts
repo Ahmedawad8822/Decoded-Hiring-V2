@@ -56,6 +56,7 @@ export type CommerceDomainErrorCode =
   | "PAYMENT_CURRENCY_MISMATCH"
   | "AUTHORIZATION_REQUIRED"
   | "DEPENDENCY_NOT_READY"
+  | "FULFILLMENT_NOT_CONFIGURED"
   | "CONCURRENT_MODIFICATION";
 
 export class CommerceDomainError extends Error {
@@ -960,6 +961,13 @@ export async function fulfillPaidOrderFromOrchestration(
 
   const offer = await db.select().from(offers).where(eq(offers.id, order.offerId)).get();
   if (!offer) throw new CommerceDomainError("Offer not found.", "OFFER_NOT_FOUND");
+
+  if (offer.kind !== "COURSE" && !offer.bookingTypeId) {
+    throw new CommerceDomainError(
+      "This Offer has no internal fulfillment strategy configured in Mission 08.5.",
+      "FULFILLMENT_NOT_CONFIGURED",
+    );
+  }
 
   if (offer.bookingTypeId) {
     if (!order.bookingId) {
