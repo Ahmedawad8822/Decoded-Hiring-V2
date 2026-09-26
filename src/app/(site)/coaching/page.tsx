@@ -8,7 +8,9 @@ import { PUBLIC_OFFER_SLUGS } from "@/features/offers/catalog";
 import { resolveOfferPublicPresentation } from "@/features/offers/presentation";
 import { getOfferBySlug } from "@/features/offers/service";
 
-export const dynamic = "force-dynamic";\n\nexport const metadata = publicMetadata({
+export const dynamic = "force-dynamic";
+
+export const metadata = publicMetadata({
   title: "Recruitment Decision Coaching | Ahmed Awad",
   description:
     "A private 60-minute decision room for a live recruitment, leadership or workflow challenge.",
