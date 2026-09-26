@@ -1081,6 +1081,9 @@ export async function processOrchestrationEffect(
   }
 
   if (current.status === "BLOCKED" && current.providerKind !== "internal") {
+    if (current.lastErrorCode !== "PROVIDER_NOT_CONFIGURED") {
+      return current;
+    }
     const status = await providerStatus(current, providers);
     if (!status.configured) return current;
   }
