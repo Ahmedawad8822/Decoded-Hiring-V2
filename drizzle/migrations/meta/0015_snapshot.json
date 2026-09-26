@@ -3635,6 +3635,13 @@
           "notNull": false,
           "autoincrement": false
         },
+        "transition_key": {
+          "name": "transition_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
         "lease_expires_at": {
           "name": "lease_expires_at",
           "type": "integer",
