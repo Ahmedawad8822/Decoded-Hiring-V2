@@ -30,13 +30,13 @@ import {
 import { getDb } from "@/lib/db";
 import { getD1Database } from "@/lib/cloudflare/bindings";
 import { isUniqueConstraintError } from "@/lib/db/sqlite-errors";
+import { requireAdmin } from "@/lib/auth";
 import { SchedulingDomainError } from "./errors";
 import {
   bookingDecisionSchema,
   bookingTransitionSchema,
   createBookingRequestSchema,
   rescheduleBookingSchema,
-  type BookingActor,
   type BookingDecisionInput,
   type BookingTransitionInput,
   type CreateBookingRequestInput,
@@ -55,10 +55,18 @@ function toUnixSeconds(value: Date): number {
   return Math.floor(value.getTime() / 1000);
 }
 
-function assertAdmin(actor: BookingActor): void {
-  if (actor.role !== "admin") {
+type TrustedBookingActor = {
+  id: string;
+  role: "admin" | "system";
+};
+
+async function resolveAdminActor(): Promise<TrustedBookingActor> {
+  try {
+    const session = await requireAdmin();
+    return { id: session.user.id, role: "admin" };
+  } catch {
     throw new SchedulingDomainError(
-      "This booking transition requires an authenticated admin actor.",
+      "This booking transition requires an authenticated admin session.",
       "AUTHORIZATION_REQUIRED",
     );
   }
@@ -317,6 +325,7 @@ export async function createBookingRequest(
         now: parsed.now,
       },
       "AUTO_CONFIRMED",
+      { id: "system:auto-confirm", role: "system" },
     );
   }
 
@@ -326,6 +335,7 @@ export async function createBookingRequest(
 async function confirmBoundBooking(
   input: BookingTransitionInput,
   action: Extract<BookingHistoryAction, "AUTO_CONFIRMED" | "APPROVED" | "CONFIRMED">,
+  actor: TrustedBookingActor,
 ): Promise<Booking> {
   const parsed = bookingTransitionSchema.parse(input);
   const { booking, bookingType, hold } = await getBookingWithTypeAndHold(parsed.bookingId);
@@ -347,8 +357,7 @@ async function confirmBoundBooking(
         "APPROVAL_REQUIRED",
       );
     }
-    assertAdmin(parsed.actor);
-  } else if (parsed.actor.role === "system") {
+  } else if (actor.role === "system") {
     if (
       bookingType.confirmationPolicy !== "AUTO_CONFIRM" ||
       action !== "AUTO_CONFIRMED"
@@ -359,7 +368,6 @@ async function confirmBoundBooking(
       );
     }
   } else {
-    assertAdmin(parsed.actor);
   }
 
   if (bookingType.accessMode !== "FREE") {
@@ -418,7 +426,7 @@ async function confirmBoundBooking(
   const confirmArgs: unknown[] = [
     nowSec,
     nowSec,
-    ...(approved ? [parsed.actor.id, nowSec] : []),
+    ...(approved ? [actor.id, nowSec] : []),
     booking.id,
     token,
     targetVersion,
@@ -458,7 +466,7 @@ async function confirmBoundBooking(
       newId("bkh"),
       action,
       booking.status,
-      parsed.actor.id,
+      actor.id,
       historyDetail({
         holdId: liveHold.id,
         holdAcquisitionKey: booking.holdAcquisitionKey,
@@ -516,9 +524,8 @@ async function simpleTerminalTransition(params: {
   allowed: BookingStatus[];
   toStatus: Extract<BookingStatus, "DECLINED" | "CANCELLED" | "COMPLETED">;
   action: Extract<BookingHistoryAction, "DECLINED" | "CANCELLED" | "COMPLETED">;
-}): Promise<Booking> {
+}, actor: TrustedBookingActor): Promise<Booking> {
   const parsed = bookingDecisionSchema.parse(params.input);
-  assertAdmin(parsed.actor);
   const { booking } = await getBookingWithTypeAndHold(parsed.bookingId);
   if (booking.status === params.toStatus) return booking;
   assertVersion(booking, parsed.expectedVersion);
@@ -543,7 +550,7 @@ async function simpleTerminalTransition(params: {
   const actorFields =
     params.toStatus === "COMPLETED"
       ? [nowSec]
-      : [parsed.actor.id, nowSec];
+      : [actor.id, nowSec];
 
   const mutate = d1
     .prepare(
@@ -609,7 +616,7 @@ async function simpleTerminalTransition(params: {
       params.action,
       booking.status,
       params.toStatus,
-      parsed.actor.id,
+      actor.id,
       historyDetail({ reason: parsed.reason ?? null }),
       nowSec,
       booking.id,
@@ -637,30 +644,33 @@ async function simpleTerminalTransition(params: {
 }
 
 export async function declineBooking(input: BookingDecisionInput): Promise<Booking> {
+  const actor = await resolveAdminActor();
   return simpleTerminalTransition({
     input,
     allowed: ["REQUESTED", "PENDING_APPROVAL"],
     toStatus: "DECLINED",
     action: "DECLINED",
-  });
+  }, actor);
 }
 
 export async function cancelBooking(input: BookingDecisionInput): Promise<Booking> {
+  const actor = await resolveAdminActor();
   return simpleTerminalTransition({
     input,
     allowed: ["REQUESTED", "PENDING_APPROVAL", "CONFIRMED"],
     toStatus: "CANCELLED",
     action: "CANCELLED",
-  });
+  }, actor);
 }
 
 export async function completeBooking(input: BookingDecisionInput): Promise<Booking> {
+  const actor = await resolveAdminActor();
   return simpleTerminalTransition({
     input,
     allowed: ["CONFIRMED"],
     toStatus: "COMPLETED",
     action: "COMPLETED",
-  });
+  }, actor);
 }
 
 /**
@@ -671,11 +681,11 @@ export async function completeBooking(input: BookingDecisionInput): Promise<Book
  * moves to the new canonical slot only after the new hold is consumed inside
  * the same D1 batch transaction.
  */
-export async function rescheduleBooking(
+async function rescheduleBookingAsActor(
   input: RescheduleBookingInput,
+  actor: TrustedBookingActor,
 ): Promise<Booking> {
   const parsed = rescheduleBookingSchema.parse(input);
-  assertAdmin(parsed.actor);
   const { booking } = await getBookingWithTypeAndHold(parsed.bookingId);
   assertVersion(booking, parsed.expectedVersion);
   if (booking.status !== "CONFIRMED") {
@@ -805,7 +815,7 @@ export async function rescheduleBooking(
     )
     .bind(
       newId("bkh"),
-      parsed.actor.id,
+      actor.id,
       historyDetail({
         reason: parsed.reason ?? null,
         old: {
@@ -901,3 +911,46 @@ export async function rescheduleBooking(
     "CONCURRENT_MODIFICATION",
   );
 }
+
+
+export async function rescheduleBooking(
+  input: RescheduleBookingInput,
+): Promise<Booking> {
+  const actor = await resolveAdminActor();
+  return rescheduleBookingAsActor(input, actor);
+}
+
+/**
+ * Internal regression seam only. It is deliberately NOT re-exported from the
+ * scheduling barrel/API. Production admin operations above always resolve the
+ * live Better Auth session through requireAdmin().
+ */
+export const __bookingLifecycleTestOnly = {
+  approve: (input: BookingTransitionInput, actorId = "test-admin") =>
+    confirmBoundBooking(input, "APPROVED", { id: actorId, role: "admin" }),
+  confirm: (input: BookingTransitionInput, actorId = "test-admin") =>
+    confirmBoundBooking(input, "CONFIRMED", { id: actorId, role: "admin" }),
+  decline: (input: BookingDecisionInput, actorId = "test-admin") =>
+    simpleTerminalTransition({
+      input,
+      allowed: ["REQUESTED", "PENDING_APPROVAL"],
+      toStatus: "DECLINED",
+      action: "DECLINED",
+    }, { id: actorId, role: "admin" }),
+  cancel: (input: BookingDecisionInput, actorId = "test-admin") =>
+    simpleTerminalTransition({
+      input,
+      allowed: ["REQUESTED", "PENDING_APPROVAL", "CONFIRMED"],
+      toStatus: "CANCELLED",
+      action: "CANCELLED",
+    }, { id: actorId, role: "admin" }),
+  complete: (input: BookingDecisionInput, actorId = "test-admin") =>
+    simpleTerminalTransition({
+      input,
+      allowed: ["CONFIRMED"],
+      toStatus: "COMPLETED",
+      action: "COMPLETED",
+    }, { id: actorId, role: "admin" }),
+  reschedule: (input: RescheduleBookingInput, actorId = "test-admin") =>
+    rescheduleBookingAsActor(input, { id: actorId, role: "admin" }),
+};
