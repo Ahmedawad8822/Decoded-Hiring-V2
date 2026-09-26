@@ -1493,6 +1493,70 @@ test("COMMERCE 08.5: non-resumable BLOCKED rows cannot starve later provider rec
   assert.equal((await getOrchestrationEffect(resumable.id))?.status, "PENDING");
 });
 
+test("COMMERCE 08.5: unconfigured provider backlog cannot starve a different configured provider before LIMIT", async () => {
+  const db = await getDb();
+  const base = new Date(NOW.getTime() - 10_800_000);
+  const key = crypto.randomUUID();
+
+  const oldPaymentBlock = await enqueueOrchestrationEffect({
+    subjectType: "ORDER",
+    subjectId: `payment-backlog-${key}`,
+    effectType: "PAYMENT_CHECKOUT_CREATE",
+    providerKind: "payment",
+    idempotencyKey: `payment-backlog:${key}`,
+    payload: {
+      orderId: `payment-backlog-${key}`,
+      successUrl: "https://example.com/success",
+      cancelUrl: "https://example.com/cancel",
+    },
+    now: base,
+  });
+  await db
+    .update(orchestrationEffects)
+    .set({
+      status: "BLOCKED",
+      lastErrorCode: "PROVIDER_NOT_CONFIGURED",
+      lastErrorMessage: "safe payment provider not configured",
+      updatedAt: base,
+    })
+    .where(eq(orchestrationEffects.id, oldPaymentBlock.id));
+
+  const laterMailboxBlock = await enqueueOrchestrationEffect({
+    subjectType: "BOOKING",
+    subjectId: `mailbox-resumable-${key}`,
+    effectType: "MAIL_REMINDER",
+    providerKind: "mailbox",
+    idempotencyKey: `mailbox-resumable:${key}`,
+    payload: { bookingId: `mailbox-resumable-${key}` },
+    now: new Date(base.getTime() + 1000),
+  });
+  await db
+    .update(orchestrationEffects)
+    .set({
+      status: "BLOCKED",
+      lastErrorCode: "PROVIDER_NOT_CONFIGURED",
+      lastErrorMessage: "safe mailbox provider not configured",
+      updatedAt: new Date(base.getTime() + 1000),
+    })
+    .where(eq(orchestrationEffects.id, laterMailboxBlock.id));
+
+  const resumed = await resumeConfiguredBlockedEffects(
+    NOW,
+    providerBundle({ mailbox: configuredMailbox() }),
+    1,
+  );
+
+  assert.equal(resumed, 1);
+  assert.equal(
+    (await getOrchestrationEffect(oldPaymentBlock.id))?.status,
+    "BLOCKED",
+  );
+  assert.equal(
+    (await getOrchestrationEffect(laterMailboxBlock.id))?.status,
+    "PENDING",
+  );
+});
+
 test("COMMERCE 08.5: configured providers resume BLOCKED work into bounded worker flow", async () => {
   const setup = await createPaidBooking();
   await applyVerifiedPaymentCallback(
