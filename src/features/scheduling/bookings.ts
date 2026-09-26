@@ -1058,7 +1058,98 @@ async function rescheduleBookingAsActor(
       parsed.newHoldAcquisitionKey,
     );
 
-  await d1.batch([consume, move, releaseOld, audit]);
+  const calendarEffectId =
+    `fx_booking_${booking.id}_calendar_update_v${targetVersion}`;
+  const mailEffectId =
+    `fx_booking_${booking.id}_mail_reschedule_v${targetVersion}`;
+  const effectPayload = historyDetail({
+    bookingId: booking.id,
+    bookingVersion: targetVersion,
+  });
+
+  const enqueueCalendarUpdate = d1
+    .prepare(
+      `INSERT OR IGNORE INTO orchestration_effects
+       (id, subject_type, subject_id, effect_type, provider_kind,
+        idempotency_key, depends_on_effect_id, payload, status, attempt_count,
+        created_at, updated_at)
+       SELECT ?, 'BOOKING', id, 'CALENDAR_UPDATE', 'calendar',
+              ?, NULL, ?, 'PENDING', 0, ?, ?
+       FROM bookings
+       WHERE id=? AND transition_key=? AND version=? AND status='CONFIRMED'`,
+    )
+    .bind(
+      calendarEffectId,
+      `booking:${booking.id}:calendar:update:v${targetVersion}`,
+      effectPayload,
+      nowSec,
+      nowSec,
+      booking.id,
+      token,
+      targetVersion,
+    );
+
+  const enqueueCalendarUpdateAudit = d1
+    .prepare(
+      `INSERT OR IGNORE INTO orchestration_history
+       (id, effect_id, action, from_status, to_status, detail, created_at)
+       SELECT ?, id, 'ENQUEUED', NULL, 'PENDING', ?, ?
+       FROM orchestration_effects WHERE id=?`,
+    )
+    .bind(
+      `fxh_${calendarEffectId}_enqueued`,
+      historyDetail({ reason: "booking_rescheduled" }),
+      nowSec,
+      calendarEffectId,
+    );
+
+  const enqueueRescheduleMail = d1
+    .prepare(
+      `INSERT OR IGNORE INTO orchestration_effects
+       (id, subject_type, subject_id, effect_type, provider_kind,
+        idempotency_key, depends_on_effect_id, payload, status, attempt_count,
+        created_at, updated_at)
+       SELECT ?, 'BOOKING', id, 'MAIL_RESCHEDULE', 'mailbox',
+              ?, ?, ?, 'PENDING', 0, ?, ?
+       FROM bookings
+       WHERE id=? AND transition_key=? AND version=? AND status='CONFIRMED'`,
+    )
+    .bind(
+      mailEffectId,
+      `booking:${booking.id}:mail:reschedule:v${targetVersion}`,
+      calendarEffectId,
+      effectPayload,
+      nowSec,
+      nowSec,
+      booking.id,
+      token,
+      targetVersion,
+    );
+
+  const enqueueRescheduleMailAudit = d1
+    .prepare(
+      `INSERT OR IGNORE INTO orchestration_history
+       (id, effect_id, action, from_status, to_status, detail, created_at)
+       SELECT ?, id, 'ENQUEUED', NULL, 'PENDING', ?, ?
+       FROM orchestration_effects WHERE id=?`,
+    )
+    .bind(
+      `fxh_${mailEffectId}_enqueued`,
+      historyDetail({ reason: "booking_rescheduled", dependsOn: calendarEffectId }),
+      nowSec,
+      mailEffectId,
+    );
+
+  await d1.batch([
+    consume,
+    move,
+    releaseOld,
+    audit,
+    enqueueCalendarUpdate,
+    enqueueCalendarUpdateAudit,
+    enqueueRescheduleMail,
+    enqueueRescheduleMailAudit,
+  ]);
 
   const updated = await getBookingById(booking.id);
   if (
