@@ -18,3 +18,10 @@ const FAKE_TEST_SECRET = "test-only-not-a-real-secret-0123456789abcdef";
 if (!process.env.BETTER_AUTH_SECRET) {
   process.env.BETTER_AUTH_SECRET = FAKE_TEST_SECRET;
 }
+
+
+/**
+ * Mission 08.2 regression seam. Production code exposes the trusted booking
+ * actor helpers only when this test-only flag is explicitly set.
+ */
+process.env.DH_BOOKING_LIFECYCLE_TEST_SEAM = "1";
