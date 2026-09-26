@@ -209,6 +209,28 @@ test("BOOKING 08.2: duplicate requestKey returns the existing business result", 
   assert.equal(rows.length, 1);
 });
 
+test("BOOKING 08.2: requestKey collision across different hold generations fails without returning another booking", async () => {
+  const firstType = await makeType();
+  const firstHold = await holdSlot(firstType.id);
+  const key = crypto.randomUUID();
+  const first = await requestFromHold(firstType, firstHold, key);
+
+  const secondType = await makeType();
+  const secondHold = await holdSlot(secondType.id);
+
+  await assert.rejects(
+    requestFromHold(secondType, secondHold, key),
+    (error: unknown) =>
+      error instanceof SchedulingDomainError &&
+      error.code === "IDEMPOTENCY_CONFLICT",
+  );
+
+  const db = await getDb();
+  const rows = await db.select().from(bookings).where(eq(bookings.requestKey, key)).all();
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].id, first.id);
+});
+
 test("BOOKING 08.2: same hold generation cannot create two bookings even with different request keys", async () => {
   const bt = await makeType();
   const h = await holdSlot(bt.id);
@@ -408,6 +430,47 @@ test("BOOKING 08.2: concurrent approvals produce one confirmation audit", async 
 
   const history = await getBookingHistory(pending.id);
   assert.equal(history.filter((x) => x.action === "APPROVED").length, 1);
+});
+
+test("BOOKING 08.2: booking history is a permanent DB backstop and blocks parent deletion", async () => {
+  const bt = await makeType();
+  const h = await holdSlot(bt.id);
+  const booking = await requestFromHold(bt, h);
+  const db = await getDb();
+
+  const history = await getBookingHistory(booking.id);
+  assert.ok(history.length >= 1);
+
+  await assert.rejects(
+    db.delete(bookings).where(eq(bookings.id, booking.id)).run(),
+    /FOREIGN KEY constraint failed/i,
+  );
+
+  const stillThere = await db.select().from(bookings).where(eq(bookings.id, booking.id)).get();
+  assert.equal(stillThere?.id, booking.id);
+});
+
+test("BOOKING 08.2: transition batches never claim/version-bump before lease predicates succeed", async () => {
+  const { readFileSync } = await import("node:fs");
+  const { join } = await import("node:path");
+  const source = readFileSync(
+    join(process.cwd(), "src", "features", "scheduling", "bookings.ts"),
+    "utf8",
+  );
+
+  assert.ok(
+    source.includes("await d1.batch([consume, confirm, audit])"),
+    "confirmation must consume the lease before mutating the booking",
+  );
+  assert.ok(
+    source.includes("await d1.batch([consume, move, releaseOld, audit])"),
+    "reschedule must consume the target lease before moving the booking",
+  );
+  assert.equal(
+    source.includes("await d1.batch([claim"),
+    false,
+    "claim-first batches can commit a version bump even when the lease predicate loses a race",
+  );
 });
 
 test("BOOKING 08.2: migration journal/snapshot include unique 0013 booking lifecycle identity", async () => {
