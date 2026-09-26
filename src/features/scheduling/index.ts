@@ -108,9 +108,8 @@ export type {
 // Booking lifecycle (Mission 08.2)
 export {
   createBookingRequest,
-  getBookingById,
-  getBookingByRequestKey,
-  getBookingHistory,
+  getBookingForAdmin,
+  getBookingHistoryForAdmin,
   confirmBooking,
   approveBooking,
   declineBooking,
