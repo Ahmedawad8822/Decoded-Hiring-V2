@@ -187,7 +187,6 @@ export interface CreateCheckoutParams {
 }
 
 export interface VerifyCallbackParams {
-  orderId: string;
   /** Opaque callback body/query representation owned by the adapter boundary. */
   callbackPayload: string;
 }
@@ -205,7 +204,7 @@ export type VerifyCallbackResult =
     }
   | {
       verified: false;
-      orderId: string;
+      orderId?: never;
       state?: never;
       providerCheckoutId?: string | null;
       providerPaymentId?: never;
@@ -231,7 +230,6 @@ export type VerifyWebhookSignatureResult =
     };
 
 export interface VerifyWebhookPaymentParams {
-  orderId: string;
   rawBody: string | Uint8Array;
   signature: string;
   headers?: Readonly<Record<string, string>>;
@@ -250,7 +248,7 @@ export type VerifyWebhookPaymentResult =
     }
   | {
       verified: false;
-      orderId: string;
+      orderId?: never;
       state?: never;
       providerEventId?: never;
       providerCheckoutId?: never;
