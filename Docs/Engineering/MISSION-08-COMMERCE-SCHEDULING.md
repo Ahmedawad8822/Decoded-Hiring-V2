@@ -434,7 +434,7 @@ Independent `dh-release-review` found no Critical or Major blockers. Ahmed gave 
 
 ## Slice 08.4 — Provider-Neutral Adapters
 
-Status: **IMPLEMENTED — RUNTIME CERTIFICATION IN PROGRESS; INDEPENDENT REVIEW PENDING**
+Status: **RUNTIME CERTIFIED / INDEPENDENT REVIEW PASSED — AWAITING AHMED GO**
 
 Implementation branch: `mission-08.4-provider-neutral-adapters`  
 Accepted base: `8c18b78f32b31f2bf6dd3733510318485ff36872`
@@ -568,6 +568,29 @@ Slice 08.4 does **not**:
 - deploy, modify DNS, or alter production resources
 
 Order/payment truth, provider activation/configuration, durable side-effect orchestration, audit/idempotency persistence, and public scheduling workflow remain later Mission 08 slices.
+
+### Runtime certification
+
+Final exact-code GitHub Actions run `36243241650` passed on implementation head `45c97a177ea847ffe6eaee940a7c13c418ad4ab2`:
+
+- typecheck — PASS
+- lint with zero warnings — PASS
+- full `npm test` — **310 pass / 0 fail**
+- 08.1 scheduling suite — **78 pass / 0 fail**
+- 08.2 booking lifecycle suite — **18 pass / 0 fail**
+- 08.3 Offer/access suite — **18 pass / 0 fail**
+- 08.4 provider-adapter suite — **11 pass / 0 fail**
+- Drizzle drift — PASS: `No schema changes, nothing to migrate`
+- production build — PASS
+
+### Independent review
+
+Independent `dh-release-review` on PR #9 found:
+- no Critical findings
+- no Major findings
+- one non-blocking Minor: future live webhook orchestration must make signature verification a mandatory gate before payment-state normalization/persistence
+
+Review verdict: **SAFE TO MERGE for Slice 08.4**, pending ChatGPT final exact-SHA verification and Ahmed explicit GO.
 
 ### Slice 08.4 stop rule
 
