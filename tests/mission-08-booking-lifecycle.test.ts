@@ -484,13 +484,15 @@ test("BOOKING 08.2: transition batches never claim/version-bump before lease pre
     "utf8",
   );
 
-  assert.ok(
-    source.includes("await d1.batch([consume, confirm, audit])"),
-    "confirmation must consume the lease before mutating the booking",
+  assert.match(
+    source,
+    /await d1\.batch\(\[\s*consume,\s*confirm,\s*audit,[\s\S]*?\]\);/,
+    "confirmation must consume the lease before mutating the booking, with later outbox writes in the same batch",
   );
-  assert.ok(
-    source.includes("await d1.batch([consume, move, releaseOld, audit])"),
-    "reschedule must consume the target lease before moving the booking",
+  assert.match(
+    source,
+    /await d1\.batch\(\[\s*consume,\s*move,\s*releaseOld,\s*audit,[\s\S]*?\]\);/,
+    "reschedule must consume the target lease before moving the booking, with later outbox writes in the same batch",
   );
   assert.equal(
     source.includes("await d1.batch([claim"),
