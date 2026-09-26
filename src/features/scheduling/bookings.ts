@@ -683,6 +683,35 @@ async function confirmBoundBooking(
   );
 }
 
+/**
+ * Internal Mission 08.5 orchestration seam.
+ *
+ * Paid AUTO_CONFIRM bookings are not confirmed at request time because payment
+ * truth does not exist yet. Once a matching internal Order is PAID, the durable
+ * commerce worker may call this narrow helper. Human-gated policies return
+ * null and remain pending for explicit admin action.
+ *
+ * Deliberately not re-exported from the scheduling barrel.
+ */
+export async function autoConfirmPaidBookingFromCommerce(
+  bookingId: string,
+  now: Date,
+): Promise<Booking | null> {
+  const { booking, bookingType } = await getBookingWithTypeAndHold(bookingId);
+  if (booking.status === "CONFIRMED") return booking;
+  if (bookingType.confirmationPolicy !== "AUTO_CONFIRM") return null;
+
+  return confirmBoundBooking(
+    {
+      bookingId: booking.id,
+      expectedVersion: booking.version,
+      now,
+    },
+    "AUTO_CONFIRMED",
+    { id: "system:paid-auto-confirm", role: "system" },
+  );
+}
+
 export async function confirmBooking(input: BookingTransitionInput): Promise<Booking> {
   const actor = await resolveAdminActor();
   return confirmBoundBooking(input, "CONFIRMED", actor);
