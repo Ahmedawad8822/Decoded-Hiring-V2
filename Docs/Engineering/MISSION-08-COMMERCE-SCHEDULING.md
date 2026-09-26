@@ -360,10 +360,11 @@ Independent `dh-release-review` found no Critical or Major blockers. Ahmed gave 
 
 ## Slice 08.3 — Offer / Access Integration
 
-Status: **IMPLEMENTED — RUNTIME CERTIFIED; INDEPENDENT RELEASE REVIEW PENDING**
+Status: **ACCEPTED / MERGED INTO CANONICAL MISSION 08**
 
 Implementation branch: `mission-08.3-offer-access-integration`  
-Accepted base: `ab956291c2a00b276ac2998bae16b9c2228ab710`
+Accepted implementation head: `ff780c8ffd45432772a67af99e30abd6be7a69d8`  
+Canonical merge commit: `8c18b78f32b31f2bf6dd3733510318485ff36872`
 
 ### Scope implemented
 
@@ -413,7 +414,7 @@ Those remain later Mission 08 slices.
 
 ### Runtime certification
 
-GitHub Actions run `36236972932` passed on implementation head `562e3c256b0ff3d761b5a1ccfdcd5734e1b642ee` before this documentation cleanup:
+Final exact-head GitHub Actions run `36238762049` passed on accepted implementation head `ff780c8ffd45432772a67af99e30abd6be7a69d8`:
 
 - typecheck — PASS
 - lint with zero warnings — PASS
@@ -424,13 +425,178 @@ GitHub Actions run `36236972932` passed on implementation head `562e3c256b0ff3d7
 - Drizzle drift — PASS: `No schema changes, nothing to migrate`
 - production build — PASS
 
-A final exact-head certification is required after release-metadata cleanup before the independent release-review verdict.
+Independent `dh-release-review` found no Critical or Major blockers. Ahmed gave explicit GO and PR #8 was merged into the canonical Mission 08 branch at `8c18b78f32b31f2bf6dd3733510318485ff36872`.
 
 ### Slice 08.3 stop rule
 
-Do not merge Slice 08.3 into `mission-08-commerce-scheduling` until:
-- final exact-head runtime gates are green,
+**Satisfied.** Slice 08.3 is frozen in the canonical Mission 08 branch.
+
+
+## Slice 08.4 — Provider-Neutral Adapters
+
+Status: **RUNTIME CERTIFIED / INDEPENDENT REVIEW PASSED — AWAITING AHMED GO**
+
+Implementation branch: `mission-08.4-provider-neutral-adapters`  
+Accepted base: `8c18b78f32b31f2bf6dd3733510318485ff36872`
+
+### Scope implemented
+
+The existing Mission 08.1 provider seam is hardened in place rather than duplicated.
+
+#### Shared provider boundary
+
+- provider kinds: `payment | calendar | mailbox | meeting`
+- provider-neutral runtime status:
+  - configured/unconfigured
+  - provider identity metadata
+  - supported capability names
+- structured provider errors include:
+  - error code
+  - provider kind
+  - operation
+  - retryability
+- all unconfigured providers are immutable safe defaults
+- a frozen `UnconfiguredCommerceSchedulingProviders` bundle is available for later orchestration dependency injection
+
+#### PaymentGateway
+
+Provider-neutral contract now covers:
+- checkout creation from internal order/offer identity
+- amount minor units + currency
+- stable internal idempotency key
+- callback verification
+- webhook signature verification
+- provider-state normalization
+- cancel/refund with stable idempotency key
+- provider checkout/payment/event identifiers only as adapter metadata
+- discriminated verification result: unverified callbacks cannot carry a paid state
+- normalized payment state intentionally cannot be `FULFILLED`; only internal Decoded Hiring orchestration may grant fulfillment/access
+
+Unconfigured payment behavior:
+- every external payment operation throws `PROVIDER_NOT_CONFIGURED`
+- no dummy checkout URL
+- no fake verified callback
+- no fake paid result
+- no provider activation or credentials
+
+#### CalendarProvider
+
+Contract now covers:
+- bounded free/busy
+- confirmed event creation
+- approved reschedule/update
+- cancellation
+- internal booking identity
+- idempotency keys for event side effects
+- timezone
+- attendees/location
+- provider event reference
+- returned meeting/location metadata
+
+Unconfigured calendar behavior:
+- free/busy throws instead of returning an empty array that could be misread as fully available
+- create/update/cancel throw fail-closed
+
+#### MailboxProvider
+
+Contract now covers:
+- confirmation
+- reschedule
+- cancellation
+- reminder
+- internal booking identity
+- idempotency key
+- provider message reference
+
+Unconfigured mailbox:
+- every send operation throws `PROVIDER_NOT_CONFIGURED`
+
+#### MeetingProvider
+
+Contract now covers provider-neutral meeting/location resolution with booking/idempotency correlation.
+
+Unconfigured meeting behavior:
+- explicit HTTPS external link — allowed without provider
+- explicit phone — allowed without provider
+- explicit in-person address — allowed without provider
+- `TO_BE_CONFIRMED` — allowed as honest static state
+- provider-generated `GOOGLE_MEET` — fails closed
+- missing static overrides — fail with `INVALID_CONFIGURATION`
+- non-HTTPS or credential-bearing external URLs — rejected
+
+### Retry / authority invariants encoded in contracts
+
+- checkout creation carries an internal idempotency key
+- refund/cancel carries an internal idempotency key
+- calendar create/update/cancel carry internal idempotency keys
+- mailbox sends carry internal idempotency keys
+- meeting resolution carries internal booking/idempotency identity for generated-provider paths
+- payment provider may prove `PAID` but cannot assert `FULFILLED`
+- unverified callbacks cannot expose a normalized payment state at the type level
+
+### Regression coverage
+
+Dedicated `tests/mission-08-provider-adapters.test.ts` covers:
+- fail-closed payment capabilities
+- webhook/signature path
+- no fake paid result
+- fail-closed calendar free/busy and event mutation
+- fail-closed mailbox operations
+- safe static meeting resolution
+- generated-meeting fail-closed behavior
+- unsafe/missing meeting configuration
+- explicit provider runtime status
+- immutable default adapters/bundle
+- provider-neutral calendar result metadata
+- provider-neutral payment state normalization
+- compile-time guard preventing provider-controlled fulfillment
+- compile-time guard preventing unverified callback payment state
+
+The existing 08.1 provider-coupling source regression remains active and continues to reject concrete provider SDK coupling in the domain boundary.
+
+### Explicit non-scope
+
+Slice 08.4 does **not**:
+- select or activate any real payment provider
+- select or activate Google Calendar/Workspace or another calendar provider
+- send real email
+- create real provider-generated meeting links
+- add credentials/secrets
+- create Order/payment persistence
+- process live webhooks
+- orchestrate provider side effects after booking confirmation
+- deploy, modify DNS, or alter production resources
+
+Order/payment truth, provider activation/configuration, durable side-effect orchestration, audit/idempotency persistence, and public scheduling workflow remain later Mission 08 slices.
+
+### Runtime certification
+
+Final exact-code GitHub Actions run `36243241650` passed on implementation head `45c97a177ea847ffe6eaee940a7c13c418ad4ab2`:
+
+- typecheck — PASS
+- lint with zero warnings — PASS
+- full `npm test` — **310 pass / 0 fail**
+- 08.1 scheduling suite — **78 pass / 0 fail**
+- 08.2 booking lifecycle suite — **18 pass / 0 fail**
+- 08.3 Offer/access suite — **18 pass / 0 fail**
+- 08.4 provider-adapter suite — **11 pass / 0 fail**
+- Drizzle drift — PASS: `No schema changes, nothing to migrate`
+- production build — PASS
+
+### Independent review
+
+Independent `dh-release-review` on PR #9 found:
+- no Critical findings
+- no Major findings
+- one non-blocking Minor: future live webhook orchestration must make signature verification a mandatory gate before payment-state normalization/persistence
+
+Review verdict: **SAFE TO MERGE for Slice 08.4**, pending ChatGPT final exact-SHA verification and Ahmed explicit GO.
+
+### Slice 08.4 stop rule
+
+Do not merge Slice 08.4 into `mission-08-commerce-scheduling` until:
+- exact-head typecheck/lint/tests/Drizzle/build are green,
 - independent `dh-release-review` passes,
 - any Critical/Major findings are remediated and re-reviewed,
-- ChatGPT performs the final exact-SHA verification,
+- ChatGPT final exact-SHA verification passes,
 - Ahmed explicitly says GO.

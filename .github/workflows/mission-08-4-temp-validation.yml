@@ -1,9 +1,9 @@
-name: Mission 08.3 Temporary Validation
+name: Mission 08.4 Temporary Validation
 
 on:
   push:
     branches:
-      - mission-08.3-offer-access-integration
+      - mission-08.4-provider-neutral-adapters
 
 permissions:
   contents: read
