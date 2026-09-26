@@ -18,8 +18,8 @@ const safeCtaUrlSchema = z
   .min(1)
   .max(500)
   .refine((value) => {
-    if (/^\/(?!\/)[^\s]*$/.test(value)) return true;
-    if (/^#[A-Za-z0-9][^\s]*$/.test(value)) return true;
+    if (/^\/(?!\/)[^\s\\]*$/.test(value)) return true;
+    if (/^#[A-Za-z0-9][^\s\\]*$/.test(value)) return true;
     if (/^mailto:[^\s@]+@[^\s@]+\.[^\s@]+$/i.test(value)) return true;
     try {
       const parsed = new URL(value);
