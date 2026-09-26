@@ -20,7 +20,6 @@ import {
   bookingHistory,
   bookings,
   bookingTypes,
-  offers,
   orders,
   slotHolds,
   type Booking,
@@ -217,11 +216,10 @@ async function hasSatisfiedBookingPayment(
   const linkedOrders = await db
     .select({ status: orders.status })
     .from(orders)
-    .innerJoin(offers, eq(offers.id, orders.offerId))
     .where(
       and(
         eq(orders.bookingId, bookingId),
-        eq(offers.bookingTypeId, bookingTypeId),
+        eq(orders.bookingTypeId, bookingTypeId),
       ),
     )
     .all();
