@@ -814,7 +814,107 @@ async function simpleTerminalTransition(params: {
 
   // Cancellation/decline release only the exact generation owned by this
   // booking; completion deliberately leaves the consumed slot historical.
-  await d1.batch([mutate, maybeRelease, audit]);
+  if (params.toStatus === "CANCELLED") {
+    const calendarEffectId =
+      `fx_booking_${booking.id}_calendar_cancel_v${targetVersion}`;
+    const mailEffectId =
+      `fx_booking_${booking.id}_mail_cancellation_v${targetVersion}`;
+    const effectPayload = historyDetail({
+      bookingId: booking.id,
+      bookingVersion: targetVersion,
+    });
+    const hadConfirmedCalendar = booking.status === "CONFIRMED";
+
+    const enqueueCalendarCancel = d1
+      .prepare(
+        `INSERT OR IGNORE INTO orchestration_effects
+         (id, subject_type, subject_id, effect_type, provider_kind,
+          idempotency_key, depends_on_effect_id, payload, status, attempt_count,
+          created_at, updated_at)
+         SELECT ?, 'BOOKING', id, 'CALENDAR_CANCEL', 'calendar',
+                ?, NULL, ?, 'PENDING', 0, ?, ?
+         FROM bookings
+         WHERE id=? AND transition_key=? AND version=? AND status='CANCELLED'
+           AND ?=1`,
+      )
+      .bind(
+        calendarEffectId,
+        `booking:${booking.id}:calendar:cancel:v${targetVersion}`,
+        effectPayload,
+        nowSec,
+        nowSec,
+        booking.id,
+        token,
+        targetVersion,
+        hadConfirmedCalendar ? 1 : 0,
+      );
+
+    const enqueueCalendarCancelAudit = d1
+      .prepare(
+        `INSERT OR IGNORE INTO orchestration_history
+         (id, effect_id, action, from_status, to_status, detail, created_at)
+         SELECT ?, id, 'ENQUEUED', NULL, 'PENDING', ?, ?
+         FROM orchestration_effects WHERE id=?`,
+      )
+      .bind(
+        `fxh_${calendarEffectId}_enqueued`,
+        historyDetail({ reason: "booking_cancelled" }),
+        nowSec,
+        calendarEffectId,
+      );
+
+    const enqueueCancellationMail = d1
+      .prepare(
+        `INSERT OR IGNORE INTO orchestration_effects
+         (id, subject_type, subject_id, effect_type, provider_kind,
+          idempotency_key, depends_on_effect_id, payload, status, attempt_count,
+          created_at, updated_at)
+         SELECT ?, 'BOOKING', id, 'MAIL_CANCELLATION', 'mailbox',
+                ?, ?, ?, 'PENDING', 0, ?, ?
+         FROM bookings
+         WHERE id=? AND transition_key=? AND version=? AND status='CANCELLED'`,
+      )
+      .bind(
+        mailEffectId,
+        `booking:${booking.id}:mail:cancellation:v${targetVersion}`,
+        hadConfirmedCalendar ? calendarEffectId : null,
+        effectPayload,
+        nowSec,
+        nowSec,
+        booking.id,
+        token,
+        targetVersion,
+      );
+
+    const enqueueCancellationMailAudit = d1
+      .prepare(
+        `INSERT OR IGNORE INTO orchestration_history
+         (id, effect_id, action, from_status, to_status, detail, created_at)
+         SELECT ?, id, 'ENQUEUED', NULL, 'PENDING', ?, ?
+         FROM orchestration_effects WHERE id=?`,
+      )
+      .bind(
+        `fxh_${mailEffectId}_enqueued`,
+        historyDetail({
+          reason: "booking_cancelled",
+          dependsOn: hadConfirmedCalendar ? calendarEffectId : null,
+        }),
+        nowSec,
+        mailEffectId,
+      );
+
+    await d1.batch([
+      mutate,
+      maybeRelease,
+      audit,
+      enqueueCalendarCancel,
+      enqueueCalendarCancelAudit,
+      enqueueCancellationMail,
+      enqueueCancellationMailAudit,
+    ]);
+  } else {
+    await d1.batch([mutate, maybeRelease, audit]);
+  }
 
   const updated = await getBookingById(booking.id);
   if (
