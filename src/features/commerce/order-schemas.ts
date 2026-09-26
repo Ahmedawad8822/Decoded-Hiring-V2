@@ -44,13 +44,13 @@ export const orderFulfillmentSchema = orderTransitionSchema.extend({
   actorId: z.string().trim().min(1).max(200).optional().nullable(),
 });
 
-export type CreateOrderInput = z.infer<typeof createOrderSchema>;
-export type OrderTransitionInput = z.infer<typeof orderTransitionSchema>;
-export type ManualPaymentInput = z.infer<typeof manualPaymentSchema>;
-export type VerifiedCallbackApplicationInput = z.infer<
+export type CreateOrderInput = z.input<typeof createOrderSchema>;
+export type OrderTransitionInput = z.input<typeof orderTransitionSchema>;
+export type ManualPaymentInput = z.input<typeof manualPaymentSchema>;
+export type VerifiedCallbackApplicationInput = z.input<
   typeof verifiedCallbackApplicationSchema
 >;
-export type VerifiedWebhookApplicationInput = z.infer<
+export type VerifiedWebhookApplicationInput = z.input<
   typeof verifiedWebhookApplicationSchema
 >;
-export type OrderFulfillmentInput = z.infer<typeof orderFulfillmentSchema>;
+export type OrderFulfillmentInput = z.input<typeof orderFulfillmentSchema>;
