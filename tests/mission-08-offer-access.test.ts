@@ -459,6 +459,10 @@ test("OFFER 08.3: public product pages are wired to Offer lookup with safe fallb
     join(process.cwd(), "src", "app", "(site)", "mission-01", "page.tsx"),
     "utf8",
   );
+  const aiRecruiterOs = readFileSync(
+    join(process.cwd(), "src", "app", "(site)", "ai-recruiter-os", "page.tsx"),
+    "utf8",
+  );
   const coaching = readFileSync(
     join(process.cwd(), "src", "app", "(site)", "coaching", "page.tsx"),
     "utf8",
@@ -474,6 +478,8 @@ test("OFFER 08.3: public product pages are wired to Offer lookup with safe fallb
 
   assert.ok(mission01.includes("PUBLIC_OFFER_SLUGS.mission01"));
   assert.ok(mission01.includes('"COURSE"'));
+  assert.ok(aiRecruiterOs.includes("PUBLIC_OFFER_SLUGS.aiRecruiterOs"));
+  assert.ok(aiRecruiterOs.includes('"PRODUCT"'));
   assert.ok(coaching.includes('getOfferBySlugForKind(PUBLIC_OFFER_SLUGS.coaching, "COACHING")'));
   assert.ok(workshop.includes('getOfferBySlugForKind(PUBLIC_OFFER_SLUGS.workshop, "WORKSHOP")'));
   assert.ok(coursePage.includes("getEffectiveCourseAccessPolicy(course)"));
