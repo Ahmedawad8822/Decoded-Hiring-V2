@@ -16,6 +16,13 @@ import type { MeetingMethod } from "./types";
 
 export type ProviderKind = "payment" | "calendar" | "mailbox" | "meeting";
 
+export interface ProviderRuntimeStatus {
+  kind: ProviderKind;
+  provider: string | null;
+  configured: boolean;
+  capabilities: readonly string[];
+}
+
 export type SchedulingProviderErrorCode =
   | "PROVIDER_NOT_CONFIGURED"
   | "INVALID_CONFIGURATION"
@@ -124,6 +131,7 @@ export interface CancelCalendarEventParams {
 }
 
 export interface CalendarProvider {
+  getStatus(): Promise<ProviderRuntimeStatus>;
   getFreeBusy(request: FreeBusyRequest): Promise<FreeBusyEntry[]>;
   createEvent(params: CreateCalendarEventParams): Promise<CreateCalendarEventResult>;
   updateEvent(
@@ -185,16 +193,27 @@ export interface VerifyCallbackParams {
   callbackPayload: string;
 }
 
-export interface VerifyCallbackResult {
-  verified: boolean;
-  orderId: string;
-  state: NormalizedPaymentState;
-  providerCheckoutId?: string | null;
-  providerPaymentId?: string | null;
-  providerEventId?: string | null;
-  amountMinor?: number | null;
-  currency?: string | null;
-}
+export type VerifyCallbackResult =
+  | {
+      verified: true;
+      orderId: string;
+      state: NormalizedPaymentState;
+      providerCheckoutId?: string | null;
+      providerPaymentId?: string | null;
+      providerEventId?: string | null;
+      amountMinor?: number | null;
+      currency?: string | null;
+    }
+  | {
+      verified: false;
+      orderId: string;
+      state?: never;
+      providerCheckoutId?: string | null;
+      providerPaymentId?: never;
+      providerEventId?: string | null;
+      amountMinor?: never;
+      currency?: never;
+    };
 
 export interface VerifyWebhookSignatureParams {
   rawBody: string | Uint8Array;
@@ -202,10 +221,15 @@ export interface VerifyWebhookSignatureParams {
   headers?: Readonly<Record<string, string>>;
 }
 
-export interface VerifyWebhookSignatureResult {
-  valid: boolean;
-  providerEventId?: string | null;
-}
+export type VerifyWebhookSignatureResult =
+  | {
+      valid: true;
+      providerEventId?: string | null;
+    }
+  | {
+      valid: false;
+      providerEventId?: never;
+    };
 
 export interface NormalizePaymentStateParams {
   orderId: string;
@@ -232,6 +256,7 @@ export interface RefundOrCancelParams {
 }
 
 export interface PaymentGateway {
+  getStatus(): Promise<ProviderRuntimeStatus>;
   createCheckout(params: CreateCheckoutParams): Promise<CheckoutResult>;
   verifyCallback(params: VerifyCallbackParams): Promise<VerifyCallbackResult>;
   verifyWebhookSignature(
@@ -262,6 +287,7 @@ export interface MailboxMessageRef {
 }
 
 export interface MailboxProvider {
+  getStatus(): Promise<ProviderRuntimeStatus>;
   sendConfirmation(params: SendEmailParams): Promise<MailboxMessageRef>;
   sendReschedule(params: SendEmailParams): Promise<MailboxMessageRef>;
   sendCancellation(params: SendEmailParams): Promise<MailboxMessageRef>;
@@ -281,6 +307,7 @@ export interface MeetingLocationParams {
 }
 
 export interface MeetingProvider {
+  getStatus(): Promise<ProviderRuntimeStatus>;
   resolveMeetingLocation(
     params: MeetingLocationParams,
   ): Promise<ResolvedMeetingLocation>;
@@ -297,6 +324,18 @@ export interface ResolvedMeetingLocation {
 // -- Fail-closed unconfigured providers ---------------------------------------
 
 export const UnconfiguredPaymentGateway: PaymentGateway = {
+  getStatus: async () => ({
+    kind: "payment",
+    provider: null,
+    configured: false,
+    capabilities: [
+      "checkout",
+      "callback_verification",
+      "webhook_signature_verification",
+      "state_normalization",
+      "refund_or_cancel",
+    ],
+  }),
   createCheckout: async () =>
     notConfigured(
       "payment",
@@ -330,6 +369,12 @@ export const UnconfiguredPaymentGateway: PaymentGateway = {
 };
 
 export const NullCalendarProvider: CalendarProvider = {
+  getStatus: async () => ({
+    kind: "calendar",
+    provider: null,
+    configured: false,
+    capabilities: ["free_busy", "create_event", "update_event", "cancel_event"],
+  }),
   getFreeBusy: async () =>
     notConfigured(
       "calendar",
@@ -357,6 +402,17 @@ export const NullCalendarProvider: CalendarProvider = {
 };
 
 export const UnconfiguredMailboxProvider: MailboxProvider = {
+  getStatus: async () => ({
+    kind: "mailbox",
+    provider: null,
+    configured: false,
+    capabilities: [
+      "send_confirmation",
+      "send_reschedule",
+      "send_cancellation",
+      "send_reminder",
+    ],
+  }),
   sendConfirmation: async () =>
     notConfigured(
       "mailbox",
@@ -425,6 +481,12 @@ function requireHttpsUrl(value: string, operation: string): string {
  * an external provider. Provider-generated meeting methods fail closed.
  */
 export const UnconfiguredMeetingProvider: MeetingProvider = {
+  getStatus: async () => ({
+    kind: "meeting",
+    provider: null,
+    configured: false,
+    capabilities: ["static_location_resolution", "provider_generated_meeting"],
+  }),
   resolveMeetingLocation: async (params) => {
     const operation = "resolveMeetingLocation";
 
