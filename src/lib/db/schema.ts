@@ -714,7 +714,7 @@ export const bookingHistory = sqliteTable(
     id: text("id").primaryKey(),
     bookingId: text("booking_id")
       .notNull()
-      .references(() => bookings.id, { onDelete: "cascade" }),
+      .references(() => bookings.id),
     action: text("action").$type<BookingHistoryAction>().notNull(),
     fromStatus: text("from_status").$type<BookingStatus>(),
     toStatus: text("to_status").$type<BookingStatus>().notNull(),
