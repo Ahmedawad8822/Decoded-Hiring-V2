@@ -297,6 +297,18 @@ test("PROVIDERS 08.4: static meeting configuration rejects missing or unsafe loc
 
   await expectProviderError(
     UnconfiguredMeetingProvider.resolveMeetingLocation({
+      bookingId: "booking_credential_link",
+      idempotencyKey: "meeting:booking_credential_link",
+      method: "EXTERNAL_LINK",
+      overrideUrl: "https://user:secret@example.com/room",
+    }),
+    "meeting",
+    "resolveMeetingLocation",
+    "INVALID_CONFIGURATION",
+  );
+
+  await expectProviderError(
+    UnconfiguredMeetingProvider.resolveMeetingLocation({
       bookingId: "booking_missing_phone",
       idempotencyKey: "meeting:booking_missing_phone",
       method: "PHONE",
@@ -354,6 +366,10 @@ test("PROVIDERS 08.4: safe default bundle contains only unconfigured adapters", 
     UnconfiguredCommerceSchedulingProviders.meeting,
     UnconfiguredMeetingProvider,
   );
+  assert.equal(Object.isFrozen(UnconfiguredPaymentGateway), true);
+  assert.equal(Object.isFrozen(NullCalendarProvider), true);
+  assert.equal(Object.isFrozen(UnconfiguredMailboxProvider), true);
+  assert.equal(Object.isFrozen(UnconfiguredMeetingProvider), true);
   assert.equal(Object.isFrozen(UnconfiguredCommerceSchedulingProviders), true);
 });
 
