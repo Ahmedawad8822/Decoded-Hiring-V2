@@ -153,7 +153,10 @@ async function resolveCanonicalSlot(
  *
  * CASE A — slot does not exist -> INSERT a new HELD row (owner wins).
  *   On UNIQUE(slotKey) race (two callers INSERT simultaneously): the loser
- *   re-reads and returns the winner's hold as unavailable.
+ *   re-reads the winner. If the winner has the SAME acquisitionKey (i.e. the
+ *   same logical booking attempt), the loser recovers the winner's exact lease
+ *   (same ownerToken, same expiresAt, no TTL extension). Otherwise, the loser
+ *   receives a safe view (TAKEN / CONSUMED) and never the winner's ownerToken.
  *
  * CASE A-IDEM — idempotent retry: if the caller supplies an `acquisitionKey`
  *   that matches an existing HELD + unexpired hold for the same slot, return
@@ -250,7 +253,14 @@ export async function acquireSlotHold(
           .where(eq(slotHolds.slotKey, slotKey))
           .get();
         if (winner) {
-          // (A) Loser gets a SAFE view only — never the winner's ownerToken.
+          // Concurrent same-key recovery (Mission 08.1 §1): if the winner was
+          // inserted by the SAME logical acquisition (same acquisitionKey) and
+          // is HELD + unexpired, the loser recovers the winner's exact lease —
+          // same ownerToken, same expiresAt, no TTL extension. Otherwise, a
+          // safe failure: the loser gets a SAFE view only, never the winner's
+          // ownerToken.
+          const recovered = recoverSameAcquisition(winner, effectiveAcquisitionKey, now);
+          if (recovered) return recovered;
           return classifyUnavailableHold(winner);
         }
         throw new Error(
@@ -320,6 +330,41 @@ export async function acquireSlotHold(
     now,
     db,
   );
+}
+
+/**
+ * Race-recovery decision: after a lost UNIQUE(slotKey) INSERT race, decide
+ * whether the winner row is actually the SAME logical acquisition (same
+ * acquisitionKey) and therefore whether the loser should recover the winner's
+ * lease instead of returning an unavailable result.
+ *
+ * Same logical acquisitionKey + HELD + unexpired → recover the winner's exact
+ * lease (same ownerToken, same expiresAt, no TTL extension).
+ * Otherwise → null, signalling the caller to fall back to classifyUnavailableHold.
+ *
+ * SECURITY: ownerToken is returned ONLY when winner.acquisitionKey matches the
+ * caller's effectiveAcquisitionKey — i.e. the winner IS the same logical booking
+ * attempt that lost the race. A winner with a DIFFERENT acquisition key never
+ * leaks its token. CONSUMED remains terminal (falls through to classify).
+ */
+function recoverSameAcquisition(
+  winner: SlotHold,
+  effectiveAcquisitionKey: string,
+  now: Date,
+): AcquireHoldResult | null {
+  if (
+    winner.acquisitionKey === effectiveAcquisitionKey &&
+    winner.status === "HELD" &&
+    winner.expiresAt > now
+  ) {
+    return {
+      success: true,
+      hold: safeView(winner),
+      ownerToken: winner.ownerToken,
+      acquisitionKey: effectiveAcquisitionKey,
+    };
+  }
+  return null;
 }
 
 /**
@@ -424,6 +469,11 @@ async function reclaimSlot(
           .where(eq(slotHolds.slotKey, slotKey))
           .get();
         if (winner) {
+          // Concurrent same-key recovery (Mission 08.1 §1): SAME logical
+          // acquisition (same acquisitionKey) + HELD + unexpired → recover
+          // the winner's exact lease. Otherwise → safe failure (no token leak).
+          const recovered = recoverSameAcquisition(winner, newAcquisitionKey, now);
+          if (recovered) return recovered;
           return classifyUnavailableHold(winner);
         }
         throw new Error(

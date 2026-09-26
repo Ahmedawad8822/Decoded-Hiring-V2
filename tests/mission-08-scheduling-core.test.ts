@@ -38,7 +38,7 @@ import "./helpers/env";
 import { strict as assert } from "node:assert";
 import { test } from "node:test";
 import { migrateLocalDb } from "../src/lib/db/migrate";
-import { disposeCloudflareBindings } from "../src/lib/cloudflare/bindings";
+import { disposeCloudflareBindings, getD1Database } from "../src/lib/cloudflare/bindings";
 import { getDb } from "@/lib/db";
 import { slotHolds, bookingTypes, bookingAvailabilityWindows } from "@/lib/db";
 import { eq } from "drizzle-orm";
@@ -1345,6 +1345,50 @@ test("SCHEDULING: (L) same acquisitionKey recovers the existing lease without TT
   assert.equal(holds.length, 1, "idempotent retry must not insert a new row");
 });
 
+test("SCHEDULING: (L) CONCURRENT same acquisitionKey → both succeed, same lease, no TTL extension", async () => {
+  const bt = await createBookedType();
+  const now = new Date("2026-10-27T12:00:00.000Z");
+  const acquisitionKey = generateAcquisitionKey();
+  const ttlMinutes = 10;
+  const expectedExpiresAt = now.getTime() + ttlMinutes * 60_000;
+
+  // Fire two concurrent acquisitions with the SAME acquisitionKey + SAME slot.
+  // One INSERT wins; the other hits UNIQUE(slotKey) and must recover the
+  // winner's exact lease (same ownerToken, same expiresAt, no TTL extension).
+  const [result1, result2] = await Promise.all([
+    acquireSlotHold({ bookingTypeId: bt.id, startAt: SLOT_START, now, ttlMinutes, acquisitionKey }),
+    acquireSlotHold({ bookingTypeId: bt.id, startAt: SLOT_START, now, ttlMinutes, acquisitionKey }),
+  ]);
+
+  // Both must resolve success.
+  assert.ok(result1.success, JSON.stringify(result1));
+  assert.ok(result2.success, JSON.stringify(result2));
+
+  // Same hold identity, ownerToken, acquisitionKey, expiresAt.
+  assert.equal(result1.hold!.id, result2.hold!.id, "both return the same hold.id");
+  assert.equal(result1.ownerToken, result2.ownerToken, "both return the same ownerToken");
+  assert.equal(result1.acquisitionKey, result2.acquisitionKey, "both echo the same acquisitionKey");
+  assert.equal(
+    result1.hold!.expiresAt.getTime(),
+    result2.hold!.expiresAt.getTime(),
+    "both return the same expiresAt",
+  );
+
+  // No TTL extension caused by the second request.
+  assert.equal(result1.hold!.expiresAt.getTime(), expectedExpiresAt, "result1 expiresAt matches original TTL");
+  assert.equal(result2.hold!.expiresAt.getTime(), expectedExpiresAt, "result2 expiresAt matches original TTL (no extension)");
+
+  // Exactly ONE slot_holds row in the DB.
+  const db = await getDb();
+  const holds = await db
+    .select()
+    .from(slotHolds)
+    .where(eq(slotHolds.slotKey, buildSlotKey(bt.id, SLOT_START)));
+  assert.equal(holds.length, 1, "exactly ONE slot_holds row after concurrent same-key acquire");
+  assert.equal(holds[0].ownerToken, result1.ownerToken, "DB row ownerToken matches the recovered token");
+  assert.equal(holds[0].acquisitionKey, acquisitionKey, "DB row acquisitionKey matches the supplied key");
+});
+
 test("SCHEDULING: (L) different acquisitionKey gets TAKEN (no token leak)", async () => {
   const bt = await createBookedType();
   const now = new Date("2026-10-27T12:00:00.000Z");
@@ -1760,4 +1804,67 @@ test("SCHEDULING: (L) acquisitionKey and ownerToken are absent from failure resu
   assert.equal((loser as AcquireHoldResult).ownerToken, undefined);
   // No token leak in serialization.
   assert.equal(JSON.stringify(loser).includes(winner.ownerToken!), false);
+});
+
+// ---------------------------------------------------------------------------
+// MIGRATION IDENTITY REGRESSION (Mission 08.1 final blockers §3)
+// ---------------------------------------------------------------------------
+// Protection against duplicate migration number prefixes (e.g. two files both
+// numbered 0011) that can silently leave a migration outside the Drizzle
+// journal chain. Also verifies the overlap trigger is applied by migrateLocalDb().
+
+test("SCHEDULING: migration files have unique numeric prefixes (no duplicate 00xx)", async () => {
+  const { readdirSync } = await import("node:fs");
+  const { join } = await import("node:path");
+  const migrationsDir = join(process.cwd(), "drizzle", "migrations");
+  const files = readdirSync(migrationsDir).filter((f: string) => f.endsWith(".sql"));
+  const prefixes: string[] = [];
+  for (const file of files) {
+    const match = file.match(/^(\d{4})_/);
+    assert.ok(match, `migration file ${file} does not match expected NN_name.sql pattern`);
+    prefixes.push(match[1]);
+  }
+  const duplicates = prefixes.filter((p, i) => prefixes.indexOf(p) !== i);
+  assert.equal(
+    duplicates.length,
+    0,
+    `duplicate migration prefixes found: ${[...new Set(duplicates)].join(", ")}`,
+  );
+});
+
+test("SCHEDULING: migration journal contains both 0011_supreme_husk and 0012_booking_window_overlap_trigger", async () => {
+  const { readFileSync } = await import("node:fs");
+  const { join } = await import("node:path");
+  const journalPath = join(process.cwd(), "drizzle", "migrations", "meta", "_journal.json");
+  const journal = JSON.parse(readFileSync(journalPath, "utf-8"));
+  const tags = journal.entries.map((e: { tag: string }) => e.tag);
+  assert.ok(tags.includes("0011_supreme_husk"), "journal must contain 0011_supreme_husk");
+  assert.ok(tags.includes("0012_booking_window_overlap_trigger"), "journal must contain 0012_booking_window_overlap_trigger");
+  // No duplicate 0011 entries.
+  const prefixCounts: Record<string, number> = {};
+  for (const tag of tags) {
+    const prefix = tag.split("_")[0];
+    prefixCounts[prefix] = (prefixCounts[prefix] ?? 0) + 1;
+  }
+  for (const [prefix, count] of Object.entries(prefixCounts)) {
+    assert.equal(count, 1, `migration prefix ${prefix} appears ${count} times in journal`);
+  }
+});
+
+test("SCHEDULING: overlap trigger exists in DB after migrateLocalDb()", async () => {
+  const d1 = await getD1Database();
+  const { results } = await d1
+    .prepare(
+      "SELECT name FROM sqlite_master WHERE type = 'trigger' AND name LIKE 'booking_windows_no_overlap%'",
+    )
+    .all<{ name: string }>();
+  const names = (results ?? []).map((r: { name: string }) => r.name);
+  assert.ok(
+    names.includes("booking_windows_no_overlap_insert"),
+    `INSERT trigger missing after migration; found: ${names.join(", ")}`,
+  );
+  assert.ok(
+    names.includes("booking_windows_no_overlap_update"),
+    `UPDATE trigger missing after migration; found: ${names.join(", ")}`,
+  );
 });
