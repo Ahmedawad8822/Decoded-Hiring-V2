@@ -11,6 +11,7 @@ export const orchestrationProviderKindSchema = z.enum([
 export const orchestrationEffectTypeSchema = z.enum([
   "PAYMENT_CHECKOUT_CREATE",
   "ORDER_FULFILL",
+  "ORDER_REFUND_RECONCILE",
   "CALENDAR_CREATE",
   "CALENDAR_UPDATE",
   "CALENDAR_CANCEL",
