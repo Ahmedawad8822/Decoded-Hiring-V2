@@ -10,7 +10,9 @@ import { PUBLIC_OFFER_SLUGS } from "@/features/offers/catalog";
 import { resolveOfferPublicPresentation } from "@/features/offers/presentation";
 import { getOfferBySlug } from "@/features/offers/service";
 
-export const dynamic = "force-dynamic";\n\nexport const metadata = publicMetadata({
+export const dynamic = "force-dynamic";
+
+export const metadata = publicMetadata({
   title: "AI-Powered Recruitment Workshop | Ahmed Awad",
   description:
     "A four-day practical recruitment workshop that turns activity into an evidence-to-recommendation operating system.",
