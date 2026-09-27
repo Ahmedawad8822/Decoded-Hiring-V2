@@ -1,5 +1,9 @@
 import { index, integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 import type { ContentStatus } from "@/features/publishing/types";
+import type {
+  LeadSubmissionKind,
+  LeadSubmissionStatus,
+} from "@/features/leads/types";
 
 // ============================================================================
 // IDENTITY DOMAIN (Better Auth + Admin Plugin)
@@ -164,14 +168,6 @@ export type Media = typeof media.$inferSelect;
 // Public product/contact forms persist durable business truth in D1. Delivery
 // providers and the future Studio lead inbox are separate concerns.
 // ============================================================================
-
-export type LeadSubmissionKind =
-  | "workshop"
-  | "coaching"
-  | "ai_os"
-  | "contact";
-
-export type LeadSubmissionStatus = "NEW" | "REVIEWED" | "CLOSED";
 
 export const leadSubmissions = sqliteTable(
   "lead_submissions",
