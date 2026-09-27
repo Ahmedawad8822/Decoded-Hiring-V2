@@ -54,15 +54,15 @@ async function signInAdmin(page: Page) {
 }
 
 async function clickReload(page: Page, selector: string) {
-  const navigated = page
-    .waitForEvent("framenavigated", {
-      predicate: (frame) => frame === page.mainFrame(),
-      timeout: 60_000,
-    })
-    .catch(() => null);
+  const actionResponse = page.waitForResponse(
+    (response) =>
+      response.request().method() === "POST" &&
+      new URL(response.url()).origin === new URL(page.url()).origin,
+    { timeout: 60_000 },
+  );
   await page.click(selector);
-  await navigated;
-  await page.waitForLoadState("domcontentloaded", { timeout: 60_000 });
+  const response = await actionResponse;
+  expect(response.status(), `action response for ${selector}`).toBeLessThan(400);
 }
 
 test.describe("mission 07 editorial ai lifecycle", () => {
