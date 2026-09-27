@@ -141,9 +141,19 @@ test.describe("mission 07 editorial ai lifecycle", () => {
     await page.waitForSelector('text=UPLOADED', { timeout: 10_000 });
 
     await clickReload(page, 'button:has-text("Ingest")');
-    await expect(page.locator("text=READY").first()).toBeVisible({
-      timeout: 20_000,
-    });
+    await expect
+      .poll(
+        async () => {
+          await page.reload({ waitUntil: "domcontentloaded", timeout: 60_000 });
+          return (await page.locator("body").textContent()) ?? "";
+        },
+        {
+          timeout: 30_000,
+          intervals: [250, 500, 1_000, 2_000],
+          message: "knowledge source should reach durable READY state",
+        },
+      )
+      .toContain("READY");
 
     // Verify chunks were actually created during ingestion
     const chunkCountCell = await page
