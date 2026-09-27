@@ -3,6 +3,14 @@
 import type { CommerceAdminDashboard } from "@/features/commerce/admin-model";
 import { BoundedListNote, PageControls, StatusPill, cardStyle, sectionTitleStyle } from "./admin-ui";
 
+function formatEventTimestampUtc(value: string): string {
+  return new Intl.DateTimeFormat("en-GB", {
+    dateStyle: "medium",
+    timeStyle: "short",
+    timeZone: "UTC",
+  }).format(new Date(value)) + " UTC";
+}
+
 export function CommerceOverview({ initial }: { initial: CommerceAdminDashboard }) {
   const summaryCards = [
     ["Active Offers", initial.summary.activeOffers],
@@ -51,7 +59,7 @@ export function CommerceOverview({ initial }: { initial: CommerceAdminDashboard 
         </div>
         <p className="muted" style={{fontSize:11,margin:0}}>
           {initial.observability.lastEventAt
-            ? `Last event ${new Date(initial.observability.lastEventAt).toLocaleString()} · ${initial.observability.total} events in window.`
+            ? `Last event ${formatEventTimestampUtc(initial.observability.lastEventAt)} · ${initial.observability.total} events in window.`
             : "No business events recorded in this window yet."}
         </p>
       </section>
