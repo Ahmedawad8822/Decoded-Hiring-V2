@@ -89,8 +89,35 @@ export async function getCommerceAdminDashboard() {
         asc(bookingAvailabilityWindows.startMinute),
       )
       .limit(1000),
-    db.select().from(bookings).orderBy(desc(bookings.startAt)).limit(200),
-    db.select().from(orders).orderBy(desc(orders.createdAt)).limit(200),
+    db
+      .select({
+        id: bookings.id,
+        bookingTypeId: bookings.bookingTypeId,
+        requesterName: bookings.requesterName,
+        requesterEmail: bookings.requesterEmail,
+        startAt: bookings.startAt,
+        endAt: bookings.endAt,
+        status: bookings.status,
+        version: bookings.version,
+      })
+      .from(bookings)
+      .orderBy(desc(bookings.startAt))
+      .limit(200),
+    db
+      .select({
+        id: orders.id,
+        offerId: orders.offerId,
+        accessMode: orders.accessMode,
+        customerEmail: orders.customerEmail,
+        amountMinor: orders.amountMinor,
+        currency: orders.currency,
+        status: orders.status,
+        version: orders.version,
+        createdAt: orders.createdAt,
+      })
+      .from(orders)
+      .orderBy(desc(orders.createdAt))
+      .limit(200),
     db
       .select()
       .from(orchestrationEffects)
