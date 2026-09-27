@@ -2,6 +2,8 @@
 
 import { z } from "zod";
 
+import { recordBusinessEventBestEffort } from "@/features/analytics/service";
+
 import {
   acquireSlotHold,
   releaseSlotHold,
@@ -70,6 +72,35 @@ export type PublicBookingActionState =
 
 function formBoolean(value: FormDataEntryValue | null): boolean {
   return value === "true" || value === "on";
+}
+
+function publicRoute(kind: "COACHING" | "WORKSHOP"): "/coaching" | "/workshop" {
+  return kind === "COACHING" ? "/coaching" : "/workshop";
+}
+
+async function recordConfirmedBooking(params: {
+  bookingId: string;
+  bookingTypeId: string;
+  offerKind: "COACHING" | "WORKSHOP";
+  offerSlug: string;
+  occurredAt?: Date;
+}): Promise<void> {
+  await recordBusinessEventBestEffort({
+    dedupeKey: `public-booking:${params.bookingId}:confirmed`,
+    eventName: "booking_confirmed",
+    subjectType: "BOOKING",
+    subjectId: params.bookingId,
+    bookingId: params.bookingId,
+    bookingTypeId: params.bookingTypeId,
+    route: publicRoute(params.offerKind),
+    surface: "public-scheduler",
+    metadata: {
+      offer_kind: params.offerKind,
+      offer_slug: params.offerSlug,
+      access_mode: "FREE",
+    },
+    occurredAt: params.occurredAt,
+  });
 }
 
 function safeSuccess(booking: {
@@ -231,7 +262,16 @@ export async function submitPublicBooking(
 
   const existing = await recoverBookingByRequestKey(parsed.data.requestKey);
   if (existing) {
-    return recoverExistingPublicBooking(existing, parsed.data);
+    const result = await recoverExistingPublicBooking(existing, parsed.data);
+    if (result?.ok) {
+      await recordConfirmedBooking({
+        bookingId: result.bookingId,
+        bookingTypeId: existing.bookingTypeId,
+        offerKind: parsed.data.offerKind,
+        offerSlug: parsed.data.offerSlug,
+      });
+    }
+    return result;
   }
 
   const now = new Date();
@@ -255,7 +295,23 @@ export async function submitPublicBooking(
     };
   }
 
-  // Only a server-validated Offer/BookingType/slot attempt may consume public
+  await recordBusinessEventBestEffort({
+    dedupeKey: `public-booking:${parsed.data.requestKey}:started`,
+    eventName: "booking_started",
+    subjectType: "BOOKING_TYPE",
+    subjectId: bookable.model.bookingTypeId,
+    bookingTypeId: bookable.model.bookingTypeId,
+    route: publicRoute(parsed.data.offerKind),
+    surface: "public-scheduler",
+    metadata: {
+      offer_kind: parsed.data.offerKind,
+      offer_slug: parsed.data.offerSlug,
+      access_mode: "FREE",
+    },
+    occurredAt: now,
+  });
+
+    // Only a server-validated Offer/BookingType/slot attempt may consume public
   // booking capacity. Admission is atomic and happens before another lease is
   // acquired, so concurrent rotating-email bursts cannot exceed the cap.
   const admitted = await consumePublicBookingAdmission({
@@ -289,6 +345,21 @@ export async function submitPublicBooking(
     };
   }
 
+  await recordBusinessEventBestEffort({
+    dedupeKey: `public-slot:${parsed.data.acquisitionKey}:held`,
+    eventName: "slot_held",
+    subjectType: "BOOKING_TYPE",
+    subjectId: bookable.model.bookingTypeId,
+    bookingTypeId: bookable.model.bookingTypeId,
+    route: publicRoute(parsed.data.offerKind),
+    surface: "public-scheduler",
+    metadata: {
+      offer_kind: parsed.data.offerKind,
+      offer_slug: parsed.data.offerSlug,
+    },
+    occurredAt: now,
+  });
+
   try {
     const booking = await createBookingRequest({
       bookingTypeId: bookable.model.bookingTypeId,
@@ -302,11 +373,46 @@ export async function submitPublicBooking(
       now,
     });
 
-    return recoverExistingPublicBooking(booking, parsed.data);
+    await recordBusinessEventBestEffort({
+      dedupeKey: `public-booking:${booking.id}:requested`,
+      eventName: "booking_requested",
+      subjectType: "BOOKING",
+      subjectId: booking.id,
+      bookingId: booking.id,
+      bookingTypeId: booking.bookingTypeId,
+      route: publicRoute(parsed.data.offerKind),
+      surface: "public-scheduler",
+      metadata: {
+        offer_kind: parsed.data.offerKind,
+        offer_slug: parsed.data.offerSlug,
+      },
+      occurredAt: now,
+    });
+
+    const result = await recoverExistingPublicBooking(booking, parsed.data);
+    if (result?.ok) {
+      await recordConfirmedBooking({
+        bookingId: result.bookingId,
+        bookingTypeId: booking.bookingTypeId,
+        offerKind: parsed.data.offerKind,
+        offerSlug: parsed.data.offerSlug,
+        occurredAt: now,
+      });
+    }
+    return result;
   } catch (error: unknown) {
     const recovered = await recoverBookingByRequestKey(parsed.data.requestKey);
     if (recovered) {
-      return recoverExistingPublicBooking(recovered, parsed.data);
+      const result = await recoverExistingPublicBooking(recovered, parsed.data);
+      if (result?.ok) {
+        await recordConfirmedBooking({
+          bookingId: result.bookingId,
+          bookingTypeId: recovered.bookingTypeId,
+          offerKind: parsed.data.offerKind,
+          offerSlug: parsed.data.offerSlug,
+        });
+      }
+      return result;
     }
 
     try {
