@@ -31,11 +31,43 @@ async function signInAdmin(page: Page) {
 async function assertNoHorizontalOverflow(page: Page, url: string, width: number) {
   await page.setViewportSize({ width, height: 900 });
   await page.goto(url, { waitUntil: "domcontentloaded" });
-  const overflow = await page.evaluate(() => {
-    const el = document.scrollingElement ?? document.documentElement;
-    return el.scrollWidth - window.innerWidth;
+  const metrics = await page.evaluate(() => {
+    const root = document.scrollingElement ?? document.documentElement;
+    const viewport = window.innerWidth;
+    const offenders = Array.from(document.querySelectorAll<HTMLElement>("body *"))
+      .map((node) => {
+        const rect = node.getBoundingClientRect();
+        return {
+          node:
+            node.id
+              ? `${node.tagName.toLowerCase()}#${node.id}`
+              : `${node.tagName.toLowerCase()}.${Array.from(node.classList).slice(0, 3).join(".")}`,
+          left: Math.round(rect.left),
+          right: Math.round(rect.right),
+          width: Math.round(rect.width),
+          scrollWidth: node.scrollWidth,
+          clientWidth: node.clientWidth,
+        };
+      })
+      .filter(
+        (item) =>
+          item.right > viewport + 1 ||
+          item.left < -1 ||
+          item.scrollWidth > item.clientWidth + 1,
+      )
+      .sort((a, b) => Math.max(b.right - viewport, b.scrollWidth - b.clientWidth) - Math.max(a.right - viewport, a.scrollWidth - a.clientWidth))
+      .slice(0, 12);
+    return {
+      overflow: root.scrollWidth - viewport,
+      rootScrollWidth: root.scrollWidth,
+      viewport,
+      offenders,
+    };
   });
-  expect(overflow, `${url} @ ${width}px overflow`).toBeLessThanOrEqual(1);
+  expect(
+    metrics.overflow,
+    `${url} @ ${width}px overflow; metrics=${JSON.stringify(metrics)}`,
+  ).toBeLessThanOrEqual(1);
 }
 
 async function assertSemanticFormControls(page: Page) {
