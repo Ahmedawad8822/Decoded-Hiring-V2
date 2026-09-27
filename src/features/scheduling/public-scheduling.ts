@@ -10,12 +10,13 @@
 // remaining payment/admin UX is implemented.
 // ============================================================================
 
-import { and, eq, gt, gte, inArray, lt, or } from "drizzle-orm";
+import { and, eq, gt, gte, lt, or } from "drizzle-orm";
 
 import {
   bookings,
   bookingTypes,
   slotHolds,
+  type BookingType,
   type Offer,
 } from "@/lib/db";
 import { getDb } from "@/lib/db";
@@ -46,7 +47,7 @@ export type PublicSchedulingModel =
       bookingTitle: string;
       durationMinutes: number;
       timezone: string;
-      meetingMethod: typeof bookingTypes.$inferSelect["meetingMethod"];
+      meetingMethod: BookingType["meetingMethod"];
       confirmationPolicy: "AUTO_CONFIRM";
       accessMode: "FREE";
       slots: PublicSchedulingSlot[];
