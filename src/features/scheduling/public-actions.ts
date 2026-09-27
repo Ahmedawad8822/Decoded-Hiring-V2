@@ -103,6 +103,8 @@ function safeSuccess(booking: {
 async function recoverExistingPublicBooking(
   booking: {
     id: string;
+    requestKey: string;
+    requestKey: string;
     bookingTypeId: string;
     requesterName: string;
     requesterEmail: string;
@@ -116,6 +118,7 @@ async function recoverExistingPublicBooking(
     version: number;
   },
   input: {
+    requestKey: string;
     bookingTypeId: string;
     requesterName: string;
     requesterEmail: string;
@@ -157,6 +160,7 @@ async function recoverExistingPublicBooking(
 
 function existingMatchesInput(
   booking: {
+    requestKey: string;
     bookingTypeId: string;
     requesterName: string;
     requesterEmail: string;
@@ -166,6 +170,7 @@ function existingMatchesInput(
     startAt: Date;
   },
   input: {
+    requestKey: string;
     bookingTypeId: string;
     requesterName: string;
     requesterEmail: string;
@@ -176,6 +181,7 @@ function existingMatchesInput(
   },
 ): boolean {
   return (
+    booking.requestKey === input.requestKey &&
     booking.bookingTypeId === input.bookingTypeId &&
     booking.requesterName === input.requesterName &&
     booking.requesterEmail === input.requesterEmail &&
@@ -294,7 +300,7 @@ export async function submitPublicBooking(
       now,
     });
 
-    return safeSuccess(booking);
+    return recoverExistingPublicBooking(booking, parsed.data);
   } catch (error: unknown) {
     const recovered = await recoverBookingByRequestKey(parsed.data.requestKey);
     if (recovered) {
