@@ -20,6 +20,7 @@ import {
   bookingHistory,
   bookings,
   bookingTypes,
+  orders,
   slotHolds,
   type Booking,
   type BookingHistory,
@@ -31,6 +32,7 @@ import { getDb } from "@/lib/db";
 import { getD1Database } from "@/lib/cloudflare/bindings";
 import { isUniqueConstraintError } from "@/lib/db/sqlite-errors";
 import { requireAdmin } from "@/lib/auth";
+import { getEffectiveBookingAccessPolicy } from "@/features/offers/service";
 import { SchedulingDomainError } from "./errors";
 import {
   bookingDecisionSchema,
@@ -206,6 +208,34 @@ async function getBookingWithTypeAndHold(id: string): Promise<{
   return { booking, bookingType, hold };
 }
 
+async function getBookingOrderPaymentContract(
+  bookingId: string,
+  bookingTypeId: string,
+): Promise<{ exists: boolean; satisfied: boolean }> {
+  const db = await getDb();
+  const linkedOrders = await db
+    .select({
+      status: orders.status,
+      accessMode: orders.accessMode,
+    })
+    .from(orders)
+    .where(
+      and(
+        eq(orders.bookingId, bookingId),
+        eq(orders.bookingTypeId, bookingTypeId),
+      ),
+    )
+    .all();
+
+  return {
+    exists: linkedOrders.length > 0,
+    satisfied: linkedOrders.some(
+      (candidate) =>
+        candidate.status === "PAID" || candidate.status === "FULFILLED",
+    ),
+  };
+}
+
 async function findByHoldGeneration(
   holdId: string,
   holdAcquisitionKey: string,
@@ -248,6 +278,14 @@ export async function createBookingRequest(
     throw new SchedulingDomainError(
       "Booking type is unavailable.",
       "BOOKING_TYPE_NOT_FOUND",
+    );
+  }
+
+  const accessPolicy = await getEffectiveBookingAccessPolicy(bookingType);
+  if (!accessPolicy.available) {
+    throw new SchedulingDomainError(
+      "Booking is currently unavailable under its commercial Offer policy.",
+      "BOOKING_UNAVAILABLE",
     );
   }
 
@@ -348,12 +386,12 @@ export async function createBookingRequest(
     throw new Error("Booking insert committed but row could not be re-read.");
   }
 
-  // AUTO_CONFIRM is allowed to cross the confirmation boundary only for FREE.
-  // Paid/manual/disabled modes stay REQUESTED until later commerce slices
-  // provide authoritative payment/manual-access state.
+  // AUTO_CONFIRM crosses the confirmation boundary only when the effective
+  // commercial policy is FREE. A linked Offer is authoritative; legacy
+  // BookingType.accessMode is fallback only when no Offer exists.
   if (
     bookingType.confirmationPolicy === "AUTO_CONFIRM" &&
-    bookingType.accessMode === "FREE"
+    accessPolicy.mode === "FREE"
   ) {
     return confirmBoundBooking(
       {
@@ -406,11 +444,39 @@ async function confirmBoundBooking(
     }
   }
 
-  if (bookingType.accessMode !== "FREE") {
-    throw new SchedulingDomainError(
-      `Booking access mode ${bookingType.accessMode} cannot be confirmed before commerce/payment state is authoritative.`,
-      "PAYMENT_REQUIRED",
-    );
+  const orderPayment = await getBookingOrderPaymentContract(
+    booking.id,
+    booking.bookingTypeId,
+  );
+
+  if (orderPayment.exists) {
+    // Once an Order exists, its immutable booking/payment contract is the
+    // authority for this booking attempt. Later Offer edits/deactivation may
+    // affect new purchases, but cannot invalidate or free an existing Order.
+    if (!orderPayment.satisfied) {
+      throw new SchedulingDomainError(
+        "A matching internal order must be PAID before this booking can be confirmed.",
+        "PAYMENT_REQUIRED",
+      );
+    }
+  } else {
+    const accessPolicy = await getEffectiveBookingAccessPolicy(bookingType);
+    if (!accessPolicy.available) {
+      throw new SchedulingDomainError(
+        "Booking is currently unavailable under its commercial Offer policy.",
+        "BOOKING_UNAVAILABLE",
+      );
+    }
+    if (
+      accessPolicy.mode === "PAID_SESSION" ||
+      accessPolicy.mode === "PAID_ONE_TIME" ||
+      accessPolicy.mode === "MANUAL_INVOICE"
+    ) {
+      throw new SchedulingDomainError(
+        "A matching internal order must be PAID before this booking can be confirmed.",
+        "PAYMENT_REQUIRED",
+      );
+    }
   }
 
   const liveHold = assertLiveBoundHold(booking, hold, parsed.now);
@@ -521,7 +587,98 @@ async function confirmBoundBooking(
       targetVersion,
     );
 
-  await d1.batch([consume, confirm, audit]);
+  // Durable outbox is committed in the SAME D1 batch as confirmation.
+  // If the process dies immediately after business confirmation, calendar and
+  // confirmation-message work is still recoverable. Mail waits for calendar.
+  const calendarEffectId = `fx_booking_${booking.id}_calendar_create`;
+  const mailEffectId = `fx_booking_${booking.id}_mail_confirmation`;
+  const effectPayload = historyDetail({
+    bookingId: booking.id,
+    bookingVersion: targetVersion,
+  });
+
+  const enqueueCalendar = d1
+    .prepare(
+      `INSERT OR IGNORE INTO orchestration_effects
+       (id, subject_type, subject_id, effect_type, provider_kind,
+        idempotency_key, depends_on_effect_id, payload, status, attempt_count,
+        created_at, updated_at)
+       SELECT ?, 'BOOKING', id, 'CALENDAR_CREATE', 'calendar',
+              ?, NULL, ?, 'PENDING', 0, ?, ?
+       FROM bookings
+       WHERE id=? AND transition_key=? AND version=? AND status='CONFIRMED'`,
+    )
+    .bind(
+      calendarEffectId,
+      `booking:${booking.id}:calendar:create`,
+      effectPayload,
+      nowSec,
+      nowSec,
+      booking.id,
+      token,
+      targetVersion,
+    );
+
+  const enqueueCalendarAudit = d1
+    .prepare(
+      `INSERT OR IGNORE INTO orchestration_history
+       (id, effect_id, action, from_status, to_status, detail, created_at)
+       SELECT ?, id, 'ENQUEUED', NULL, 'PENDING', ?, ?
+       FROM orchestration_effects WHERE id=?`,
+    )
+    .bind(
+      `fxh_${calendarEffectId}_enqueued`,
+      historyDetail({ reason: "booking_confirmed" }),
+      nowSec,
+      calendarEffectId,
+    );
+
+  const enqueueMail = d1
+    .prepare(
+      `INSERT OR IGNORE INTO orchestration_effects
+       (id, subject_type, subject_id, effect_type, provider_kind,
+        idempotency_key, depends_on_effect_id, payload, status, attempt_count,
+        created_at, updated_at)
+       SELECT ?, 'BOOKING', id, 'MAIL_CONFIRMATION', 'mailbox',
+              ?, ?, ?, 'PENDING', 0, ?, ?
+       FROM bookings
+       WHERE id=? AND transition_key=? AND version=? AND status='CONFIRMED'`,
+    )
+    .bind(
+      mailEffectId,
+      `booking:${booking.id}:mail:confirmation`,
+      calendarEffectId,
+      effectPayload,
+      nowSec,
+      nowSec,
+      booking.id,
+      token,
+      targetVersion,
+    );
+
+  const enqueueMailAudit = d1
+    .prepare(
+      `INSERT OR IGNORE INTO orchestration_history
+       (id, effect_id, action, from_status, to_status, detail, created_at)
+       SELECT ?, id, 'ENQUEUED', NULL, 'PENDING', ?, ?
+       FROM orchestration_effects WHERE id=?`,
+    )
+    .bind(
+      `fxh_${mailEffectId}_enqueued`,
+      historyDetail({ reason: "booking_confirmed", dependsOn: calendarEffectId }),
+      nowSec,
+      mailEffectId,
+    );
+
+  await d1.batch([
+    consume,
+    confirm,
+    audit,
+    enqueueCalendar,
+    enqueueCalendarAudit,
+    enqueueMail,
+    enqueueMailAudit,
+  ]);
 
   const updated = await getBookingById(booking.id);
   if (
@@ -549,6 +706,35 @@ async function confirmBoundBooking(
   throw new SchedulingDomainError(
     "Booking confirmation lost a concurrent state transition.",
     "CONCURRENT_MODIFICATION",
+  );
+}
+
+/**
+ * Internal Mission 08.5 orchestration seam.
+ *
+ * Paid AUTO_CONFIRM bookings are not confirmed at request time because payment
+ * truth does not exist yet. Once a matching internal Order is PAID, the durable
+ * commerce worker may call this narrow helper. Human-gated policies return
+ * null and remain pending for explicit admin action.
+ *
+ * Deliberately not re-exported from the scheduling barrel.
+ */
+export async function autoConfirmPaidBookingFromCommerce(
+  bookingId: string,
+  now: Date,
+): Promise<Booking | null> {
+  const { booking, bookingType } = await getBookingWithTypeAndHold(bookingId);
+  if (booking.status === "CONFIRMED") return booking;
+  if (bookingType.confirmationPolicy !== "AUTO_CONFIRM") return null;
+
+  return confirmBoundBooking(
+    {
+      bookingId: booking.id,
+      expectedVersion: booking.version,
+      now,
+    },
+    "AUTO_CONFIRMED",
+    { id: "system:paid-auto-confirm", role: "system" },
   );
 }
 
@@ -670,7 +856,107 @@ async function simpleTerminalTransition(params: {
 
   // Cancellation/decline release only the exact generation owned by this
   // booking; completion deliberately leaves the consumed slot historical.
-  await d1.batch([mutate, maybeRelease, audit]);
+  if (params.toStatus === "CANCELLED") {
+    const calendarEffectId =
+      `fx_booking_${booking.id}_calendar_cancel_v${targetVersion}`;
+    const mailEffectId =
+      `fx_booking_${booking.id}_mail_cancellation_v${targetVersion}`;
+    const effectPayload = historyDetail({
+      bookingId: booking.id,
+      bookingVersion: targetVersion,
+    });
+    const hadConfirmedCalendar = booking.status === "CONFIRMED";
+
+    const enqueueCalendarCancel = d1
+      .prepare(
+        `INSERT OR IGNORE INTO orchestration_effects
+         (id, subject_type, subject_id, effect_type, provider_kind,
+          idempotency_key, depends_on_effect_id, payload, status, attempt_count,
+          created_at, updated_at)
+         SELECT ?, 'BOOKING', id, 'CALENDAR_CANCEL', 'calendar',
+                ?, NULL, ?, 'PENDING', 0, ?, ?
+         FROM bookings
+         WHERE id=? AND transition_key=? AND version=? AND status='CANCELLED'
+           AND ?=1`,
+      )
+      .bind(
+        calendarEffectId,
+        `booking:${booking.id}:calendar:cancel:v${targetVersion}`,
+        effectPayload,
+        nowSec,
+        nowSec,
+        booking.id,
+        token,
+        targetVersion,
+        hadConfirmedCalendar ? 1 : 0,
+      );
+
+    const enqueueCalendarCancelAudit = d1
+      .prepare(
+        `INSERT OR IGNORE INTO orchestration_history
+         (id, effect_id, action, from_status, to_status, detail, created_at)
+         SELECT ?, id, 'ENQUEUED', NULL, 'PENDING', ?, ?
+         FROM orchestration_effects WHERE id=?`,
+      )
+      .bind(
+        `fxh_${calendarEffectId}_enqueued`,
+        historyDetail({ reason: "booking_cancelled" }),
+        nowSec,
+        calendarEffectId,
+      );
+
+    const enqueueCancellationMail = d1
+      .prepare(
+        `INSERT OR IGNORE INTO orchestration_effects
+         (id, subject_type, subject_id, effect_type, provider_kind,
+          idempotency_key, depends_on_effect_id, payload, status, attempt_count,
+          created_at, updated_at)
+         SELECT ?, 'BOOKING', id, 'MAIL_CANCELLATION', 'mailbox',
+                ?, ?, ?, 'PENDING', 0, ?, ?
+         FROM bookings
+         WHERE id=? AND transition_key=? AND version=? AND status='CANCELLED'`,
+      )
+      .bind(
+        mailEffectId,
+        `booking:${booking.id}:mail:cancellation:v${targetVersion}`,
+        hadConfirmedCalendar ? calendarEffectId : null,
+        effectPayload,
+        nowSec,
+        nowSec,
+        booking.id,
+        token,
+        targetVersion,
+      );
+
+    const enqueueCancellationMailAudit = d1
+      .prepare(
+        `INSERT OR IGNORE INTO orchestration_history
+         (id, effect_id, action, from_status, to_status, detail, created_at)
+         SELECT ?, id, 'ENQUEUED', NULL, 'PENDING', ?, ?
+         FROM orchestration_effects WHERE id=?`,
+      )
+      .bind(
+        `fxh_${mailEffectId}_enqueued`,
+        historyDetail({
+          reason: "booking_cancelled",
+          dependsOn: hadConfirmedCalendar ? calendarEffectId : null,
+        }),
+        nowSec,
+        mailEffectId,
+      );
+
+    await d1.batch([
+      mutate,
+      maybeRelease,
+      audit,
+      enqueueCalendarCancel,
+      enqueueCalendarCancelAudit,
+      enqueueCancellationMail,
+      enqueueCancellationMailAudit,
+    ]);
+  } else {
+    await d1.batch([mutate, maybeRelease, audit]);
+  }
 
   const updated = await getBookingById(booking.id);
   if (
@@ -914,7 +1200,98 @@ async function rescheduleBookingAsActor(
       parsed.newHoldAcquisitionKey,
     );
 
-  await d1.batch([consume, move, releaseOld, audit]);
+  const calendarEffectId =
+    `fx_booking_${booking.id}_calendar_update_v${targetVersion}`;
+  const mailEffectId =
+    `fx_booking_${booking.id}_mail_reschedule_v${targetVersion}`;
+  const effectPayload = historyDetail({
+    bookingId: booking.id,
+    bookingVersion: targetVersion,
+  });
+
+  const enqueueCalendarUpdate = d1
+    .prepare(
+      `INSERT OR IGNORE INTO orchestration_effects
+       (id, subject_type, subject_id, effect_type, provider_kind,
+        idempotency_key, depends_on_effect_id, payload, status, attempt_count,
+        created_at, updated_at)
+       SELECT ?, 'BOOKING', id, 'CALENDAR_UPDATE', 'calendar',
+              ?, NULL, ?, 'PENDING', 0, ?, ?
+       FROM bookings
+       WHERE id=? AND transition_key=? AND version=? AND status='CONFIRMED'`,
+    )
+    .bind(
+      calendarEffectId,
+      `booking:${booking.id}:calendar:update:v${targetVersion}`,
+      effectPayload,
+      nowSec,
+      nowSec,
+      booking.id,
+      token,
+      targetVersion,
+    );
+
+  const enqueueCalendarUpdateAudit = d1
+    .prepare(
+      `INSERT OR IGNORE INTO orchestration_history
+       (id, effect_id, action, from_status, to_status, detail, created_at)
+       SELECT ?, id, 'ENQUEUED', NULL, 'PENDING', ?, ?
+       FROM orchestration_effects WHERE id=?`,
+    )
+    .bind(
+      `fxh_${calendarEffectId}_enqueued`,
+      historyDetail({ reason: "booking_rescheduled" }),
+      nowSec,
+      calendarEffectId,
+    );
+
+  const enqueueRescheduleMail = d1
+    .prepare(
+      `INSERT OR IGNORE INTO orchestration_effects
+       (id, subject_type, subject_id, effect_type, provider_kind,
+        idempotency_key, depends_on_effect_id, payload, status, attempt_count,
+        created_at, updated_at)
+       SELECT ?, 'BOOKING', id, 'MAIL_RESCHEDULE', 'mailbox',
+              ?, ?, ?, 'PENDING', 0, ?, ?
+       FROM bookings
+       WHERE id=? AND transition_key=? AND version=? AND status='CONFIRMED'`,
+    )
+    .bind(
+      mailEffectId,
+      `booking:${booking.id}:mail:reschedule:v${targetVersion}`,
+      calendarEffectId,
+      effectPayload,
+      nowSec,
+      nowSec,
+      booking.id,
+      token,
+      targetVersion,
+    );
+
+  const enqueueRescheduleMailAudit = d1
+    .prepare(
+      `INSERT OR IGNORE INTO orchestration_history
+       (id, effect_id, action, from_status, to_status, detail, created_at)
+       SELECT ?, id, 'ENQUEUED', NULL, 'PENDING', ?, ?
+       FROM orchestration_effects WHERE id=?`,
+    )
+    .bind(
+      `fxh_${mailEffectId}_enqueued`,
+      historyDetail({ reason: "booking_rescheduled", dependsOn: calendarEffectId }),
+      nowSec,
+      mailEffectId,
+    );
+
+  await d1.batch([
+    consume,
+    move,
+    releaseOld,
+    audit,
+    enqueueCalendarUpdate,
+    enqueueCalendarUpdateAudit,
+    enqueueRescheduleMail,
+    enqueueRescheduleMailAudit,
+  ]);
 
   const updated = await getBookingById(booking.id);
   if (

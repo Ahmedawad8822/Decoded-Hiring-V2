@@ -1,9 +1,9 @@
-name: Mission 08.4 Temporary Validation
+name: Mission 08.5 Temporary Validation
 
 on:
   push:
     branches:
-      - mission-08.4-provider-neutral-adapters
+      - mission-08.5-order-orchestration
 
 permissions:
   contents: read
@@ -11,7 +11,7 @@ permissions:
 jobs:
   validate:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
     env:
       BETTER_AUTH_SECRET: test-only-ci-secret-0123456789abcdef
       BETTER_AUTH_URL: http://localhost:3000

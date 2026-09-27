@@ -780,3 +780,216 @@ export const offers = sqliteTable(
 );
 
 export type Offer = typeof offers.$inferSelect;
+
+// ============================================================================
+// ORDER / PAYMENT + DURABLE ORCHESTRATION DOMAIN (Mission 08.5)
+// ----------------------------------------------------------------------------
+// Orders are Decoded Hiring business truth. Provider ids are metadata only.
+// Payment providers may prove PAID/FAILED/etc., but FULFILLED is an internal
+// transition owned by Decoded Hiring after durable business effects succeed.
+//
+// orchestration_effects is a D1-backed outbox/lease queue. Every effect has one
+// stable idempotency key reused across retries. orchestration_history is
+// append-only audit of enqueue/claim/success/failure/recovery.
+// ============================================================================
+
+export type OrderStatus =
+  | "PENDING"
+  | "REQUIRES_ACTION"
+  | "PAID"
+  | "FULFILLED"
+  | "CANCELLED"
+  | "FAILED"
+  | "REFUNDED";
+
+export type PaymentState =
+  | "PENDING"
+  | "REQUIRES_ACTION"
+  | "PAID"
+  | "CANCELLED"
+  | "FAILED"
+  | "REFUNDED";
+
+export type OrderHistorySource = "SYSTEM" | "ADMIN" | "PAYMENT_CALLBACK" | "PAYMENT_WEBHOOK";
+
+export const orders = sqliteTable(
+  "orders",
+  {
+    id: text("id").primaryKey(),
+    offerId: text("offer_id")
+      .notNull()
+      .references(() => offers.id),
+    offerKind: text("offer_kind").$type<OfferKind>().notNull(),
+    accessMode: text("access_mode").$type<OfferAccessMode>().notNull(),
+    courseId: text("course_id").references(() => courses.id),
+    bookingTypeId: text("booking_type_id").references(() => bookingTypes.id),
+    bookingId: text("booking_id").references(() => bookings.id),
+    userId: text("user_id").references(() => users.id),
+    requestKey: text("request_key").notNull().unique(),
+    customerEmail: text("customer_email").notNull(),
+    quantity: integer("quantity").notNull().default(1),
+    amountMinor: integer("amount_minor"),
+    currency: text("currency"),
+    status: text("status").$type<OrderStatus>().notNull().default("PENDING"),
+    version: integer("version").notNull().default(1),
+    transitionKey: text("transition_key"),
+    providerCheckoutId: text("provider_checkout_id"),
+    providerPaymentId: text("provider_payment_id"),
+    paidAt: integer("paid_at", { mode: "timestamp" }),
+    fulfilledAt: integer("fulfilled_at", { mode: "timestamp" }),
+    cancelledAt: integer("cancelled_at", { mode: "timestamp" }),
+    failedAt: integer("failed_at", { mode: "timestamp" }),
+    refundedAt: integer("refunded_at", { mode: "timestamp" }),
+    createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+    updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+  },
+  (table) => [
+    index("orders_offer_idx").on(table.offerId),
+    index("orders_course_idx").on(table.courseId),
+    index("orders_booking_type_idx").on(table.bookingTypeId),
+    index("orders_booking_idx").on(table.bookingId),
+    index("orders_user_idx").on(table.userId),
+    index("orders_status_idx").on(table.status),
+    index("orders_customer_email_idx").on(table.customerEmail),
+  ],
+);
+
+export const orderHistory = sqliteTable(
+  "order_history",
+  {
+    id: text("id").primaryKey(),
+    orderId: text("order_id")
+      .notNull()
+      .references(() => orders.id),
+    fromStatus: text("from_status").$type<OrderStatus>(),
+    toStatus: text("to_status").$type<OrderStatus>().notNull(),
+    source: text("source").$type<OrderHistorySource>().notNull(),
+    actorId: text("actor_id"),
+    detail: text("detail"),
+    createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+  },
+  (table) => [
+    index("order_history_order_idx").on(table.orderId),
+    index("order_history_created_idx").on(table.createdAt),
+  ],
+);
+
+export const paymentEvents = sqliteTable(
+  "payment_events",
+  {
+    id: text("id").primaryKey(),
+    orderId: text("order_id")
+      .notNull()
+      .references(() => orders.id),
+    callbackKey: text("callback_key").notNull().unique(),
+    source: text("source").$type<"CALLBACK" | "WEBHOOK">().notNull(),
+    provider: text("provider"),
+    providerEventId: text("provider_event_id"),
+    providerCheckoutId: text("provider_checkout_id"),
+    providerPaymentId: text("provider_payment_id"),
+    state: text("state").$type<PaymentState>().notNull(),
+    amountMinor: integer("amount_minor"),
+    currency: text("currency"),
+    createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+  },
+  (table) => [
+    index("payment_events_order_idx").on(table.orderId),
+    uniqueIndex("payment_events_provider_event_unique").on(
+      table.provider,
+      table.providerEventId,
+    ),
+  ],
+);
+
+export type OrchestrationSubjectType = "ORDER" | "BOOKING";
+export type OrchestrationProviderKind =
+  | "internal"
+  | "payment"
+  | "calendar"
+  | "mailbox"
+  | "meeting";
+export type OrchestrationEffectType =
+  | "PAYMENT_CHECKOUT_CREATE"
+  | "ORDER_FULFILL"
+  | "ORDER_REFUND_RECONCILE"
+  | "CALENDAR_CREATE"
+  | "CALENDAR_UPDATE"
+  | "CALENDAR_CANCEL"
+  | "MAIL_CONFIRMATION"
+  | "MAIL_RESCHEDULE"
+  | "MAIL_CANCELLATION"
+  | "MAIL_REMINDER";
+export type OrchestrationEffectStatus =
+  | "PENDING"
+  | "PROCESSING"
+  | "SUCCEEDED"
+  | "RETRYABLE_FAILURE"
+  | "BLOCKED"
+  | "TERMINAL_FAILURE";
+export type OrchestrationHistoryAction =
+  | "ENQUEUED"
+  | "CLAIMED"
+  | "SUCCEEDED"
+  | "RETRYABLE_FAILURE"
+  | "BLOCKED"
+  | "TERMINAL_FAILURE"
+  | "LEASE_RECOVERED"
+  | "RESET";
+
+export const orchestrationEffects = sqliteTable(
+  "orchestration_effects",
+  {
+    id: text("id").primaryKey(),
+    subjectType: text("subject_type").$type<OrchestrationSubjectType>().notNull(),
+    subjectId: text("subject_id").notNull(),
+    effectType: text("effect_type").$type<OrchestrationEffectType>().notNull(),
+    providerKind: text("provider_kind").$type<OrchestrationProviderKind>().notNull(),
+    idempotencyKey: text("idempotency_key").notNull().unique(),
+    dependsOnEffectId: text("depends_on_effect_id"),
+    payload: text("payload").notNull(),
+    status: text("status").$type<OrchestrationEffectStatus>().notNull().default("PENDING"),
+    attemptCount: integer("attempt_count").notNull().default(0),
+    claimToken: text("claim_token"),
+    transitionKey: text("transition_key"),
+    leaseExpiresAt: integer("lease_expires_at", { mode: "timestamp" }),
+    nextAttemptAt: integer("next_attempt_at", { mode: "timestamp" }),
+    providerRef: text("provider_ref"),
+    lastErrorCode: text("last_error_code"),
+    lastErrorMessage: text("last_error_message"),
+    lastAttemptAt: integer("last_attempt_at", { mode: "timestamp" }),
+    succeededAt: integer("succeeded_at", { mode: "timestamp" }),
+    createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+    updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+  },
+  (table) => [
+    index("orchestration_effects_subject_idx").on(table.subjectType, table.subjectId),
+    index("orchestration_effects_status_idx").on(table.status),
+    index("orchestration_effects_dependency_idx").on(table.dependsOnEffectId),
+    index("orchestration_effects_next_attempt_idx").on(table.nextAttemptAt),
+  ],
+);
+
+export const orchestrationHistory = sqliteTable(
+  "orchestration_history",
+  {
+    id: text("id").primaryKey(),
+    effectId: text("effect_id")
+      .notNull()
+      .references(() => orchestrationEffects.id),
+    action: text("action").$type<OrchestrationHistoryAction>().notNull(),
+    fromStatus: text("from_status").$type<OrchestrationEffectStatus>(),
+    toStatus: text("to_status").$type<OrchestrationEffectStatus>().notNull(),
+    detail: text("detail"),
+    createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+  },
+  (table) => [
+    index("orchestration_history_effect_idx").on(table.effectId),
+    index("orchestration_history_created_idx").on(table.createdAt),
+  ],
+);
+
+export type Order = typeof orders.$inferSelect;
+export type OrderHistory = typeof orderHistory.$inferSelect;
+export type PaymentEvent = typeof paymentEvents.$inferSelect;
+export type OrchestrationEffect = typeof orchestrationEffects.$inferSelect;
+export type OrchestrationHistory = typeof orchestrationHistory.$inferSelect;

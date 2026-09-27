@@ -73,7 +73,6 @@ test("PROVIDERS 08.4: payment adapter fails closed for every external capability
 
   await expectProviderError(
     UnconfiguredPaymentGateway.verifyCallback({
-      orderId: checkoutInput.orderId,
       callbackPayload: "opaque-callback",
     }),
     "payment",
@@ -87,6 +86,15 @@ test("PROVIDERS 08.4: payment adapter fails closed for every external capability
     }),
     "payment",
     "verifyWebhookSignature",
+  );
+
+  await expectProviderError(
+    UnconfiguredPaymentGateway.verifyWebhookPayment({
+      rawBody: '{"type":"payment"}',
+      signature: "opaque-signature",
+    }),
+    "payment",
+    "verifyWebhookPayment",
   );
 
   await expectProviderError(
@@ -117,7 +125,6 @@ test("PROVIDERS 08.4: unconfigured payment can never manufacture paid state", as
   let returned = false;
   try {
     await UnconfiguredPaymentGateway.verifyCallback({
-      orderId: checkoutInput.orderId,
       callbackPayload: "anything",
     });
     returned = true;
@@ -425,15 +432,24 @@ test("PROVIDERS 08.4: payment contract can normalize provider state without prov
       providerCheckoutId: `checkout-${params.orderId}`,
       provider: "test-adapter",
     }),
-    verifyCallback: async (params) => ({
+    verifyCallback: async () => ({
       verified: true,
-      orderId: params.orderId,
+      orderId: "order_contract",
       state: "PAID",
       providerPaymentId: "payment-opaque",
     }),
     verifyWebhookSignature: async () => ({
       valid: true,
       providerEventId: "event-opaque",
+    }),
+    verifyWebhookPayment: async () => ({
+      verified: true,
+      orderId: "order_contract",
+      state: "PAID",
+      providerEventId: "event-opaque",
+      providerPaymentId: "payment-opaque",
+      amountMinor: 12500,
+      currency: "USD",
     }),
     normalizePaymentState: async (params) => ({
       orderId: params.orderId,

@@ -434,10 +434,11 @@ Independent `dh-release-review` found no Critical or Major blockers. Ahmed gave 
 
 ## Slice 08.4 — Provider-Neutral Adapters
 
-Status: **RUNTIME CERTIFIED / INDEPENDENT REVIEW PASSED — AWAITING AHMED GO**
+Status: **ACCEPTED / MERGED INTO CANONICAL MISSION 08**
 
 Implementation branch: `mission-08.4-provider-neutral-adapters`  
-Accepted base: `8c18b78f32b31f2bf6dd3733510318485ff36872`
+Accepted implementation head: `123607a9cae02fe969023ec40421c0019a2e48f0`  
+Canonical merge commit: `7a417f67621c73de97bb1b6002ee70dfdf4c0202`
 
 ### Scope implemented
 
@@ -590,12 +591,211 @@ Independent `dh-release-review` on PR #9 found:
 - no Major findings
 - one non-blocking Minor: future live webhook orchestration must make signature verification a mandatory gate before payment-state normalization/persistence
 
-Review verdict: **SAFE TO MERGE for Slice 08.4**, pending ChatGPT final exact-SHA verification and Ahmed explicit GO.
+That webhook requirement is implemented more strongly in Slice 08.5: live webhook orchestration uses one compound provider boundary that verifies the signature and derives Order identity + normalized payment truth from the same signed raw envelope before any persistence.
+
+Ahmed gave explicit GO and PR #9 was merged into canonical Mission 08 at `7a417f67621c73de97bb1b6002ee70dfdf4c0202`.
 
 ### Slice 08.4 stop rule
 
-Do not merge Slice 08.4 into `mission-08-commerce-scheduling` until:
-- exact-head typecheck/lint/tests/Drizzle/build are green,
+**Satisfied.** Slice 08.4 is frozen in the canonical Mission 08 branch.
+
+
+## Slice 08.5 — Order / Payment Truth + Durable Orchestration
+
+Status: **RUNTIME CERTIFIED / INDEPENDENT REVIEW PASSED — AWAITING AHMED GO**
+
+Implementation branch: `mission-08.5-order-orchestration`  
+Accepted base: `7a417f67621c73de97bb1b6002ee70dfdf4c0202`  
+Source-certified head before this final documentation sync: `42fcc04aff6ea1d5d7451dddf832bd3e5f1c45c6`
+
+### Scope implemented
+
+Slice 08.5 closes the missing internal commerce truth and durability boundary required before public scheduling/provider activation.
+
+#### Order / payment business truth
+
+- provider-independent `orders` table and state machine:
+  - `PENDING`
+  - `REQUIRES_ACTION`
+  - `PAID`
+  - `FULFILLED`
+  - `CANCELLED`
+  - `FAILED`
+  - `REFUNDED`
+- stable internal request identity via unique `requestKey`
+- immutable Offer/booking/user binding checks for duplicate requests
+- linked course and booking orders require quantity `1`
+- booking-linked Offers require the exact booking identity
+- the fulfillment contract is snapshotted into the Order: Offer kind, access mode, course id, booking-type id, amount/currency, booking/user identity and quantity
+- provider checkout/payment/event ids remain metadata, never business identity
+- append-only `order_history`
+- append-only/deduplicated `payment_events`
+
+#### Verified payment evidence
+
+- callback evidence must pass `PaymentGateway.verifyCallback`
+- callback provider verification receives only opaque provider evidence; the expected internal Order id is not supplied to the adapter
+- webhook evidence must pass compound `PaymentGateway.verifyWebhookPayment`
+- the webhook adapter must verify the signature and derive Order id, payment state, amount/currency and provider metadata from the **same signed raw envelope**
+- unsigned caller-supplied webhook state/amount/currency are not part of the 08.5 application boundary
+- callback/webhook provider metadata must match the configured adapter identity
+- verified provider event ids require an authoritative provider name
+- duplicate callbacks collapse by internal callback key
+- duplicate provider events collapse by provider + provider event id
+- concurrent same-provider-event races collapse to one accepted business transition
+- payment amount/currency are checked against the Order snapshot
+- external adapters may prove `PAID` but cannot assert `FULFILLED`
+
+#### Internal fulfillment authority
+
+- verified/manual payment reaching `PAID` atomically enqueues one durable internal fulfillment effect
+- `FULFILLED` is owned only by Decoded Hiring orchestration
+- course fulfillment grants/restores learner enrollment with `accessSource = order:<orderId>`
+- course enrollment grant is gated on the exact still-`PAID` order version
+- paid booking fulfillment waits for or auto-confirms a matching booking according to booking policy
+- only `AUTO_CONFIRM` may be system-confirmed after payment
+- `AHMED_APPROVAL` remains human-gated
+- standalone products without an internal fulfillment strategy stay honestly `PAID` and block rather than fabricating fulfillment
+
+#### Refund reconciliation
+
+- `REFUNDED` atomically enqueues a durable refund-reconciliation effect
+- refund before fulfillment closes obsolete fulfillment without granting access
+- refund after course fulfillment revokes only enrollment access owned by that Order
+- unrelated/pre-existing access is not revoked
+
+#### Durable scheduling & communications orchestration
+
+D1-backed outbox tables:
+- `orchestration_effects`
+- append-only `orchestration_history`
+
+Effect types include:
+- payment checkout creation
+- internal Order fulfillment
+- refunded Order reconciliation
+- calendar create/update/cancel
+- confirmation/reschedule/cancellation/reminder mail
+
+Durability/recovery behavior:
+- stable idempotency key per external/internal side effect
+- dependency ordering between effects
+- lease/CAS worker ownership
+- expired-lease recovery
+- append-only attempt history
+- retryable failure with bounded backoff scheduling
+- `BLOCKED` state for absent/invalid provider configuration
+- terminal failure state for non-retryable provider failures
+- provider-not-configured blocks can resume when configuration becomes available
+- invalid-configuration blocks do not auto-resume
+- dependency readiness is filtered in SQL before worker LIMIT, preventing stale dependent work from starving unrelated work
+- blocked recovery resolves configured provider kinds before LIMIT, preventing one unconfigured provider backlog from starving another provider
+- bounded worker discovery/processing entry point
+- stale/superseded booking calendar/message work resolves without sending stale communication
+
+#### Booking lifecycle hand-off
+
+- linked Offer is authoritative for booking commercial access policy
+- paid/manual booking confirmation requires a matching internal Order in `PAID` or `FULFILLED`
+- FREE AUTO_CONFIRM behavior remains intact
+- confirmation atomically enqueues calendar-create then confirmation-mail dependency
+- reschedule atomically enqueues calendar-update then reschedule-mail dependency
+- cancellation atomically enqueues cancellation side effects
+- existing 08.2 hold-generation/version ordering remains preserved
+
+#### Migration
+
+Migration `0015_order_orchestration` adds:
+- `orders`
+- `order_history`
+- `payment_events`
+- `orchestration_effects`
+- `orchestration_history`
+
+Drizzle journal/snapshot identity is unique and drift-free.
+
+### Regression coverage
+
+Dedicated `tests/mission-08-order-orchestration.test.ts` contains **37 passing regressions**, including:
+- Order idempotency and request-key conflict, including quantity rebinding
+- immutable Order fulfillment snapshots across Offer course/access/booking drift
+- quantity and booking-link constraints
+- unverified callback fail-closed behavior
+- callback/webhook provider identity
+- signed-envelope webhook binding and rejection of unverified evidence
+- amount mismatch rejection
+- provider-event dedupe and concurrent event collapse
+- manual invoice trusted transition
+- course fulfillment + enrollment
+- refund before/after fulfillment
+- unsupported standalone product fulfillment
+- checkout retry safety
+- paid AUTO_CONFIRM orchestration
+- paid booking confirmation gate
+- already-paid booking survival across later Offer deactivation
+- atomic booking outbox dependencies
+- SQL-before-LIMIT dependency starvation protection
+- same-provider and cross-provider blocked-work starvation protection
+- blocked-provider recovery
+- invalid-configuration persistence
+- concurrent worker collapse
+- retry/backoff recovery
+- expired-lease recovery/audit
+- migration identity
+
+Existing 08.1–08.4 suites remain green.
+
+### Explicit non-scope
+
+Slice 08.5 does **not**:
+- activate Stripe, Lemon Squeezy, Google Calendar, Gmail, or any concrete provider
+- add production provider credentials/secrets
+- expose a live public payment callback/webhook route
+- expose public scheduling checkout UX
+- build Studio Scheduling/Commerce control plane
+- add provider analytics/event dashboards
+- deploy or modify DNS/production resources
+
+Provider activation, public scheduling/checkout routes, Studio control plane, observability/analytics, and full browser E2E remain later Mission 08 work.
+
+### Source runtime certification
+
+GitHub Actions run `36271119436` passed on source-certified head `42fcc04aff6ea1d5d7451dddf832bd3e5f1c45c6`:
+
+- typecheck — PASS
+- lint with zero warnings — PASS
+- full sequential test chain — **347 pass / 0 fail**
+- 08.1 scheduling — **78 / 78**
+- 08.2 booking lifecycle — **18 / 18**
+- 08.3 Offer/access — **18 / 18**
+- 08.4 provider adapters — **11 / 11**
+- 08.5 Order/orchestration — **37 / 37**
+- Drizzle drift — PASS: `No schema changes, nothing to migrate`
+- production build — PASS
+
+### Independent review
+
+PR #10 received multiple independent `dh-release-review` passes. Production-class findings were remediated and regressed, including:
+- split Offer / BookingType booking commercial authority
+- signed webhook evidence not bound to persisted payment truth
+- mutable Offer fulfillment identity after Order creation
+- provider error text persistence
+- free-form booking notes exported to calendar
+- manual-invoice checkout enqueue
+- low-level outbox controls in the public commerce barrel
+- test fixture identity collisions
+- dependency and blocked-work queue starvation
+
+Final re-review on source head `42fcc04aff6ea1d5d7451dddf832bd3e5f1c45c6` found no unresolved Critical or Major findings.
+
+Review verdict: **SAFE TO MERGE for Slice 08.5**, pending the documentation-only exact-head CI/spot-check and Ahmed explicit GO.
+
+A final exact-head certification is required after this engineering-ledger synchronization.
+
+### Slice 08.5 stop rule
+
+Do not merge Slice 08.5 into `mission-08-commerce-scheduling` until:
+- final exact-head typecheck/lint/tests/Drizzle/build are green,
 - independent `dh-release-review` passes,
 - any Critical/Major findings are remediated and re-reviewed,
 - ChatGPT final exact-SHA verification passes,

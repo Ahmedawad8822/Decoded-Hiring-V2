@@ -25,3 +25,10 @@ if (!process.env.BETTER_AUTH_SECRET) {
  * actor helpers only when this test-only flag is explicitly set.
  */
 process.env.DH_BOOKING_LIFECYCLE_TEST_SEAM = "1";
+
+
+/**
+ * Mission 08.5 regression seam. Production code exposes trusted manual-payment
+ * helpers only when this test-only flag is explicitly set.
+ */
+process.env.DH_COMMERCE_TEST_SEAM = "1";
