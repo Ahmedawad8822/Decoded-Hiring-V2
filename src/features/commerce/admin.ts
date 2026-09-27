@@ -138,10 +138,10 @@ export async function getCommerceAdminDashboard() {
     ]);
 
   const now = new Date();
-  const approvals = bookingRows.filter(
-    (row) =>
-      row.status === "REQUESTED" || row.status === "PENDING_APPROVAL",
+  const approvalQueue = bookingRows.filter(
+    (row) => row.status === "PENDING_APPROVAL",
   );
+  const requested = bookingRows.filter((row) => row.status === "REQUESTED");
   const upcoming = bookingRows.filter(
     (row) => row.status === "CONFIRMED" && row.endAt >= now,
   );
@@ -151,7 +151,8 @@ export async function getCommerceAdminDashboard() {
     summary: {
       activeOffers: offerRows.filter((row) => row.active).length,
       activeBookingTypes: bookingTypeRows.filter((row) => row.active).length,
-      approvalQueue: approvals.length,
+      approvalQueue: approvalQueue.length,
+      requestedBookings: requested.length,
       upcomingBookings: upcoming.length,
       openOrders: orderRows.filter((row) =>
         ["PENDING", "REQUIRES_ACTION", "PAID"].includes(row.status),
