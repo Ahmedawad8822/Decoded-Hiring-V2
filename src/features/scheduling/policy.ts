@@ -15,6 +15,7 @@ import { eq, and } from "drizzle-orm";
 import { getDb } from "@/lib/db";
 import { bookingTypes, bookingAvailabilityWindows } from "@/lib/db";
 import { isUniqueConstraintError } from "@/lib/db/sqlite-errors";
+import { getOfferForBookingType } from "@/features/offers/service";
 import type { BookingType, BookingAvailabilityWindow } from "@/lib/db";
 import { SchedulingDomainError } from "./errors";
 import {
@@ -118,6 +119,18 @@ export async function updateBookingType(data: UpdateBookingTypeInput): Promise<B
     .get();
   if (!current) {
     throw new SchedulingDomainError("Booking type not found.", "BOOKING_TYPE_NOT_FOUND");
+  }
+
+  if (
+    parsed.accessMode !== undefined &&
+    parsed.accessMode !== current.accessMode
+  ) {
+    const linkedOffer = await getOfferForBookingType(current.id);
+    if (linkedOffer) {
+      throw new Error(
+        `Booking access is owned by linked Offer "${linkedOffer.slug}". Update the Offer instead of the legacy Booking Type fallback.`,
+      );
+    }
   }
 
   const changes: Partial<typeof bookingTypes.$inferInsert> = {
