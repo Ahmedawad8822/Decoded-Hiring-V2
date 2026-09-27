@@ -486,6 +486,67 @@ test("PUBLIC 08.6: requestKey retry cannot silently adopt edited requester inten
   assert.equal(edited.code, "CONFLICT");
 });
 
+test("PUBLIC 08.6: concurrent same identity with edited requester intent returns conflict for the loser", async () => {
+  const setup = await setupOffer({ realtime: true });
+  const model = await resolvePublicSchedulingModel({
+    offerSlug: setup.offer.slug,
+    kind: "COACHING",
+  });
+  assert.equal(model.enabled, true);
+  if (!model.enabled) return;
+  const slot = model.slots[0];
+  assert.ok(slot);
+
+  const requestKey = crypto.randomUUID();
+  const acquisitionKey = crypto.randomUUID();
+
+  const [original, edited] = await Promise.all([
+    submitPublicBooking(
+      undefined,
+      bookingForm({
+        offerSlug: setup.offer.slug,
+        bookingTypeId: setup.bookingType.id,
+        startAt: slot.startAt,
+        requestKey,
+        acquisitionKey,
+        name: "Original Concurrent Booker",
+      }),
+    ),
+    submitPublicBooking(
+      undefined,
+      bookingForm({
+        offerSlug: setup.offer.slug,
+        bookingTypeId: setup.bookingType.id,
+        startAt: slot.startAt,
+        requestKey,
+        acquisitionKey,
+        name: "Edited Concurrent Booker",
+      }),
+    ),
+  ]);
+
+  const states = [original, edited];
+  const successes = states.filter((state) => state?.ok);
+  const conflicts = states.filter(
+    (state) => state && !state.ok && state.code === "CONFLICT",
+  );
+
+  assert.equal(successes.length, 1);
+  assert.equal(conflicts.length, 1);
+
+  const db = await getDb();
+  const stored = await db
+    .select()
+    .from(bookings)
+    .where(eq(bookings.requestKey, requestKey))
+    .get();
+  assert.ok(stored);
+  assert.ok(
+    stored.requesterName === "Original Concurrent Booker" ||
+      stored.requesterName === "Edited Concurrent Booker",
+  );
+});
+
 test("PUBLIC 08.6: concurrent attempts at one slot produce one winner", async () => {
   const setup = await setupOffer({ realtime: true });
   const model = await resolvePublicSchedulingModel({
