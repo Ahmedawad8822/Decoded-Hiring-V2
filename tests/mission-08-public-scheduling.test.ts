@@ -112,6 +112,7 @@ function bookingForm(params: {
   requestKey?: string;
   acquisitionKey?: string;
   email?: string;
+  name?: string;
 }) {
   const form = new FormData();
   form.set("offerSlug", params.offerSlug);
@@ -120,7 +121,7 @@ function bookingForm(params: {
   form.set("startAt", params.startAt);
   form.set("requestKey", params.requestKey ?? crypto.randomUUID());
   form.set("acquisitionKey", params.acquisitionKey ?? crypto.randomUUID());
-  form.set("requesterName", "Public Booker");
+  form.set("requesterName", params.name ?? "Public Booker");
   form.set("requesterEmail", params.email ?? "public-booker@example.com");
   form.set("requesterPhone", "");
   form.set("notes", "Need clarity on one hiring decision.");
@@ -400,6 +401,48 @@ test("PUBLIC 08.6: lost-response retry returns the same confirmed booking", asyn
   assert.equal(retry?.ok, true);
   if (!first?.ok || !retry?.ok) return;
   assert.equal(retry.bookingId, first.bookingId);
+});
+
+test("PUBLIC 08.6: requestKey retry cannot silently adopt edited requester intent", async () => {
+  const setup = await setupOffer({ realtime: true });
+  const model = await resolvePublicSchedulingModel({
+    offerSlug: setup.offer.slug,
+    kind: "COACHING",
+  });
+  assert.equal(model.enabled, true);
+  if (!model.enabled) return;
+  const slot = model.slots[0];
+  const requestKey = crypto.randomUUID();
+  const acquisitionKey = crypto.randomUUID();
+
+  const first = await submitPublicBooking(
+    undefined,
+    bookingForm({
+      offerSlug: setup.offer.slug,
+      bookingTypeId: setup.bookingType.id,
+      startAt: slot.startAt,
+      requestKey,
+      acquisitionKey,
+      name: "Original Booker",
+    }),
+  );
+  assert.equal(first?.ok, true);
+
+  const edited = await submitPublicBooking(
+    undefined,
+    bookingForm({
+      offerSlug: setup.offer.slug,
+      bookingTypeId: setup.bookingType.id,
+      startAt: slot.startAt,
+      requestKey,
+      acquisitionKey,
+      name: "Edited Booker",
+    }),
+  );
+
+  assert.equal(edited?.ok, false);
+  if (!edited || edited.ok) return;
+  assert.equal(edited.code, "CONFLICT");
 });
 
 test("PUBLIC 08.6: concurrent attempts at one slot produce one winner", async () => {
