@@ -1,0 +1,42 @@
+name: Mission 08.8 Lockfile Refresh
+
+on:
+  push:
+    branches:
+      - mission-08.8-observability-final-certification
+
+permissions:
+  contents: read
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Check target version
+        id: target
+        shell: bash
+        run: |
+          if grep -q '"next": "16.3.6"' package.json && grep -q '"eslint-config-next": "16.3.6"' package.json; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Setup Node 22
+        if: steps.target.outputs.ready == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Regenerate lockfile only
+        if: steps.target.outputs.ready == 'true'
+        run: npm install --package-lock-only --ignore-scripts --no-audit --no-fund
+      - name: Upload refreshed package-lock
+        if: steps.target.outputs.ready == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: mission-08-8-next-16-3-6-lock
+          path: package-lock.json
+          if-no-files-found: error
