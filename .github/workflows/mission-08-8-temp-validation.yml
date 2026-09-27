@@ -11,11 +11,14 @@ permissions:
 jobs:
   validate:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 60
     env:
       BETTER_AUTH_SECRET: test-only-ci-secret-0123456789abcdef
       BETTER_AUTH_URL: http://localhost:3000
       NEXT_PUBLIC_SITE_URL: http://localhost:3000
+      ADMIN_INITIAL_EMAIL: e2e-admin@example.com
+      ADMIN_INITIAL_PASSWORD: e2e-password-123
+      ADMIN_INITIAL_NAME: Decoded E2E Admin
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -39,3 +42,7 @@ jobs:
           git diff --exit-code -- drizzle/migrations src/lib/db/schema.ts
       - name: Build
         run: npm run build
+      - name: Install Playwright Chromium
+        run: npx playwright install --with-deps chromium
+      - name: Browser E2E certification
+        run: npm run test:e2e
