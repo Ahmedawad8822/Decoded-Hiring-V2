@@ -49,7 +49,7 @@ export default async function CoachingPage() {
           </p>
           <div className="hg-product-meta">
             <span>One live case</span>
-            <span>Google Meet</span>
+            <span>Private live session</span>
             <span>Decision map included</span>
             {offerPresentation?.priceLabel && <span>{offerPresentation.priceLabel}</span>}
           </div>
