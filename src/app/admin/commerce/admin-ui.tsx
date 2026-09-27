@@ -1,9 +1,13 @@
 "use client";
 
+import Link from "next/link";
 import React, { useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 
-import type { BoundedAdminList } from "@/features/commerce/admin-model";
+import type {
+  BoundedAdminList,
+  CommerceAdminPageKey,
+} from "@/features/commerce/admin-model";
 
 export type ActionResult = { ok: boolean; error?: string };
 
@@ -119,11 +123,48 @@ export function BoundedListNote<T>({
   list: BoundedAdminList<T>;
   label: string;
 }) {
-  if (!list.truncated) return null;
   return (
     <p className="muted" style={{ margin: "6px 0 0", fontSize: 12 }}>
-      Showing {list.items.length} of {list.total} {label}. The total is authoritative.
+      Showing {list.items.length} of {list.total} {label}
+      {list.totalPages > 1 ? ` · page ${list.page} of ${list.totalPages}` : ""}.
     </p>
+  );
+}
+
+export function PageControls<T>({
+  pageKey,
+  list,
+  anchor,
+}: {
+  pageKey: CommerceAdminPageKey;
+  list: BoundedAdminList<T>;
+  anchor: string;
+}) {
+  const searchParams = useSearchParams();
+  if (list.totalPages <= 1) return null;
+
+  const href = (page: number) => {
+    const params = new URLSearchParams(searchParams.toString());
+    params.set(pageKey, String(page));
+    return `?${params.toString()}#${anchor}`;
+  };
+
+  return (
+    <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+      {list.page > 1 && (
+        <Link className="btn ghost small" href={href(list.page - 1)}>
+          Previous
+        </Link>
+      )}
+      <span className="muted" style={{ fontSize: 11 }}>
+        Page {list.page} of {list.totalPages}
+      </span>
+      {list.page < list.totalPages && (
+        <Link className="btn ghost small" href={href(list.page + 1)}>
+          Next
+        </Link>
+      )}
+    </div>
   );
 }
 
