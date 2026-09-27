@@ -3,6 +3,7 @@ import Image from "next/image";
 
 import { CoachingDiagnostic } from "@/components/products/coaching-diagnostic";
 import { PublicScheduler } from "@/components/products/public-scheduler";
+import { TrackedOfferLink } from "@/components/products/tracked-offer-link";
 import { LeadForm } from "@/features/leads/lead-form";
 import { publicMetadata } from "@/lib/seo";
 import { PUBLIC_OFFER_SLUGS } from "@/features/offers/catalog";
@@ -59,8 +60,12 @@ export default async function CoachingPage() {
                 Currently unavailable
               </span>
             ) : (
-              <a
+              <TrackedOfferLink
                 className="hg-primary"
+                offerSlug={PUBLIC_OFFER_SLUGS.coaching}
+                route="/coaching"
+                surface="hero-primary"
+                target={scheduling.enabled ? "schedule" : "lead"}
                 href={
                   scheduling.enabled
                     ? "#hg-coaching-schedule"
@@ -71,7 +76,7 @@ export default async function CoachingPage() {
                   ? "Choose a time"
                   : offerPresentation?.ctaLabel ?? "Open a decision brief"}{" "}
                 <ArrowDownRight aria-hidden="true" />
-              </a>
+              </TrackedOfferLink>
             )}
           </div>
         </div>
