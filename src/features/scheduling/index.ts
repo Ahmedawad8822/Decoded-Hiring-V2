@@ -77,7 +77,6 @@ export {
   getBookingTypeById,
   getActiveBookingType,
   listBookingTypes,
-  listAllBookingTypes,
   createAvailabilityWindow,
   getBookingTypeWindows,
   getActiveBookingTypeWithWindows,
