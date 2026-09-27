@@ -25,6 +25,37 @@ export function CommerceOverview({ initial }: { initial: CommerceAdminDashboard 
         ))}
       </section>
 
+      <section aria-label="30-day commerce funnel" style={{display:"grid",gap:14}}>
+        <div>
+          <h2 style={sectionTitleStyle}>30-day business funnel</h2>
+          <p className="muted" style={{fontSize:12.5,margin:"5px 0 0"}}>
+            Reconstructable, provider-neutral events. Sensitive qualification answers are never emitted.
+          </p>
+        </div>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit, minmax(145px, 1fr))",gap:12}}>
+          {[
+            ["CTA clicks", initial.observability.counts.offer_cta_clicked],
+            ["Booking starts", initial.observability.counts.booking_started],
+            ["Slots held", initial.observability.counts.slot_held],
+            ["Requests", initial.observability.counts.booking_requested],
+            ["Confirmed", initial.observability.counts.booking_confirmed],
+            ["Checkout starts", initial.observability.counts.checkout_started],
+            ["Payments confirmed", initial.observability.counts.payment_confirmed],
+            ["Payments failed", initial.observability.counts.payment_failed],
+          ].map(([label,value]) => (
+            <div key={String(label)} style={cardStyle}>
+              <div className="muted" style={{fontSize:11,fontWeight:700}}>{label}</div>
+              <div style={{fontSize:24,fontWeight:800,marginTop:6}}>{value}</div>
+            </div>
+          ))}
+        </div>
+        <p className="muted" style={{fontSize:11,margin:0}}>
+          {initial.observability.lastEventAt
+            ? `Last event ${new Date(initial.observability.lastEventAt).toLocaleString()} · ${initial.observability.total} events in window.`
+            : "No business events recorded in this window yet."}
+        </p>
+      </section>
+
       <section style={{display:"grid",gap:14}}>
         <div>
           <h2 style={sectionTitleStyle}>Provider readiness</h2>
