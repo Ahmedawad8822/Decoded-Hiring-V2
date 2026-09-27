@@ -647,8 +647,6 @@ async function confirmBoundBooking(
     .bind(...confirmArgs);
 
   const auditId = newId("bkh");
-  const auditId = newId("bkh");
-  const auditId = newId("bkh");
   const audit = d1
     .prepare(
       `INSERT INTO booking_history
@@ -937,6 +935,7 @@ async function simpleTerminalTransition(params: {
       params.toStatus,
     );
 
+  const auditId = newId("bkh");
   const audit = d1
     .prepare(
       `INSERT INTO booking_history
@@ -1246,6 +1245,7 @@ async function rescheduleBookingAsActor(
       parsed.newHoldAcquisitionKey,
     );
 
+  const auditId = newId("bkh");
   const audit = d1
     .prepare(
       `INSERT INTO booking_history
