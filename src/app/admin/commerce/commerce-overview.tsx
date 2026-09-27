@@ -92,10 +92,10 @@ export function CommerceOverview({ initial }: { initial: CommerceAdminDashboard 
           {initial.orchestrationEffects.items.length === 0 ? <span className="muted">No durable side effects queued yet.</span> : (
             <div style={{display:"grid",gap:8}}>
               {initial.orchestrationEffects.items.map((effect)=>(
-                <div key={effect.id} style={{display:"grid",gridTemplateColumns:"minmax(180px,1fr) auto auto",gap:10,alignItems:"center",fontSize:12,paddingBottom:8,borderBottom:"1px solid var(--line)"}}>
-                  <span><b>{effect.effectType}</b><span className="muted"> · {effect.subjectType}:{effect.subjectId}</span></span>
+                <div key={effect.id} style={{display:"grid",gridTemplateColumns:"minmax(0,1fr) auto",gap:10,alignItems:"center",fontSize:12,paddingBottom:8,borderBottom:"1px solid var(--line)",minWidth:0}}>
+                  <span style={{minWidth:0,overflowWrap:"anywhere"}}><b>{effect.effectType}</b><span className="muted"> · {effect.subjectType}:{effect.subjectId}</span></span>
                   <StatusPill>{effect.status}</StatusPill>
-                  <span className="muted">{effect.providerKind}</span>
+                  <span className="muted" style={{gridColumn:"1 / -1",overflowWrap:"anywhere"}}>{effect.providerKind}</span>
                   {effect.lastErrorMessage && <span style={{gridColumn:"1 / -1",color:"#7c2d12"}}>{effect.lastErrorCode}: {effect.lastErrorMessage}</span>}
                 </div>
               ))}
