@@ -99,18 +99,6 @@ async function signInAdmin(page: import("@playwright/test").Page, email: string,
   await expect(page).toHaveURL(/\/admin\/content/, { timeout: 90_000 });
 }
 
-async function warmAuthenticatedRoute(
-  page: import("@playwright/test").Page,
-  url: string,
-) {
-  const response = await page.request.get(url);
-  const body = await response.text();
-  expect(
-    response.status(),
-    `warm route ${url}; finalUrl=${response.url()}; body=${body.slice(0, 800)}`,
-  ).toBe(200);
-}
-
 test.describe("mission 06 learning platform lifecycle", () => {
   test.describe.configure({ mode: "serial" });
   test("admin builds course, learner completes it, boundaries hold", async ({ page }) => {
