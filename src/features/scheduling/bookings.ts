@@ -161,6 +161,16 @@ async function getBookingByRequestKey(requestKey: string): Promise<Booking | und
   return db.select().from(bookings).where(eq(bookings.requestKey, requestKey)).get();
 }
 
+/**
+ * Server-internal idempotency recovery seam for public scheduling actions.
+ * Intentionally not exported from the scheduling barrel.
+ */
+export async function recoverBookingByRequestKey(
+  requestKey: string,
+): Promise<Booking | undefined> {
+  return getBookingByRequestKey(requestKey);
+}
+
 async function getBookingHistory(bookingId: string): Promise<BookingHistory[]> {
   const db = await getDb();
   return db
@@ -405,6 +415,40 @@ export async function createBookingRequest(
   }
 
   return created;
+}
+
+export async function recoverAutoConfirmBooking(
+  bookingId: string,
+  expectedVersion: number,
+  now: Date,
+): Promise<Booking> {
+  const booking = await getBookingById(bookingId);
+  if (!booking) {
+    throw new SchedulingDomainError("Booking not found.", "BOOKING_NOT_FOUND");
+  }
+  if (booking.status === "CONFIRMED") return booking;
+
+  const db = await getDb();
+  const bookingType = await db
+    .select()
+    .from(bookingTypes)
+    .where(eq(bookingTypes.id, booking.bookingTypeId))
+    .get();
+  if (
+    !bookingType ||
+    bookingType.confirmationPolicy !== "AUTO_CONFIRM"
+  ) {
+    throw new SchedulingDomainError(
+      "Only AUTO_CONFIRM bookings may use system recovery.",
+      "AUTHORIZATION_REQUIRED",
+    );
+  }
+
+  return confirmBoundBooking(
+    { bookingId, expectedVersion, now },
+    "AUTO_CONFIRMED",
+    { id: "system:auto-confirm-recovery", role: "system" },
+  );
 }
 
 async function confirmBoundBooking(

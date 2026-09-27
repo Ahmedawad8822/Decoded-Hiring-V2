@@ -1,5 +1,9 @@
 import { index, integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 import type { ContentStatus } from "@/features/publishing/types";
+import type {
+  LeadSubmissionKind,
+  LeadSubmissionStatus,
+} from "@/features/leads/types";
 
 // ============================================================================
 // IDENTITY DOMAIN (Better Auth + Admin Plugin)
@@ -157,6 +161,78 @@ export type Guide = typeof guides.$inferSelect;
 export type FieldNote = typeof fieldNotes.$inferSelect;
 export type FieldNoteRevision = typeof fieldNoteRevisions.$inferSelect;
 export type Media = typeof media.$inferSelect;
+
+// ============================================================================
+// LEADS / ENQUIRIES DOMAIN (Mission 08.6 fallback remediation)
+// ----------------------------------------------------------------------------
+// Public product/contact forms persist durable business truth in D1. Delivery
+// providers and the future Studio lead inbox are separate concerns.
+// ============================================================================
+
+export const leadSubmissions = sqliteTable(
+  "lead_submissions",
+  {
+    id: text("id").primaryKey(),
+    idempotencyKey: text("idempotency_key").notNull().unique(),
+    kind: text("kind").$type<LeadSubmissionKind>().notNull(),
+    status: text("status").$type<LeadSubmissionStatus>().notNull().default("NEW"),
+    fullName: text("full_name").notNull(),
+    email: text("email").notNull(),
+    positionTitle: text("position_title"),
+    companyName: text("company_name"),
+    countryCode: text("country_code").notNull(),
+    phoneE164: text("phone_e164"),
+    problemSummary: text("problem_summary"),
+    desiredOutcome: text("desired_outcome"),
+    timing: text("timing"),
+    teamSize: integer("team_size"),
+    deliveryPreference: text("delivery_preference"),
+    aiUseLevel: text("ai_use_level"),
+    workflowToImprove: text("workflow_to_improve"),
+    sourceRoute: text("source_route").notNull(),
+    audiencePath: text("audience_path"),
+    privacyAcknowledged: integer("privacy_acknowledged", { mode: "boolean" })
+      .notNull(),
+    researchAccepted: integer("research_accepted", { mode: "boolean" })
+      .notNull()
+      .default(false),
+    emailMarketing: integer("email_marketing", { mode: "boolean" })
+      .notNull()
+      .default(false),
+    whatsapp: integer("whatsapp", { mode: "boolean" })
+      .notNull()
+      .default(false),
+    calls: integer("calls", { mode: "boolean" })
+      .notNull()
+      .default(false),
+    createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+    updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+  },
+  (table) => [
+    index("lead_submissions_kind_created_idx").on(table.kind, table.createdAt),
+    index("lead_submissions_email_created_idx").on(table.email, table.createdAt),
+    index("lead_submissions_status_idx").on(table.status),
+  ],
+);
+
+export type LeadSubmission = typeof leadSubmissions.$inferSelect;
+
+// ============================================================================
+// PUBLIC INTAKE RATE LIMITS (Mission 08.6 remediation)
+// ----------------------------------------------------------------------------
+// Fixed-window counters provide an atomic D1 admission boundary for anonymous
+// scheduling and lead-intake mutations. scopeKey contains only server-owned
+// identifiers or hashed identities; raw email addresses are not stored here.
+// ============================================================================
+
+export const publicRateLimits = sqliteTable("public_rate_limits", {
+  scopeKey: text("scope_key").primaryKey(),
+  windowStart: integer("window_start").notNull(),
+  count: integer("count").notNull().default(0),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+});
+
+export type PublicRateLimit = typeof publicRateLimits.$inferSelect;
 
 // ============================================================================
 // LEARNING PLATFORM DOMAIN (Mission 06 — vertical slice)

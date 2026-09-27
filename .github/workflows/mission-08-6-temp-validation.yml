@@ -1,9 +1,9 @@
-name: Mission 08.5 Temporary Validation
+name: Mission 08.6 Temporary Validation
 
 on:
   push:
     branches:
-      - mission-08.5-order-orchestration
+      - mission-08.6-public-scheduling-ux
 
 permissions:
   contents: read
