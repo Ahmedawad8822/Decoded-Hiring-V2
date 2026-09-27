@@ -3,6 +3,10 @@ import { redirect } from "next/navigation";
 import { CommerceAdminClient } from "./commerce-client";
 import { getServerSession } from "@/lib/auth";
 import { getCommerceAdminDashboard } from "@/features/commerce/admin";
+import type {
+  CommerceAdminPageKey,
+  CommerceAdminPageRequest,
+} from "@/features/commerce/admin-model";
 
 export const dynamic = "force-dynamic";
 
@@ -11,13 +15,38 @@ export const metadata = {
   description: "Offers, booking operations, payment truth and provider readiness.",
 };
 
-export default async function AdminCommercePage() {
+function parsePage(value: string | string[] | undefined): number {
+  const raw = Array.isArray(value) ? value[0] : value;
+  const parsed = Number.parseInt(raw ?? "1", 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 1;
+}
+
+export default async function AdminCommercePage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
   const session = await getServerSession();
   if (!session?.user) redirect("/admin/login");
   const role = (session.user as { role?: string }).role;
   if (role !== "admin") redirect("/admin/login?error=forbidden");
 
-  const dashboard = await getCommerceAdminDashboard();
+  const params = await searchParams;
+  const keys: CommerceAdminPageKey[] = [
+    "offers",
+    "bookingTypes",
+    "requested",
+    "approvals",
+    "upcoming",
+    "orders",
+    "effects",
+    "courses",
+  ];
+  const request: CommerceAdminPageRequest = Object.fromEntries(
+    keys.map((key) => [key, parsePage(params[key])]),
+  );
+
+  const dashboard = await getCommerceAdminDashboard(request);
 
   return <CommerceAdminClient initial={dashboard} />;
 }
