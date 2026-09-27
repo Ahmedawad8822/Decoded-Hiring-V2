@@ -1,7 +1,7 @@
 "use client";
 
 import type { CommerceAdminDashboard } from "@/features/commerce/admin-model";
-import { BoundedListNote, StatusPill, cardStyle, sectionTitleStyle } from "./admin-ui";
+import { BoundedListNote, PageControls, StatusPill, cardStyle, sectionTitleStyle } from "./admin-ui";
 
 export function CommerceOverview({ initial }: { initial: CommerceAdminDashboard }) {
   const summaryCards = [
@@ -44,8 +44,11 @@ export function CommerceOverview({ initial }: { initial: CommerceAdminDashboard 
         </div>
       </section>
 
-      <section style={{display:"grid",gap:14}}>
-        <h2 style={sectionTitleStyle}>Orchestration health</h2>
+      <section id="effects" style={{display:"grid",gap:14}}>
+        <div style={{display:"flex",justifyContent:"space-between",gap:12,flexWrap:"wrap"}}>
+          <h2 style={sectionTitleStyle}>Orchestration health</h2>
+          <PageControls pageKey="effects" list={initial.orchestrationEffects} anchor="effects" />
+        </div>
         <div style={cardStyle}>
           {initial.orchestrationEffects.items.length === 0 ? <span className="muted">No durable side effects queued yet.</span> : (
             <div style={{display:"grid",gap:8}}>
