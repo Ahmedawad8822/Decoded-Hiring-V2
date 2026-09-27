@@ -10,7 +10,7 @@
 // remaining payment/admin UX is implemented.
 // ============================================================================
 
-import { and, eq, gt, gte, inArray, lt, or } from "drizzle-orm";
+import { and, eq, gt, gte, lt, or } from "drizzle-orm";
 
 import {
   bookings,
@@ -20,6 +20,10 @@ import {
 } from "@/lib/db";
 import { getDb } from "@/lib/db";
 import { getOfferBySlugForKind } from "@/features/offers/service";
+import {
+  anonymousRateLimitFingerprint,
+  consumePublicFixedWindowLimit,
+} from "@/features/public-intake/rate-limit";
 import {
   UnconfiguredCommerceSchedulingProviders,
   type CommerceSchedulingProviders,
@@ -214,7 +218,7 @@ async function listAvailableSlots(params: {
   }
 }
 
-export async function publicBookingVelocityAllowed(params: {
+export async function consumePublicBookingAdmission(params: {
   bookingTypeId: string;
   requesterEmail: string;
   now?: Date;
@@ -229,45 +233,28 @@ export async function publicBookingVelocityAllowed(params: {
     maxBookings,
     Math.min(params.maxBookingTypeBookings ?? 8, 30),
   );
-  const cutoff = new Date(now.getTime() - windowMinutes * 60_000);
-  const db = await getDb();
-  const liveStatuses = ["REQUESTED", "PENDING_APPROVAL", "CONFIRMED"] as const;
 
-  // Two complementary privacy-safe guards:
-  // 1) one address cannot reserve repeatedly in a short window;
-  // 2) rotating addresses cannot create an unbounded burst for one booking type.
-  // Turnstile may still be added later, but the public mutation is not relying
-  // on a client-provided identity as its only abuse boundary.
-  const [recentByEmail, recentForBookingType] = await Promise.all([
-    db
-      .select({ id: bookings.id })
-      .from(bookings)
-      .where(
-        and(
-          eq(bookings.bookingTypeId, params.bookingTypeId),
-          eq(bookings.requesterEmail, params.requesterEmail.toLowerCase()),
-          gte(bookings.createdAt, cutoff),
-          inArray(bookings.status, liveStatuses),
-        ),
-      )
-      .limit(maxBookings),
-    db
-      .select({ id: bookings.id })
-      .from(bookings)
-      .where(
-        and(
-          eq(bookings.bookingTypeId, params.bookingTypeId),
-          gte(bookings.createdAt, cutoff),
-          inArray(bookings.status, liveStatuses),
-        ),
-      )
-      .limit(maxBookingTypeBookings),
-  ]);
-
-  return (
-    recentByEmail.length < maxBookings &&
-    recentForBookingType.length < maxBookingTypeBookings
+  // Consume the narrower identity budget first. If the broader booking-type
+  // budget is already exhausted, only this requester's own quota is spent.
+  // Both counters are atomic D1 UPSERTs, so parallel callers cannot all pass
+  // a stale SELECT count before their booking writes commit.
+  const emailFingerprint = await anonymousRateLimitFingerprint(
+    params.requesterEmail,
   );
+  const emailAllowed = await consumePublicFixedWindowLimit({
+    scopeKey: `booking:${params.bookingTypeId}:email:${emailFingerprint}`,
+    now,
+    windowMinutes,
+    maxCount: maxBookings,
+  });
+  if (!emailAllowed) return false;
+
+  return consumePublicFixedWindowLimit({
+    scopeKey: `booking:${params.bookingTypeId}:burst`,
+    now,
+    windowMinutes,
+    maxCount: maxBookingTypeBookings,
+  });
 }
 
 export async function resolvePublicSchedulingModel(params: {
