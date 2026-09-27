@@ -211,12 +211,6 @@ export async function getActiveBookingType(slug: string): Promise<BookingType | 
 /**
  * Return all active booking types, ordered by title.
  */
-export async function listAllBookingTypes(): Promise<BookingType[]> {
-  const db = await getDb();
-  const { asc } = await import("drizzle-orm");
-  return db.select().from(bookingTypes).orderBy(asc(bookingTypes.title));
-}
-
 export async function listBookingTypes(): Promise<BookingType[]> {
   const db = await getDb();
   const { asc } = await import("drizzle-orm");
