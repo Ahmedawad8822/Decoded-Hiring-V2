@@ -104,7 +104,11 @@ async function recoverExistingPublicBooking(
   booking: {
     id: string;
     bookingTypeId: string;
+    requesterName: string;
     requesterEmail: string;
+    requesterPhone: string | null;
+    notes: string | null;
+    holdAcquisitionKey: string;
     startAt: Date;
     endAt: Date;
     timezone: string;
@@ -113,7 +117,11 @@ async function recoverExistingPublicBooking(
   },
   input: {
     bookingTypeId: string;
+    requesterName: string;
     requesterEmail: string;
+    requesterPhone: string | null;
+    notes: string | null;
+    acquisitionKey: string;
     startAt: string;
   },
 ): Promise<PublicBookingActionState> {
@@ -150,18 +158,30 @@ async function recoverExistingPublicBooking(
 function existingMatchesInput(
   booking: {
     bookingTypeId: string;
+    requesterName: string;
     requesterEmail: string;
+    requesterPhone: string | null;
+    notes: string | null;
+    holdAcquisitionKey: string;
     startAt: Date;
   },
   input: {
     bookingTypeId: string;
+    requesterName: string;
     requesterEmail: string;
+    requesterPhone: string | null;
+    notes: string | null;
+    acquisitionKey: string;
     startAt: string;
   },
 ): boolean {
   return (
     booking.bookingTypeId === input.bookingTypeId &&
+    booking.requesterName === input.requesterName &&
     booking.requesterEmail === input.requesterEmail &&
+    (booking.requesterPhone ?? null) === (input.requesterPhone ?? null) &&
+    (booking.notes ?? null) === (input.notes ?? null) &&
+    booking.holdAcquisitionKey === input.acquisitionKey &&
     booking.startAt.toISOString() === new Date(input.startAt).toISOString()
   );
 }
