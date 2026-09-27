@@ -27,9 +27,11 @@ export default function CommerceError({
         The operational view could not be loaded. No booking, payment or provider
         state was changed.
       </p>
-      <p style={{ margin: 0, fontSize: 12 }}>
-        {error.message || "Unexpected Studio error."}
-      </p>
+      {error.digest && (
+        <p className="muted" style={{ margin: 0, fontSize: 12 }}>
+          Reference: {error.digest}
+        </p>
+      )}
       <button className="btn secondary small" type="button" onClick={reset} style={{ justifySelf: "start" }}>
         Retry
       </button>
