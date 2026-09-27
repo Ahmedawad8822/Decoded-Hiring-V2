@@ -1,9 +1,10 @@
 "use client";
 
 import { CalendarDays, CheckCircle2, Clock3, RefreshCw } from "lucide-react";
-import { useActionState, useEffect, useMemo, useState } from "react";
+import { useActionState, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
+import { recordPublicBookingStarted } from "@/features/analytics/public-actions";
 import {
   submitPublicBooking,
   type PublicBookingActionState,
@@ -86,6 +87,7 @@ export function PublicScheduler({
   >(submitPublicBooking, undefined);
   const [requestKey] = useState(() => crypto.randomUUID());
   const [acquisitionKey] = useState(() => crypto.randomUUID());
+  const startedRef = useRef(false);
   const [selectedStartAt, setSelectedStartAt] = useState(
     model.slots[0]?.startAt ?? "",
   );
@@ -105,6 +107,17 @@ export function PublicScheduler({
       router.refresh();
     }
   }, [router, state]);
+
+  function noteBookingStarted() {
+    if (startedRef.current) return;
+    startedRef.current = true;
+    void recordPublicBookingStarted({
+      eventKey: requestKey,
+      offerSlug: model.offerSlug,
+      offerKind: model.offerKind,
+      bookingTypeId: model.bookingTypeId,
+    });
+  }
 
   if (state?.ok) {
     return (
@@ -143,7 +156,11 @@ export function PublicScheduler({
   }
 
   return (
-    <form action={formAction} className="hg-scheduler">
+    <form
+      action={formAction}
+      className="hg-scheduler"
+      onFocusCapture={noteBookingStarted}
+    >
       <input type="hidden" name="offerSlug" value={model.offerSlug} />
       <input type="hidden" name="offerKind" value={model.offerKind} />
       <input type="hidden" name="bookingTypeId" value={model.bookingTypeId} />
