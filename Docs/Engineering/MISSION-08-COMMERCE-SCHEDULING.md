@@ -1073,7 +1073,7 @@ Do not merge Slice 08.6 into `mission-08-commerce-scheduling` until:
 
 ## Slice 08.7 — Studio Scheduling / Commerce Control Plane
 
-Status: **IMPLEMENTATION IN PROGRESS**
+Status: **REMEDIATION RE-REVIEW PASSED — AWAITING FINAL EXACT-HEAD VERIFICATION + AHMED GO**
 
 Pinned branch:
 `mission-08.7-studio-commerce-control-plane`
@@ -1081,27 +1081,53 @@ Pinned branch:
 Pinned base:
 `mission-08-commerce-scheduling@1acd15278012de8e9e03d0a100d9a472c7e1bc1b`
 
+Certified source head before this documentation-only ledger sync:
+`4c93fc4f817749af8bb9233eeafd645624aaf290`
+
+Exact-head source CI:
+- GitHub Actions run `36318003863`
+- typecheck: PASS
+- lint: PASS
+- full sequential tests: **388 / 388 PASS**
+- Mission 08.7 Studio control plane: **11 / 11 PASS**
+- Drizzle drift: **PASS — No schema changes, nothing to migrate**
+- production build: PASS
+
+Independent remediation re-review:
+- PR #12 comment `5855758155`
+- verdict: **SAFE TO MERGE — SLICE 08.7 ONLY**
+- unresolved Critical findings: **0**
+- unresolved Major findings: **0**
+
 ### Intent
 
 Close the admin/control-plane obligation in `COMMERCE-SCHEDULING-SPEC.md`
 without activating any external payment, calendar, mailbox or meeting provider.
 
-### Scope
+### Delivered scope
 
 - one discoverable Studio `/admin/commerce` operational surface
+- authoritative counts plus explicit pagination for Offers, Booking Types,
+  requested/approval/upcoming queues, Orders, orchestration effects and course selectors
+- typed/minimized browser projection with requester notes/phone and provider-payment
+  internals kept server-side
+- lazy per-booking and per-Order audit reads with explicit bounded totals
 - Offers create/edit/activate/deactivate
 - Booking Type create/edit/activate/deactivate
-- weekly availability window add/remove
-- requested / pending-approval queue
+- linked Offer ownership guard plus read-only Offer-owned Booking Type access UI
+- weekly availability add/remove
+- separate REQUESTED and PENDING_APPROVAL queues
 - upcoming confirmed bookings
 - authorized approve / decline / cancel / complete transitions
-- Orders and internal payment-state truth
-- authorized MANUAL_INVOICE payment recording
-- payment and booking audit/history visibility
-- provider runtime status visibility
+- destructive booking/availability confirmation UX
+- MANUAL_INVOICE payment recording with meaningful operator evidence plus explicit
+  confirmation showing Order/customer/amount/consequence
+- provider runtime/readiness status visibility only
 - durable orchestration health visibility
-- loading / error / empty / mutation-busy states
+- route loading/error/empty/mutation-busy states
 - server-side Better Auth authorization on reads and mutations
+- sanitized unexpected runtime/action errors
+- decomposed Studio presentation modules with one shared typed admin wire contract
 
 ### Safety boundaries
 
@@ -1128,25 +1154,55 @@ reimplementing booking/payment transitions in UI code:
 - booking lifecycle remains in `features/scheduling/bookings.ts`
 - Order/payment truth remains in `features/commerce/orders.ts`
 - orchestration truth remains in `features/commerce/orchestration.ts`
-- `features/commerce/admin.ts` is an authenticated aggregate read model only
-- `features/commerce/admin-actions.ts` is the authorized Server Action boundary
+- `features/commerce/admin.ts` owns the authenticated, authoritative and paginated
+  admin read model
+- `features/commerce/admin-operations.ts` owns testable authenticated operation
+  composition
+- `features/commerce/admin-actions.ts` remains the thin Next.js Server Action boundary
+- Studio UI is decomposed into overview/provider health, booking operations, Offers,
+  Booking Types/availability, Orders/audit and shared UI/pagination helpers
 
-### Initial regression boundary
+### Regression boundary
 
 Dedicated suite:
 `tests/mission-08-studio-commerce.test.ts`
 
-The suite covers:
+The final source-certified suite covers:
 - in-place Booking Type configuration updates
+- linked Offer ownership of Booking Type access policy
 - explicit availability-window removal
-- fail-closed unauthenticated Studio mutation
+- fail-closed unauthenticated Server Action
 - fail-closed unauthenticated aggregate read
-- Studio discoverability
-- absence of provider-activation/credential controls
+- authenticated Offer / Booking Type / availability operation composition
+- booking approval success and stale-version/CAS rejection
+- manual-payment evidence, PAID persistence and durable `ORDER_FULFILL` enqueue
+- authoritative counts and reachable pagination beyond one bounded page
+- least-data browser projection
+- unexpected admin-operation error sanitization
+- Studio decomposition/discoverability and absence of provider-activation controls
+
+### First-pass review remediation
+
+The first independent review on
+`c9bae2f2e79edcef12b98df8889d2c196755d85c`
+identified four Major blockers and three Minors.
+
+All were closed before the remediation re-review:
+1. silent truncation / false totals → authoritative counts, bounded lists, pagination,
+   lazy audit reads;
+2. one-click manual payment → operator evidence + explicit consequence confirmation;
+3. presentation god-module → decomposed modules + shared typed wire model;
+4. insufficient success-path tests → authenticated composition, CAS, payment side-effect,
+   pagination/count and data-minimization regressions;
+5. REQUESTED vs PENDING_APPROVAL mixed UX → distinct queues;
+6. Offer-owned access looked editable → disabled/read-only with direction to Offers;
+7. unexpected error leakage → safe fallback errors.
 
 ### Residual Mission 08 work after 08.7
 
-08.7 is not the final Mission 08 certification slice. Still outstanding:
+08.7 is **not** the final Mission 08 certification slice. Still outstanding:
 - meaningful commerce/scheduling business-event analytics/observability
 - complete browser/mobile/accessibility E2E
 - final security/concurrency/recovery certification across the integrated workflow
+
+No merge is authorized by this ledger entry. Ahmed's explicit GO remains required.
