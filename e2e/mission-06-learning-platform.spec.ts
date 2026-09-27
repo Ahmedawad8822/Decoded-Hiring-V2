@@ -159,9 +159,18 @@ test.describe("mission 06 learning platform lifecycle", () => {
     });
 
     await test.step("publish lessons + course, verify enrollment CTA", async () => {
-      await page.getByRole("row", { name: /First Lesson E2E/ }).getByRole("button", { name: "Publish" }).click();
-      await expect(page.getByText("live for learners on next load")).toBeVisible();
-      await page.getByRole("row", { name: /Second Lesson E2E/ }).getByRole("button", { name: "Publish" }).click();
+      const firstLessonRow = page.getByRole("row", { name: /First Lesson E2E/ });
+      await firstLessonRow.getByRole("button", { name: "Publish" }).click();
+      await expect(firstLessonRow.getByText("PUBLISHED", { exact: true })).toBeVisible({
+        timeout: 30_000,
+      });
+
+      const secondLessonRow = page.getByRole("row", { name: /Second Lesson E2E/ });
+      await secondLessonRow.getByRole("button", { name: "Publish" }).click();
+      await expect(secondLessonRow.getByText("PUBLISHED", { exact: true })).toBeVisible({
+        timeout: 30_000,
+      });
+
       await page.goto("/admin/courses");
       await page.locator(`[data-course-slug="${courseSlug}"]`).getByRole("button", { name: "Publish", exact: true }).click();
       await expect(page.locator(`[data-course-slug="${courseSlug}"]`).getByText("PUBLISHED")).toBeVisible({ timeout: 30_000 });
