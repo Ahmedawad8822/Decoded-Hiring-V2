@@ -4,6 +4,9 @@ import { defineConfig, devices } from "@playwright/test";
 // When 3000 is already taken, run with E2E_PORT=<free-port>, e.g.
 // E2E_PORT=3100 npm run test:e2e
 const port = Number(process.env.E2E_PORT ?? 3000);
+const webServerCommand = process.env.CI
+  ? `npm run start -- --port ${port}`
+  : `npm run dev -- --port ${port}`;
 
 export default defineConfig({
   testDir: "./e2e",
@@ -30,7 +33,7 @@ export default defineConfig({
     },
   ],
   webServer: {
-    command: `npm run dev -- --port ${port}`,
+    command: webServerCommand,
     url: `http://localhost:${port}`,
     reuseExistingServer: !process.env.CI,
     timeout: 120_000,
