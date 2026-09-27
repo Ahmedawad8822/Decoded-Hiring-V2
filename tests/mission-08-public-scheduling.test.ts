@@ -24,6 +24,7 @@ import {
   orderHistory,
   orders,
   paymentEvents,
+  publicRateLimits,
   slotHolds,
 } from "@/lib/db";
 import { createOffer } from "@/features/offers/service";
@@ -138,6 +139,7 @@ test.before(async () => {
   await db.delete(paymentEvents).run();
   await db.delete(orderHistory).run();
   await db.delete(orders).run();
+  await db.delete(publicRateLimits).run();
   await db.delete(bookingHistory).run();
   await db.delete(bookings).run();
   await db.delete(offers).run();
@@ -679,6 +681,49 @@ test("PUBLIC 08.6: rotating emails cannot bypass booking-type burst protection",
   assert.equal(blocked?.ok, false);
   if (!blocked || blocked.ok) return;
   assert.equal(blocked.code, "RATE_LIMITED");
+});
+
+test("PUBLIC 08.6: parallel rotating-email burst cannot exceed atomic booking-type cap", async () => {
+  const setup = await setupOffer({ realtime: true });
+  const model = await resolvePublicSchedulingModel({
+    offerSlug: setup.offer.slug,
+    kind: "COACHING",
+  });
+  assert.equal(model.enabled, true);
+  if (!model.enabled) return;
+
+  const slots = model.slots.slice(0, 12);
+  assert.equal(slots.length, 12);
+
+  const states = await Promise.all(
+    slots.map((slot, index) =>
+      submitPublicBooking(
+        undefined,
+        bookingForm({
+          offerSlug: setup.offer.slug,
+          bookingTypeId: setup.bookingType.id,
+          startAt: slot.startAt,
+          email: `parallel-burst-${index}@example.com`,
+        }),
+      ),
+    ),
+  );
+
+  const successes = states.filter((state) => state?.ok);
+  const limited = states.filter(
+    (state) => state && !state.ok && state.code === "RATE_LIMITED",
+  );
+
+  assert.equal(successes.length, 8);
+  assert.equal(limited.length, 4);
+
+  const db = await getDb();
+  const rows = await db
+    .select()
+    .from(bookings)
+    .where(eq(bookings.bookingTypeId, setup.bookingType.id))
+    .all();
+  assert.equal(rows.length, 8);
 });
 
 test("PUBLIC 08.6: honeypot submission is rejected without creating a booking", async () => {
