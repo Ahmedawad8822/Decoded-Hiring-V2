@@ -291,6 +291,49 @@ test("PUBLIC 08.6: configured calendar busy input filters overlapping slots", as
   );
 });
 
+test("PUBLIC 08.6: configured calendar outage fails scheduling closed without crashing", async () => {
+  const setup = await setupOffer({});
+  const calendar: CalendarProvider = {
+    getStatus: async () => ({
+      kind: "calendar",
+      provider: "test-calendar",
+      configured: true,
+      capabilities: ["free_busy"],
+    }),
+    getFreeBusy: async () => {
+      throw new Error("provider unavailable");
+    },
+    createEvent: async () => {
+      throw new Error("not used");
+    },
+    updateEvent: async () => {
+      throw new Error("not used");
+    },
+    cancelEvent: async () => {
+      throw new Error("not used");
+    },
+  };
+  const providers: CommerceSchedulingProviders = {
+    payment: UnconfiguredPaymentGateway,
+    calendar,
+    mailbox: UnconfiguredMailboxProvider,
+    meeting: UnconfiguredMeetingProvider,
+  };
+
+  const model = await resolvePublicSchedulingModel({
+    offerSlug: setup.offer.slug,
+    kind: "COACHING",
+    now: FIXED_NOW,
+    rangeDays: 7,
+    providers,
+  });
+
+  assert.deepEqual(model, {
+    enabled: false,
+    reason: "PROVIDER_UNAVAILABLE",
+  });
+});
+
 test("PUBLIC 08.6: booking action auto-confirms without exposing lease secrets", async () => {
   const setup = await setupOffer({ realtime: true });
   const model = await resolvePublicSchedulingModel({
