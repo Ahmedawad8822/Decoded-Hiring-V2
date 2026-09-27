@@ -1,7 +1,11 @@
-import { and, eq, gte } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 
 import { getDb, leadSubmissions, type LeadSubmission } from "@/lib/db";
 import { isUniqueConstraintError } from "@/lib/db/sqlite-errors";
+import {
+  anonymousRateLimitFingerprint,
+  consumePublicFixedWindowLimit,
+} from "@/features/public-intake/rate-limit";
 import type { LeadSubmissionKind } from "./types";
 
 export type CreateLeadSubmissionInput = {
@@ -98,34 +102,28 @@ function assertSameIntent(
 async function assertLeadVelocityAllowed(
   input: CreateLeadSubmissionInput,
 ): Promise<void> {
-  const db = await getDb();
-  const cutoff = new Date(input.now.getTime() - 15 * 60_000);
-  const email = input.email.toLowerCase();
+  const emailFingerprint = await anonymousRateLimitFingerprint(input.email);
 
-  const [sameEmail, sameKind] = await Promise.all([
-    db
-      .select({ id: leadSubmissions.id })
-      .from(leadSubmissions)
-      .where(
-        and(
-          eq(leadSubmissions.email, email),
-          gte(leadSubmissions.createdAt, cutoff),
-        ),
-      )
-      .limit(5),
-    db
-      .select({ id: leadSubmissions.id })
-      .from(leadSubmissions)
-      .where(
-        and(
-          eq(leadSubmissions.kind, input.kind),
-          gte(leadSubmissions.createdAt, cutoff),
-        ),
-      )
-      .limit(40),
-  ]);
+  const emailAllowed = await consumePublicFixedWindowLimit({
+    scopeKey: `lead:email:${emailFingerprint}`,
+    now: input.now,
+    windowMinutes: 15,
+    maxCount: 5,
+  });
+  if (!emailAllowed) {
+    throw new LeadDomainError(
+      "Too many enquiry submissions were created in a short window.",
+      "RATE_LIMITED",
+    );
+  }
 
-  if (sameEmail.length >= 5 || sameKind.length >= 40) {
+  const kindAllowed = await consumePublicFixedWindowLimit({
+    scopeKey: `lead:kind:${input.kind}`,
+    now: input.now,
+    windowMinutes: 15,
+    maxCount: 40,
+  });
+  if (!kindAllowed) {
     throw new LeadDomainError(
       "Too many enquiry submissions were created in a short window.",
       "RATE_LIMITED",
