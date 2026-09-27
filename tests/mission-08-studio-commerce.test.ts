@@ -467,10 +467,10 @@ test("STUDIO 08.7: operational read model reports authoritative totals and pagin
     createdAt: BOOK_NOW,
     updatedAt: BOOK_NOW,
   }));
-  for (let offset = 0; offset < blockedRows.length; offset += 20) {
+  for (let offset = 0; offset < blockedRows.length; offset += 5) {
     await db
       .insert(orchestrationEffects)
-      .values(blockedRows.slice(offset, offset + 20))
+      .values(blockedRows.slice(offset, offset + 5))
       .run();
   }
 
