@@ -18,6 +18,7 @@ import { eq } from "drizzle-orm";
 
 import { disposeCloudflareBindings } from "../src/lib/cloudflare/bindings";
 import { getDb, bookingTypes } from "../src/lib/db";
+import { createOffer } from "@/features/offers/service";
 import { migrateLocalDb } from "../src/lib/db/migrate";
 import {
   createAvailabilityWindow,
@@ -76,6 +77,44 @@ test("STUDIO 08.7: booking type configuration updates in place and can fail clos
   const reread = await getBookingTypeById(created.id);
   assert.equal(reread?.id, created.id);
   assert.equal(reread?.active, false);
+});
+
+test("STUDIO 08.7: linked Offer owns booking access mode", async () => {
+  const bookingType = await createBookingType({
+    slug: `${NOW_SLUG}-offer-owned`,
+    title: "Offer-owned Booking Type",
+    description: null,
+    durationMinutes: 60,
+    bufferBeforeMinutes: 0,
+    bufferAfterMinutes: 0,
+    minimumNoticeMinutes: 60,
+    bookingHorizonDays: 30,
+    timezone: "Africa/Cairo",
+    confirmationPolicy: "AHMED_APPROVAL",
+    accessMode: "FREE",
+    meetingMethod: "TO_BE_CONFIRMED",
+    attendeeLimit: 1,
+  });
+
+  await createOffer({
+    kind: "COACHING",
+    bookingTypeId: bookingType.id,
+    title: "Offer-owned Coaching",
+    slug: `${NOW_SLUG}-offer`,
+    accessMode: "MANUAL_INVOICE",
+    active: true,
+  });
+
+  await assert.rejects(
+    updateBookingType({
+      id: bookingType.id,
+      accessMode: "PAYMENT_DISABLED",
+    }),
+    /Booking access is owned by linked Offer/i,
+  );
+
+  const reread = await getBookingTypeById(bookingType.id);
+  assert.equal(reread?.accessMode, "FREE");
 });
 
 test("STUDIO 08.7: availability window removal targets one exact row", async () => {
