@@ -1,7 +1,21 @@
+export type CommerceAdminPageKey =
+  | "offers"
+  | "bookingTypes"
+  | "requested"
+  | "approvals"
+  | "upcoming"
+  | "orders"
+  | "effects"
+  | "courses";
+
+export type CommerceAdminPageRequest = Partial<Record<CommerceAdminPageKey, number>>;
+
 export type BoundedAdminList<T> = {
   items: T[];
   total: number;
   limit: number;
+  page: number;
+  totalPages: number;
   truncated: boolean;
 };
 
@@ -61,6 +75,8 @@ export type CommerceAdminAvailabilityWindow = {
 export type CommerceAdminBooking = {
   id: string;
   bookingTypeId: string;
+  bookingTypeTitle: string;
+  confirmationPolicy: "AUTO_CONFIRM" | "AHMED_APPROVAL" | "REQUEST_ONLY";
   requesterName: string;
   requesterEmail: string;
   startAt: string;
@@ -78,6 +94,7 @@ export type CommerceAdminBooking = {
 export type CommerceAdminOrder = {
   id: string;
   offerId: string;
+  offerTitle: string;
   accessMode: string;
   customerEmail: string;
   amountMinor: number | null;
