@@ -19,11 +19,11 @@ import { eq } from "drizzle-orm";
 import { disposeCloudflareBindings } from "../src/lib/cloudflare/bindings";
 import { getDb, bookingTypes } from "../src/lib/db";
 import { createOffer } from "@/features/offers/service";
+import { deleteAvailabilityWindow } from "@/features/scheduling/policy";
 import { migrateLocalDb } from "../src/lib/db/migrate";
 import {
   createAvailabilityWindow,
   createBookingType,
-  deleteAvailabilityWindow,
   getActiveBookingType,
   getBookingTypeById,
   getBookingTypeWindows,
