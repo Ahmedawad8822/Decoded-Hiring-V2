@@ -800,11 +800,11 @@ Ahmed gave explicit GO. PR #10 was merged into canonical Mission 08 at `2d123f46
 
 ## Slice 08.6 — Public Coaching / Workshop Scheduling UX
 
-Status: **SOURCE CERTIFIED — INDEPENDENT RELEASE REVIEW PENDING**
+Status: **RUNTIME CERTIFIED / INDEPENDENT REVIEW PASSED — FINAL DOCUMENTATION CI PENDING**
 
 Implementation branch: `mission-08.6-public-scheduling-ux`  
 Accepted base: `mission-08-commerce-scheduling@2d123f462160f80d4238714a1379aae537a44f3c`  
-Source-certified head before this documentation sync: `467a1d1320c6ae44eca59755065e095cf390b5d8`
+Reviewed source head before this documentation sync: `2f7ff9c325a277931ce0d15d076f449f60b9ea99`
 
 ### Scope implemented
 
@@ -893,9 +893,14 @@ Interrupted FREE auto-confirm requests can safely recover through the existing i
 The public mutation includes layered server-side abuse preparation without introducing an external dependency:
 
 - empty honeypot requirement
-- per-email short-window booking velocity limit
-- booking-type-wide short-window burst limit so rotating email addresses cannot create an unbounded reservation wave
-- velocity checks happen before another slot lease is acquired
+- atomic D1 fixed-window admission counters
+- per-email booking budget keyed by a SHA-256 fingerprint rather than a raw address
+- booking-type-wide burst budget so rotating email addresses cannot create an unbounded reservation wave
+- server-authoritative Offer / BookingType / slot validation happens before quota is consumed
+- atomic admission happens before another slot lease is acquired
+- parallel callers cannot all pass a stale SELECT count because admission is one conditional SQLite UPSERT
+
+The same atomic fixed-window primitive protects durable public lead intake by email and lead kind.
 
 Turnstile remains a later optional hardening layer; 08.6 does not add provider keys/secrets.
 
@@ -922,6 +927,21 @@ When the linked Workshop Offer is explicitly FREE + AUTO_CONFIRM, an inline conf
 
 Paid/manual/approval/request-only Workshop modes do not expose self-service booking.
 
+#### Durable lead fallback
+
+The existing Coaching / Workshop / Contact / AI OS LeadForms remain usable when self-service scheduling is hidden or unavailable.
+
+08.6 makes that fallback durable instead of fire-and-forget:
+
+- `lead_submissions` is D1 business truth
+- server-owned source route / audience provenance cannot be replaced by hidden browser fields
+- duplicate idempotency keys return the same enquiry only when the complete intent matches
+- edited-intent retries fail closed
+- concurrent same-idempotency submissions collapse to one durable winner
+- privacy / research / phone-consent rules are validated server-side
+- lead email/kind burst admission uses the same atomic D1 fixed-window primitive as booking intake
+- success copy is operationally honest: the request is saved for later Studio review rather than pretending an email/provider delivery occurred
+
 #### Provider honesty
 
 No external provider is activated in 08.6.
@@ -930,16 +950,17 @@ The success state explicitly states that the Decoded Hiring booking is reserved 
 
 ### Reliability / security hardening discovered during implementation review
 
-Before source freeze, review found and remediated:
+Before source freeze and independent re-review, review found and remediated:
 
 1. **Concurrent edited-intent idempotency race** — simultaneous requests sharing request/acquisition identity but carrying different requester details could recover the same lower-level booking result. The public boundary now revalidates the complete intent on every recovered result, including race recovery.
-2. **Email-rotation abuse bypass** — per-email velocity alone could be bypassed by rotating addresses. A booking-type-wide burst backstop now complements the per-email guard.
+2. **Email-rotation abuse bypass** — per-email velocity alone could be bypassed by rotating addresses. A booking-type-wide burst backstop complements the per-email guard.
+3. **Raceable count-then-act abuse limits** — sequential count checks could be exceeded by a coordinated parallel burst. They were replaced with conditional atomic D1 UPSERT counters and verified with parallel booking + lead regressions.
 
-Both findings have dedicated regressions.
+All findings have dedicated regressions.
 
 ### Regression coverage
 
-Dedicated `tests/mission-08-public-scheduling.test.ts` contains **17 passing regressions**, including:
+Dedicated `tests/mission-08-public-scheduling.test.ts` contains **19 passing regressions**, including:
 
 - FREE + AUTO_CONFIRM truthful scheduler exposure
 - bounded public slot projection
@@ -955,11 +976,25 @@ Dedicated `tests/mission-08-public-scheduling.test.ts` contains **17 passing reg
 - one winner under same-slot concurrency
 - per-email velocity protection
 - rotating-email booking-type burst protection
+- parallel rotating-email burst capped atomically under concurrent submissions
 - honeypot rejection
 - tampered BookingType fail-closed behavior
 - coaching/workshop conditional scheduler + lead fallback wiring
 
 Existing Mission 08.1–08.5 suites remain green.
+
+Dedicated `tests/mission-08-lead-fallback.test.ts` contains **11 passing regressions**, including:
+
+- durable D1 enquiry persistence with server-owned provenance
+- lost-response idempotency
+- edited-intent conflict
+- concurrent same-identity winner collapse
+- required context / research / AI-use validation
+- phone-consent validation
+- honeypot rejection
+- per-email velocity protection
+- parallel rotating-email lead-kind burst capped atomically
+- migration evidence for `0016_lead_submissions` and `0017_public_rate_limits`
 
 ### Explicit 08.6 deferrals / non-scope
 
@@ -979,39 +1014,51 @@ Existing Mission 08.1–08.5 suites remain green.
 
 The approval lifecycle currently depends on a short live hold and is therefore not exposed as an asynchronous public approval flow in 08.6.
 
-Business analytics/event instrumentation and full browser E2E/security/recovery certification remain Slice 08.7 (Mission 08 implementation slice 8) work.
+Business analytics/event instrumentation and full browser E2E/security/recovery certification remain later Mission 08 obligations.
+
+The Mission 08 specification also requires a Studio Scheduling / Commerce admin control plane (Offers, Booking Types, requested/upcoming bookings, approval queue, Orders/payment state, provider status, and booking audit/history). That surface is not yet present in the admin route tree. It must receive its own implementation boundary before the final Mission 08 certification slice; Mission 08 must not jump directly from 08.6 to “E2E and done.”
 
 ### Source runtime certification
 
-GitHub Actions run `36293648150` passed on source-certified head `467a1d1320c6ae44eca59755065e095cf390b5d8`:
+GitHub Actions run `36305132480` passed on reviewed source head `2f7ff9c325a277931ce0d15d076f449f60b9ea99`:
 
 - typecheck — PASS
 - lint with zero warnings — PASS
-- full sequential `npm test` — **364 pass / 0 fail**
+- full sequential `npm test` — **377 pass / 0 fail**
 - 08.1 scheduling — **78 / 78**
 - 08.2 booking lifecycle — **18 / 18**
 - 08.3 Offer/access — **18 / 18**
 - 08.4 provider adapters — **11 / 11**
 - 08.5 Order/orchestration — **37 / 37**
-- 08.6 public scheduling — **17 / 17**
+- 08.6 public scheduling — **19 / 19**
+- 08.6 durable lead fallback — **11 / 11**
 - Drizzle drift — PASS: `No schema changes, nothing to migrate`
 - production build — PASS
 
-No DB/schema/migration change was required by 08.6.
+08.6 adds two D1 migrations:
+- `0016_lead_submissions`
+- `0017_public_rate_limits`
 
-### Release-review posture
+### Independent release review
 
-- Functional / Spec — source-certified for the scoped FREE + AUTO_CONFIRM path with truthful fallbacks for deferred modes
-- UX / Product — loading/error/empty/success/fallback states implemented; browser E2E is explicitly deferred to Slice 08.7
-- Security — server-authoritative slot resolution, Zod validation, no token leak, honeypot + dual velocity abuse backstops
-- Performance — bounded public range and 60-slot projection; no unbounded public payload
-- Reliability / Data Integrity — existing DB/CAS/lease invariants reused; public retry/concurrency regressions cover discovered races
-- Architecture — public read/action layers reuse deep scheduling/booking modules rather than duplicating domain rules
-- Discoverability — existing canonical Coaching/Workshop routes and metadata are preserved; no duplicate public routes added
-- Measurability — **DEFERRED WITH REASON** to Slice 08.7 analytics/certification work
-- Test Quality — integration/action regressions green; browser E2E **DEFERRED WITH REASON** to Slice 08.7
+PR #11 first-pass `dh-release-review` found one Major blocker: anonymous booking/lead velocity limits were SELECT-count-then-act checks and could be exceeded by parallel requests.
 
-Independent `dh-release-review` is still required before merge.
+The blocker was remediated with atomic D1 fixed-window admission and parallel regressions.
+
+Independent re-review on source head `2f7ff9c325a277931ce0d15d076f449f60b9ea99` found:
+- no unresolved Critical findings
+- no unresolved Major findings
+- Functional / Spec — PASS
+- UX / Product — PASS at source/action/component seam; browser E2E deferred with reason
+- Security — PASS
+- Performance — PASS
+- Reliability / Data Integrity — PASS
+- Architecture / Anti-Spaghetti — PASS
+- Discoverability — PASS
+- Measurability — DEFERRED WITH REASON
+- Test Quality / Regression — PASS
+
+Review verdict: **SAFE TO MERGE for Slice 08.6**, pending this documentation-only exact-head CI/spot-check and Ahmed explicit GO.
 
 ### Slice 08.6 stop rule
 
