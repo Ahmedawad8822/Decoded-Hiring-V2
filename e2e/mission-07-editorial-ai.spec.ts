@@ -51,26 +51,18 @@ async function signInAdmin(page: Page) {
   await page.getByLabel(/^Password/).fill(ADMIN_PASSWORD);
   await page.getByRole("button", { name: /Sign in to Studio/ }).click();
   await page.waitForURL(/\/admin\/content/);
-  await page.waitForLoadState("networkidle");
 }
 
 async function clickReload(page: Page, selector: string) {
-  // Start waiting for the navigation BEFORE clicking to avoid races where
-  // waitForLoadState("networkidle") resolves before the POST begins.
-  const reloadStarted = page.waitForFunction(
-    () => document.readyState === "loading",
-    undefined,
-    { timeout: 15_000 },
-  );
+  const navigated = page
+    .waitForEvent("framenavigated", {
+      predicate: (frame) => frame === page.mainFrame(),
+      timeout: 60_000,
+    })
+    .catch(() => null);
   await page.click(selector);
-  try {
-    await reloadStarted;
-  } catch {
-    // If reload detection fails, the POST may have already completed and
-    // triggered reload before we could observe the "loading" state.
-    // Fall through to waitForLoadState which will catch the settled state.
-  }
-  await page.waitForLoadState("networkidle", { timeout: 60_000 });
+  await navigated;
+  await page.waitForLoadState("domcontentloaded", { timeout: 60_000 });
 }
 
 test.describe("mission 07 editorial ai lifecycle", () => {
@@ -103,7 +95,6 @@ test.describe("mission 07 editorial ai lifecycle", () => {
 
     // === 2. UPLOAD .md KNOWLEDGE SOURCE ===
     await page.goto("/admin/knowledge");
-    await page.waitForLoadState("networkidle");
 
     // Wait for form fields to be ready (client component hydration).
     await page
@@ -119,9 +110,13 @@ test.describe("mission 07 editorial ai lifecycle", () => {
     await page.locator('input[type="file"]').setInputFiles(tmpFixture);
     await page.locator('input[name="title"]').fill(sourceTitle);
     await Promise.all([
-      page.waitForLoadState("networkidle", { timeout: 60_000 }),
+      page.waitForEvent("framenavigated", {
+        predicate: (frame) => frame === page.mainFrame(),
+        timeout: 60_000,
+      }),
       page.getByRole("button", { name: /Upload Source/ }).click(),
     ]);
+    await page.waitForLoadState("domcontentloaded", { timeout: 60_000 });
 
     // After reload, the source should appear in the table.
     await page.locator("td", { hasText: sourceTitle }).first().waitFor({
@@ -141,7 +136,6 @@ test.describe("mission 07 editorial ai lifecycle", () => {
 
     // === 3. INGEST -> READY ===
     await page.goto(`/admin/knowledge/${sourceId}`);
-    await page.waitForLoadState("networkidle");
     await page.waitForSelector('text=UPLOADED', { timeout: 10_000 });
 
     await clickReload(page, 'button:has-text("Ingest")');
@@ -165,14 +159,12 @@ test.describe("mission 07 editorial ai lifecycle", () => {
 
     // === 4. GENERATE DRAFT 1 (GUIDE) - REJECTION PATH ===
     await page.goto("/admin/editorial/new");
-    await page.waitForLoadState("networkidle");
     await page.selectOption('select[name="contentType"]', "GUIDE");
     await page.fill('input[name="topic"]', "hiring signal decay");
     await Promise.all([
       page.waitForURL(/\/admin\/editorial\/(draft_\w+)/),
       page.click('button:has-text("Generate Draft")'),
     ]);
-    await page.waitForLoadState("networkidle");
     const draft1Id = page.url().split("/").pop()!;
     await expect(page).toHaveURL(`/admin/editorial/${draft1Id}`);
 
@@ -231,14 +223,12 @@ test.describe("mission 07 editorial ai lifecycle", () => {
 
     // === 12. GENERATE DRAFT 2 (FIELD_NOTE) - PUBLISH PATH ===
     await page.goto("/admin/editorial/new");
-    await page.waitForLoadState("networkidle");
     await page.selectOption('select[name="contentType"]', "FIELD_NOTE");
     await page.fill('input[name="topic"]', `evidence-based hiring ${runId}`);
     await Promise.all([
       page.waitForURL(/\/admin\/editorial\/(draft_\w+)/),
       page.click('button:has-text("Generate Draft")'),
     ]);
-    await page.waitForLoadState("networkidle");
     const draft2Id = page.url().split("/").pop()!;
     await expect(page).toHaveURL(`/admin/editorial/${draft2Id}`);
 
@@ -313,11 +303,9 @@ test.describe("mission 07 editorial ai lifecycle", () => {
 
     // === 20. VERIFY PUBLISHED ENTITY IN ADMIN CONTENT ===
     await page.goto("/admin/content");
-    await page.waitForLoadState("networkidle");
     // The content page defaults to the "Guides" tab (which shows 0 guides).
     // Switch to the "Field Notes" tab to see the published field note.
     await page.getByRole("tab", { name: /Field Notes/ }).click();
-    await page.waitForLoadState("networkidle");
     // No fixed sleep needed — the expect below retries until the published
     // field-note link is visible in the Field Notes tab content (client-side
     // tab switch renders synchronously; the 10s timeout covers any render
