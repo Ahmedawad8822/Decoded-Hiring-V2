@@ -745,4 +745,9 @@ test("PUBLIC 08.6: public pages keep scheduler conditional and lead fallback pre
     assert.ok(source.includes("<PublicScheduler"));
     assert.ok(source.includes("<LeadForm"));
   }
+  assert.equal(
+    coaching.includes("<span>Google Meet</span>"),
+    false,
+    "public coaching must not promise a dormant meeting provider",
+  );
 });
