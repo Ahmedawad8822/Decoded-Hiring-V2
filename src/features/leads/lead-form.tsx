@@ -39,7 +39,7 @@ export function LeadForm({
         <h3>
           {isAiOs
             ? "You are on the research list."
-            : "Your context is safely with Ahmed."}
+            : "Your context has been saved."}
         </h3>
         <p>{state.message}</p>
       </div>
