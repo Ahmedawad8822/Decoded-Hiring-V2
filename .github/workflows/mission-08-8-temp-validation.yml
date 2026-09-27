@@ -45,4 +45,4 @@ jobs:
       - name: Install Playwright Chromium
         run: npx playwright install --with-deps chromium
       - name: Browser E2E certification
-        run: npm run test:e2e
+        run: npm run test:e2e:ci
