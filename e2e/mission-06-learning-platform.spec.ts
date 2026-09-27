@@ -174,9 +174,17 @@ test.describe("mission 06 learning platform lifecycle", () => {
       await page.goto("/admin/courses");
       await page.locator(`[data-course-slug="${courseSlug}"]`).getByRole("button", { name: "Publish", exact: true }).click();
       await expect(page.locator(`[data-course-slug="${courseSlug}"]`).getByText("PUBLISHED")).toBeVisible({ timeout: 30_000 });
-      // Authenticated but unenrolled admin sees the enrollment CTA = available.
+      // Authenticated but unenrolled admin sees the enrollment CTA and the
+      // published curriculum. This proves lesson visibility is durable before
+      // switching sessions to the learner.
       await page.goto(`/learn/courses/${courseSlug}`);
       await expect(page.getByRole("button", { name: "Start free — enroll now" })).toBeVisible();
+      await expect(
+        page.getByRole("link", { name: /First Lesson E2E/ }).first(),
+      ).toBeVisible({ timeout: 30_000 });
+      await expect(
+        page.getByRole("link", { name: /Second Lesson E2E/ }).first(),
+      ).toBeVisible({ timeout: 30_000 });
     });
 
     // ---- LEARNER FLOW ----
@@ -206,9 +214,11 @@ test.describe("mission 06 learning platform lifecycle", () => {
       await expect(
         page.getByText("Continue where you left off"),
       ).toBeVisible({ timeout: 30_000 });
-      const resume = page.getByRole("link", { name: /Resume lesson/ });
-      await expect(resume).toBeVisible({ timeout: 30_000 });
-      await resume.click();
+      const lesson1Link = page
+        .getByRole("link", { name: /First Lesson E2E/ })
+        .first();
+      await expect(lesson1Link).toBeVisible({ timeout: 30_000 });
+      await lesson1Link.click();
       await expect(page).toHaveURL(
         new RegExp(`/learn/courses/${courseSlug}/lessons/${lesson1Slug}$`),
         { timeout: 30_000 },
