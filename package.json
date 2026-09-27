@@ -15,7 +15,8 @@
     "test:e2e": "tsx scripts/e2e-bootstrap.ts && playwright test",
     "test:e2e:headed": "tsx scripts/e2e-bootstrap.ts && playwright test --headed",
     "db:generate": "drizzle-kit generate",
-    "db:seed": "tsx scripts/seed.ts"
+    "db:seed": "tsx scripts/seed.ts",
+    "test:e2e:ci": "tsx scripts/e2e-bootstrap.ts && playwright test e2e/field-notes.spec.ts && playwright test e2e/mission-06-learning-platform.spec.ts && playwright test e2e/mission-07-editorial-ai.spec.ts && playwright test e2e/mission-08-final-certification.spec.ts && playwright test e2e/smoke.spec.ts"
   },
   "dependencies": {
     "better-auth": "^1.7.5",
