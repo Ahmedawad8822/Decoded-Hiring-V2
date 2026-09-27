@@ -2,11 +2,13 @@ import { ArrowDownRight, MoveUpRight, Route, ScanSearch } from "lucide-react";
 import Image from "next/image";
 
 import { CoachingDiagnostic } from "@/components/products/coaching-diagnostic";
+import { PublicScheduler } from "@/components/products/public-scheduler";
 import { LeadForm } from "@/features/leads/lead-form";
 import { publicMetadata } from "@/lib/seo";
 import { PUBLIC_OFFER_SLUGS } from "@/features/offers/catalog";
 import { resolveOfferPublicPresentation } from "@/features/offers/presentation";
 import { getOfferBySlugForKind } from "@/features/offers/service";
+import { resolvePublicSchedulingModel } from "@/features/scheduling/public-scheduling";
 
 export const dynamic = "force-dynamic";
 
@@ -27,6 +29,10 @@ export default async function CoachingPage() {
         contactLabel: "Open a decision brief",
       })
     : null;
+  const scheduling = await resolvePublicSchedulingModel({
+    offerSlug: PUBLIC_OFFER_SLUGS.coaching,
+    kind: "COACHING",
+  });
 
   return (
     <article className="hg-page is-active">
@@ -55,9 +61,15 @@ export default async function CoachingPage() {
             ) : (
               <a
                 className="hg-primary"
-                href={offerPresentation?.ctaHref ?? "#hg-coaching-brief"}
+                href={
+                  scheduling.enabled
+                    ? "#hg-coaching-schedule"
+                    : offerPresentation?.ctaHref ?? "#hg-coaching-brief"
+                }
               >
-                {offerPresentation?.ctaLabel ?? "Open a decision brief"}{" "}
+                {scheduling.enabled
+                  ? "Choose a time"
+                  : offerPresentation?.ctaLabel ?? "Open a decision brief"}{" "}
                 <ArrowDownRight aria-hidden="true" />
               </a>
             )}
@@ -157,6 +169,28 @@ export default async function CoachingPage() {
           </div>
         </div>
       </section>
+
+      {scheduling.enabled && (
+        <section
+          className="hg-section hg-scheduling-stage"
+          id="hg-coaching-schedule"
+        >
+          <div className="hg-scheduling-intro">
+            <p className="hg-kicker">Book the conversation</p>
+            <h2 className="hg-title">Choose a live slot without leaving the site.</h2>
+            <p className="hg-body">
+              These times come from the same scheduling rules that protect the
+              booking itself. If the configuration changes or another person
+              reaches a slot first, the server rechecks it before confirming.
+            </p>
+          </div>
+          <PublicScheduler
+            model={scheduling}
+            fallbackHref="#hg-coaching-brief"
+            fallbackLabel="Send a decision brief instead"
+          />
+        </section>
+      )}
 
       <section className="hg-section hg-coaching-brief" id="hg-coaching-brief">
         <div className="hg-coaching-brief-copy">
