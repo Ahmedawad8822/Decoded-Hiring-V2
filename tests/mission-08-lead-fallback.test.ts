@@ -9,7 +9,7 @@ import { test } from "node:test";
 import { eq } from "drizzle-orm";
 
 import { disposeCloudflareBindings } from "../src/lib/cloudflare/bindings";
-import { getDb, leadSubmissions } from "../src/lib/db";
+import { getDb, leadSubmissions, publicRateLimits } from "../src/lib/db";
 import { migrateLocalDb } from "../src/lib/db/migrate";
 import { submitLead } from "@/features/leads/actions";
 
@@ -64,6 +64,7 @@ test.before(async () => {
   await migrateLocalDb();
   const db = await getDb();
   await db.delete(leadSubmissions).run();
+  await db.delete(publicRateLimits).run();
 });
 
 test.after(async () => {
@@ -299,6 +300,32 @@ test("LEADS 08.6: per-email velocity guard blocks repeated enquiry flooding", as
   assert.equal(blocked?.ok, false);
 });
 
+test("LEADS 08.6: parallel rotating-email intake cannot exceed atomic kind cap", async () => {
+  const db = await getDb();
+  await db.delete(leadSubmissions).run();
+  await db.delete(publicRateLimits).run();
+
+  const states = await Promise.all(
+    Array.from({ length: 45 }, (_, index) =>
+      submitLead(
+        "contact",
+        "/contact",
+        "general",
+        undefined,
+        leadForm({
+          email: `parallel-lead-${index}@example.com`,
+        }),
+      ),
+    ),
+  );
+
+  assert.equal(states.filter((state) => state?.ok).length, 40);
+  assert.equal(states.filter((state) => state && !state.ok).length, 5);
+
+  const rows = await db.select().from(leadSubmissions).all();
+  assert.equal(rows.length, 40);
+});
+
 test("LEADS 08.6: migration journal/snapshot include unique 0016 lead identity", async () => {
   const { existsSync, readFileSync } = await import("node:fs");
   const { join } = await import("node:path");
@@ -320,6 +347,19 @@ test("LEADS 08.6: migration journal/snapshot include unique 0016 lead identity",
         "migrations",
         "meta",
         "0016_snapshot.json",
+      ),
+    ),
+  );
+  assert.equal(tags.filter((tag: string) => tag.startsWith("0017_")).length, 1);
+  assert.ok(tags.includes("0017_public_rate_limits"));
+  assert.ok(
+    existsSync(
+      join(
+        process.cwd(),
+        "drizzle",
+        "migrations",
+        "meta",
+        "0017_snapshot.json",
       ),
     ),
   );
