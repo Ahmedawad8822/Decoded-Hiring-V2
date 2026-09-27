@@ -78,31 +78,6 @@ function publicRoute(kind: "COACHING" | "WORKSHOP"): "/coaching" | "/workshop" {
   return kind === "COACHING" ? "/coaching" : "/workshop";
 }
 
-async function recordConfirmedBooking(params: {
-  bookingId: string;
-  bookingTypeId: string;
-  offerKind: "COACHING" | "WORKSHOP";
-  offerSlug: string;
-  occurredAt?: Date;
-}): Promise<void> {
-  await recordBusinessEventBestEffort({
-    dedupeKey: `public-booking:${params.bookingId}:confirmed`,
-    eventName: "booking_confirmed",
-    subjectType: "BOOKING",
-    subjectId: params.bookingId,
-    bookingId: params.bookingId,
-    bookingTypeId: params.bookingTypeId,
-    route: publicRoute(params.offerKind),
-    surface: "public-scheduler",
-    metadata: {
-      offer_kind: params.offerKind,
-      offer_slug: params.offerSlug,
-      access_mode: "FREE",
-    },
-    occurredAt: params.occurredAt,
-  });
-}
-
 function safeSuccess(booking: {
   id: string;
   bookingTypeId: string;
@@ -262,16 +237,7 @@ export async function submitPublicBooking(
 
   const existing = await recoverBookingByRequestKey(parsed.data.requestKey);
   if (existing) {
-    const result = await recoverExistingPublicBooking(existing, parsed.data);
-    if (result?.ok) {
-      await recordConfirmedBooking({
-        bookingId: result.bookingId,
-        bookingTypeId: existing.bookingTypeId,
-        offerKind: parsed.data.offerKind,
-        offerSlug: parsed.data.offerSlug,
-      });
-    }
-    return result;
+    return recoverExistingPublicBooking(existing, parsed.data);
   }
 
   const now = new Date();
@@ -373,46 +339,11 @@ export async function submitPublicBooking(
       now,
     });
 
-    await recordBusinessEventBestEffort({
-      dedupeKey: `public-booking:${booking.id}:requested`,
-      eventName: "booking_requested",
-      subjectType: "BOOKING",
-      subjectId: booking.id,
-      bookingId: booking.id,
-      bookingTypeId: booking.bookingTypeId,
-      route: publicRoute(parsed.data.offerKind),
-      surface: "public-scheduler",
-      metadata: {
-        offer_kind: parsed.data.offerKind,
-        offer_slug: parsed.data.offerSlug,
-      },
-      occurredAt: now,
-    });
-
-    const result = await recoverExistingPublicBooking(booking, parsed.data);
-    if (result?.ok) {
-      await recordConfirmedBooking({
-        bookingId: result.bookingId,
-        bookingTypeId: booking.bookingTypeId,
-        offerKind: parsed.data.offerKind,
-        offerSlug: parsed.data.offerSlug,
-        occurredAt: now,
-      });
-    }
-    return result;
+    return recoverExistingPublicBooking(booking, parsed.data);
   } catch (error: unknown) {
     const recovered = await recoverBookingByRequestKey(parsed.data.requestKey);
     if (recovered) {
-      const result = await recoverExistingPublicBooking(recovered, parsed.data);
-      if (result?.ok) {
-        await recordConfirmedBooking({
-          bookingId: result.bookingId,
-          bookingTypeId: recovered.bookingTypeId,
-          offerKind: parsed.data.offerKind,
-          offerSlug: parsed.data.offerSlug,
-        });
-      }
-      return result;
+      return recoverExistingPublicBooking(recovered, parsed.data);
     }
 
     try {
