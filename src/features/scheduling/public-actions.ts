@@ -9,6 +9,7 @@ import {
 } from "@/features/scheduling";
 import {
   createBookingRequest,
+  recoverAutoConfirmBooking,
   recoverBookingByRequestKey,
 } from "@/features/scheduling/bookings";
 import {
@@ -99,6 +100,53 @@ function safeSuccess(booking: {
   };
 }
 
+async function recoverExistingPublicBooking(
+  booking: {
+    id: string;
+    bookingTypeId: string;
+    requesterEmail: string;
+    startAt: Date;
+    endAt: Date;
+    timezone: string;
+    status: string;
+    version: number;
+  },
+  input: {
+    bookingTypeId: string;
+    requesterEmail: string;
+    startAt: string;
+  },
+): Promise<PublicBookingActionState> {
+  if (!existingMatchesInput(booking, input)) {
+    return {
+      ok: false,
+      code: "CONFLICT",
+      message:
+        "This booking request identity is already bound to a different attempt.",
+    };
+  }
+
+  if (booking.status === "REQUESTED") {
+    try {
+      const recovered = await recoverAutoConfirmBooking(
+        booking.id,
+        booking.version,
+        new Date(),
+      );
+      return safeSuccess(recovered);
+    } catch {
+      return {
+        ok: false,
+        code: "CONFLICT",
+        message:
+          "This booking request exists but could not be safely auto-confirmed. Please use the enquiry form so Ahmed can help resolve it.",
+      };
+    }
+  }
+
+  return safeSuccess(booking);
+}
+
 function existingMatchesInput(
   booking: {
     bookingTypeId: string;
@@ -158,15 +206,7 @@ export async function submitPublicBooking(
 
   const existing = await recoverBookingByRequestKey(parsed.data.requestKey);
   if (existing) {
-    if (!existingMatchesInput(existing, parsed.data)) {
-      return {
-        ok: false,
-        code: "CONFLICT",
-        message:
-          "This booking request identity is already bound to a different attempt.",
-      };
-    }
-    return safeSuccess(existing);
+    return recoverExistingPublicBooking(existing, parsed.data);
   }
 
   const now = new Date();
@@ -237,8 +277,8 @@ export async function submitPublicBooking(
     return safeSuccess(booking);
   } catch (error: unknown) {
     const recovered = await recoverBookingByRequestKey(parsed.data.requestKey);
-    if (recovered && existingMatchesInput(recovered, parsed.data)) {
-      return safeSuccess(recovered);
+    if (recovered) {
+      return recoverExistingPublicBooking(recovered, parsed.data);
     }
 
     try {
