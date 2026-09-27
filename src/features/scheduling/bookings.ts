@@ -16,6 +16,7 @@
 // ============================================================================
 
 import { and, asc, eq } from "drizzle-orm";
+import { recordBusinessEventBestEffort } from "@/features/analytics/service";
 import {
   bookingHistory,
   bookings,
@@ -132,6 +133,32 @@ function assertLiveBoundHold(booking: Booking, hold: SlotHold | undefined, now: 
 
 function historyDetail(input: Record<string, unknown>): string {
   return JSON.stringify(input);
+}
+
+type BookingBusinessEventName =
+  | "booking_requested"
+  | "booking_approved"
+  | "booking_confirmed"
+  | "booking_declined"
+  | "booking_cancelled"
+  | "booking_rescheduled";
+
+async function recordBookingBusinessEvent(params: {
+  eventName: BookingBusinessEventName;
+  booking: Booking;
+  occurredAt: Date;
+  metadata?: Record<string, string | number | boolean | null>;
+}): Promise<void> {
+  await recordBusinessEventBestEffort({
+    dedupeKey: `booking:${params.booking.id}:${params.eventName}:v${params.booking.version}`,
+    eventName: params.eventName,
+    subjectType: "BOOKING",
+    subjectId: params.booking.id,
+    bookingId: params.booking.id,
+    bookingTypeId: params.booking.bookingTypeId,
+    metadata: params.metadata,
+    occurredAt: params.occurredAt,
+  });
 }
 
 function assertRequestKeyBinding(
@@ -395,6 +422,16 @@ export async function createBookingRequest(
   if (!created) {
     throw new Error("Booking insert committed but row could not be re-read.");
   }
+
+  await recordBookingBusinessEvent({
+    eventName: "booking_requested",
+    booking: created,
+    occurredAt: parsed.now,
+    metadata: {
+      confirmation_policy: bookingType.confirmationPolicy,
+      initial_status: initialStatus,
+    },
+  });
 
   // AUTO_CONFIRM crosses the confirmation boundary only when the effective
   // commercial policy is FREE. A linked Offer is authoritative; legacy
@@ -730,6 +767,23 @@ async function confirmBoundBooking(
     updated.version === targetVersion &&
     updated.transitionKey === token
   ) {
+    if (action === "APPROVED") {
+      await recordBookingBusinessEvent({
+        eventName: "booking_approved",
+        booking: updated,
+        occurredAt: parsed.now,
+        metadata: { actor_role: actor.role },
+      });
+    }
+    await recordBookingBusinessEvent({
+      eventName: "booking_confirmed",
+      booking: updated,
+      occurredAt: parsed.now,
+      metadata: {
+        confirmation_action: action,
+        actor_role: actor.role,
+      },
+    });
     return updated;
   }
 
@@ -1008,6 +1062,21 @@ async function simpleTerminalTransition(params: {
     updated.version === targetVersion &&
     updated.transitionKey === token
   ) {
+    if (params.toStatus === "DECLINED") {
+      await recordBookingBusinessEvent({
+        eventName: "booking_declined",
+        booking: updated,
+        occurredAt: parsed.now,
+        metadata: { actor_role: actor.role },
+      });
+    } else if (params.toStatus === "CANCELLED") {
+      await recordBookingBusinessEvent({
+        eventName: "booking_cancelled",
+        booking: updated,
+        occurredAt: parsed.now,
+        metadata: { actor_role: actor.role },
+      });
+    }
     return updated;
   }
   throw new SchedulingDomainError(
@@ -1345,6 +1414,12 @@ async function rescheduleBookingAsActor(
     updated.holdId === newHold.id &&
     updated.holdAcquisitionKey === parsed.newHoldAcquisitionKey
   ) {
+    await recordBookingBusinessEvent({
+      eventName: "booking_rescheduled",
+      booking: updated,
+      occurredAt: parsed.now,
+      metadata: { actor_role: actor.role },
+    });
     return updated;
   }
 
