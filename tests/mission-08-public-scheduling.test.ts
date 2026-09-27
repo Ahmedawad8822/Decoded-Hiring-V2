@@ -21,6 +21,9 @@ import {
   offers,
   orchestrationEffects,
   orchestrationHistory,
+  orderHistory,
+  orders,
+  paymentEvents,
   slotHolds,
 } from "@/lib/db";
 import { createOffer } from "@/features/offers/service";
@@ -131,6 +134,9 @@ test.before(async () => {
   const db = await getDb();
   await db.delete(orchestrationHistory).run();
   await db.delete(orchestrationEffects).run();
+  await db.delete(paymentEvents).run();
+  await db.delete(orderHistory).run();
+  await db.delete(orders).run();
   await db.delete(bookingHistory).run();
   await db.delete(bookings).run();
   await db.delete(offers).run();
