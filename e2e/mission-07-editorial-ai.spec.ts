@@ -54,7 +54,13 @@ async function signInAdmin(page: Page) {
 }
 
 async function clickReload(page: Page, selector: string) {
+  const reloaded = page.waitForEvent("framenavigated", {
+    predicate: (frame) => frame === page.mainFrame(),
+    timeout: 60_000,
+  });
   await page.click(selector);
+  await reloaded;
+  await page.waitForLoadState("domcontentloaded", { timeout: 60_000 });
 }
 
 test.describe("mission 07 editorial ai lifecycle", () => {
