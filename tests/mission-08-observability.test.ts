@@ -287,6 +287,30 @@ test("OBS 08.8: public CTA tracking is bounded, idempotent and PII-free", async 
   assert.match(ctas[0].metadata, /"target":"lead"/);
 });
 
+test("OBS 08.8: public CTA route must match Offer kind", async () => {
+  const offer = await createOffer({
+    kind: "WORKSHOP",
+    title: "Route integrity workshop",
+    slug: unique("route-workshop"),
+    accessMode: "FREE",
+    active: true,
+  });
+
+  await recordPublicOfferCta({
+    eventKey: crypto.randomUUID(),
+    offerSlug: offer.slug,
+    route: "/coaching",
+    target: "lead",
+    surface: "hero-primary",
+  });
+
+  const rows = await rawEvents("offer_id", offer.id);
+  assert.equal(
+    rows.filter((row) => row.eventName === "offer_cta_clicked").length,
+    0,
+  );
+});
+
 test("OBS 08.8: summary exposes the complete contracted event vocabulary", async () => {
   const summary = await getBusinessEventSummary({
     windowDays: 30,
