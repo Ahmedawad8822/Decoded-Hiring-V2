@@ -61,6 +61,10 @@ async function clickReload(page: Page, selector: string) {
   await page.click(selector);
   await reloaded;
   await page.waitForLoadState("domcontentloaded", { timeout: 60_000 });
+  // The client action awaits durable state before window.location.reload().
+  // One explicit fresh read avoids stale dev/HMR output being mistaken for
+  // failed lifecycle state while keeping the business assertion unchanged.
+  await page.reload({ waitUntil: "domcontentloaded", timeout: 60_000 });
 }
 
 test.describe("mission 07 editorial ai lifecycle", () => {
