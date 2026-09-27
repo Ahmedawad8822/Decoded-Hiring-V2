@@ -19,6 +19,11 @@ export async function recordPublicOfferCta(input: unknown): Promise<void> {
   const offer = await getPublicOfferBySlug(parsed.offerSlug);
   if (!offer) return;
 
+  const routeMatchesKind =
+    (parsed.route === "/coaching" && offer.kind === "COACHING") ||
+    (parsed.route === "/workshop" && offer.kind === "WORKSHOP");
+  if (!routeMatchesKind) return;
+
   const now = new Date();
   const admitted = await consumePublicFixedWindowLimit({
     scopeKey: `analytics:offer-cta:${parsed.route}`,
