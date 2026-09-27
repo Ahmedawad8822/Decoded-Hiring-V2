@@ -145,12 +145,13 @@ type BookingBusinessEventName =
 
 async function recordBookingBusinessEvent(params: {
   eventName: BookingBusinessEventName;
+  historyId: string;
   booking: Booking;
   occurredAt: Date;
   metadata?: Record<string, string | number | boolean | null>;
 }): Promise<void> {
   await recordBusinessEventBestEffort({
-    dedupeKey: `booking:${params.booking.id}:${params.eventName}:v${params.booking.version}`,
+    dedupeKey: `booking-history:${params.historyId}:${params.eventName}`,
     eventName: params.eventName,
     subjectType: "BOOKING",
     subjectId: params.booking.id,
@@ -425,6 +426,7 @@ export async function createBookingRequest(
 
   await recordBookingBusinessEvent({
     eventName: "booking_requested",
+    historyId: auditId,
     booking: created,
     occurredAt: parsed.now,
     metadata: {
@@ -644,6 +646,9 @@ async function confirmBoundBooking(
     )
     .bind(...confirmArgs);
 
+  const auditId = newId("bkh");
+  const auditId = newId("bkh");
+  const auditId = newId("bkh");
   const audit = d1
     .prepare(
       `INSERT INTO booking_history
@@ -653,7 +658,7 @@ async function confirmBoundBooking(
        WHERE id = ? AND transition_key = ? AND version = ? AND status = 'CONFIRMED'`,
     )
     .bind(
-      newId("bkh"),
+      auditId,
       action,
       booking.status,
       actor.id,
@@ -770,6 +775,7 @@ async function confirmBoundBooking(
     if (action === "APPROVED") {
       await recordBookingBusinessEvent({
         eventName: "booking_approved",
+        historyId: auditId,
         booking: updated,
         occurredAt: parsed.now,
         metadata: { actor_role: actor.role },
@@ -777,6 +783,7 @@ async function confirmBoundBooking(
     }
     await recordBookingBusinessEvent({
       eventName: "booking_confirmed",
+      historyId: auditId,
       booking: updated,
       occurredAt: parsed.now,
       metadata: {
@@ -939,7 +946,7 @@ async function simpleTerminalTransition(params: {
        WHERE id = ? AND transition_key = ? AND version = ? AND status = ?`,
     )
     .bind(
-      newId("bkh"),
+      auditId,
       params.action,
       booking.status,
       params.toStatus,
@@ -1065,6 +1072,7 @@ async function simpleTerminalTransition(params: {
     if (params.toStatus === "DECLINED") {
       await recordBookingBusinessEvent({
         eventName: "booking_declined",
+        historyId: auditId,
         booking: updated,
         occurredAt: parsed.now,
         metadata: { actor_role: actor.role },
@@ -1072,6 +1080,7 @@ async function simpleTerminalTransition(params: {
     } else if (params.toStatus === "CANCELLED") {
       await recordBookingBusinessEvent({
         eventName: "booking_cancelled",
+        historyId: auditId,
         booking: updated,
         occurredAt: parsed.now,
         metadata: { actor_role: actor.role },
@@ -1251,7 +1260,7 @@ async function rescheduleBookingAsActor(
          AND hold_acquisition_key = ?`,
     )
     .bind(
-      newId("bkh"),
+      auditId,
       actor.id,
       historyDetail({
         reason: parsed.reason ?? null,
@@ -1416,6 +1425,7 @@ async function rescheduleBookingAsActor(
   ) {
     await recordBookingBusinessEvent({
       eventName: "booking_rescheduled",
+      historyId: auditId,
       booking: updated,
       occurredAt: parsed.now,
       metadata: { actor_role: actor.role },
