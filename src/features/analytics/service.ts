@@ -123,7 +123,13 @@ async function reconcileBookingEvents(): Promise<void> {
          CAST(strftime('%s','now') AS INTEGER)
        FROM booking_history h
        JOIN bookings b ON b.id = h.booking_id
-       WHERE h.action = 'REQUESTED'`,
+       WHERE h.action = 'REQUESTED'
+         AND NOT EXISTS (
+           SELECT 1 FROM business_events e
+           WHERE e.event_name = 'booking_requested'
+             AND e.booking_id = h.booking_id
+             AND e.occurred_at = h.created_at
+         )`,
     )
     .run();
 
@@ -145,7 +151,13 @@ async function reconcileBookingEvents(): Promise<void> {
          CAST(strftime('%s','now') AS INTEGER)
        FROM booking_history h
        JOIN bookings b ON b.id = h.booking_id
-       WHERE h.action = 'APPROVED'`,
+       WHERE h.action = 'APPROVED'
+         AND NOT EXISTS (
+           SELECT 1 FROM business_events e
+           WHERE e.event_name = 'booking_approved'
+             AND e.booking_id = h.booking_id
+             AND e.occurred_at = h.created_at
+         )`,
     )
     .run();
 
@@ -168,7 +180,13 @@ async function reconcileBookingEvents(): Promise<void> {
        FROM booking_history h
        JOIN bookings b ON b.id = h.booking_id
        WHERE h.to_status = 'CONFIRMED'
-         AND h.action IN ('AUTO_CONFIRMED','APPROVED','CONFIRMED')`,
+         AND h.action IN ('AUTO_CONFIRMED','APPROVED','CONFIRMED')
+         AND NOT EXISTS (
+           SELECT 1 FROM business_events e
+           WHERE e.event_name = 'booking_confirmed'
+             AND e.booking_id = h.booking_id
+             AND e.occurred_at = h.created_at
+         )`,
     )
     .run();
 
@@ -195,13 +213,20 @@ async function reconcileBookingEvents(): Promise<void> {
            CAST(strftime('%s','now') AS INTEGER)
          FROM booking_history h
          JOIN bookings b ON b.id = h.booking_id
-         WHERE h.action = ?`,
+         WHERE h.action = ?
+           AND NOT EXISTS (
+             SELECT 1 FROM business_events e
+             WHERE e.event_name = ?
+               AND e.booking_id = h.booking_id
+               AND e.occurred_at = h.created_at
+           )`,
       )
       .bind(
         `_${mapping[1]}`,
         `:${mapping[1]}`,
         mapping[1],
         mapping[0],
+        mapping[1],
       )
       .run();
   }
@@ -232,7 +257,13 @@ async function reconcileOrderEvents(): Promise<void> {
        FROM order_history h
        JOIN orders o ON o.id = h.order_id
        WHERE h.from_status IS NULL
-         AND h.to_status = 'PENDING'`,
+         AND h.to_status = 'PENDING'
+         AND NOT EXISTS (
+           SELECT 1 FROM business_events e
+           WHERE e.event_name = 'checkout_started'
+             AND e.order_id = h.order_id
+             AND e.occurred_at = h.created_at
+         )`,
     )
     .run();
 
@@ -257,7 +288,13 @@ async function reconcileOrderEvents(): Promise<void> {
          CAST(strftime('%s','now') AS INTEGER)
        FROM order_history h
        JOIN orders o ON o.id = h.order_id
-       WHERE h.to_status = 'PAID'`,
+       WHERE h.to_status = 'PAID'
+         AND NOT EXISTS (
+           SELECT 1 FROM business_events e
+           WHERE e.event_name = 'payment_confirmed'
+             AND e.order_id = h.order_id
+             AND e.occurred_at = h.created_at
+         )`,
     )
     .run();
 
@@ -282,7 +319,13 @@ async function reconcileOrderEvents(): Promise<void> {
          CAST(strftime('%s','now') AS INTEGER)
        FROM order_history h
        JOIN orders o ON o.id = h.order_id
-       WHERE h.to_status = 'FAILED'`,
+       WHERE h.to_status = 'FAILED'
+         AND NOT EXISTS (
+           SELECT 1 FROM business_events e
+           WHERE e.event_name = 'payment_failed'
+             AND e.order_id = h.order_id
+             AND e.occurred_at = h.created_at
+         )`,
     )
     .run();
 }
