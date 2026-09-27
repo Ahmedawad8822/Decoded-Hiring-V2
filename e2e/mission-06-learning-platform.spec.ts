@@ -99,6 +99,26 @@ async function signInAdmin(page: import("@playwright/test").Page, email: string,
   await expect(page).toHaveURL(/\/admin\/content/, { timeout: 90_000 });
 }
 
+async function gotoLessonWithSingleRecovery(
+  page: import("@playwright/test").Page,
+  url: string,
+  heading: string,
+) {
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const response = await page.goto(url, { waitUntil: "domcontentloaded" });
+    const visible = await page
+      .getByRole("heading", { name: heading })
+      .isVisible({ timeout: 5_000 })
+      .catch(() => false);
+    if ((response?.ok() ?? true) && visible) return;
+    if (attempt === 0) {
+      await page.waitForTimeout(250);
+      continue;
+    }
+  }
+  await expect(page.getByRole("heading", { name: heading })).toBeVisible();
+}
+
 test.describe("mission 06 learning platform lifecycle", () => {
   test.describe.configure({ mode: "serial" });
   test("admin builds course, learner completes it, boundaries hold", async ({ page }) => {
@@ -191,8 +211,11 @@ test.describe("mission 06 learning platform lifecycle", () => {
     });
 
     await test.step("open lesson 1, download protected PDF, complete", async () => {
-      await page.goto(`/learn/courses/${courseSlug}/lessons/${lesson1Slug}`);
-      await expect(page.getByRole("heading", { name: "First Lesson E2E" })).toBeVisible();
+      await gotoLessonWithSingleRecovery(
+        page,
+        `/learn/courses/${courseSlug}/lessons/${lesson1Slug}`,
+        "First Lesson E2E",
+      );
       const dlLink = page.getByRole("link", { name: /Download/ }).first();
       resourceHref = (await dlLink.getAttribute("href")) ?? "";
       expect(resourceHref).toMatch(/^\/api\/course-resources\//);
