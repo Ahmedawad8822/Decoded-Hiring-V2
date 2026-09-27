@@ -47,13 +47,25 @@ import type {
 
 type AdminGuard = () => Promise<unknown>;
 
-const CONFIG_LIMIT = 500;
-const WINDOW_LIMIT = 2_000;
-const QUEUE_LIMIT = 100;
-const ORDER_LIMIT = 100;
-const EFFECT_LIMIT = 100;
-const COURSE_LIMIT = 500;
-const AUDIT_LIMIT = 200;
+export type CommerceAdminReadLimits = {
+  config: number;
+  windows: number;
+  queue: number;
+  orders: number;
+  effects: number;
+  courses: number;
+  audit: number;
+};
+
+const DEFAULT_LIMITS: CommerceAdminReadLimits = {
+  config: 500,
+  windows: 2_000,
+  queue: 100,
+  orders: 100,
+  effects: 100,
+  courses: 500,
+  audit: 200,
+};
 
 function bounded<T>(items: T[], total: number, limit: number): BoundedAdminList<T> {
   return {
@@ -196,6 +208,7 @@ function mapBooking(
 
 async function readBookingRows(
   status: "REQUESTED" | "PENDING_APPROVAL" | "CONFIRMED",
+  limit: number,
   now?: Date,
 ) {
   const db = await getDb();
@@ -210,13 +223,15 @@ async function readBookingRows(
     .orderBy(
       status === "REQUESTED" ? desc(bookings.createdAt) : asc(bookings.startAt),
     )
-    .limit(QUEUE_LIMIT);
+.limit(limit);
 }
 
 export async function getCommerceAdminDashboardWithGuard(
   guard: AdminGuard,
+  limitOverrides: Partial<CommerceAdminReadLimits> = {},
 ): Promise<CommerceAdminDashboard> {
   await guard();
+  const limits = { ...DEFAULT_LIMITS, ...limitOverrides };
   const db = await getDb();
   const now = new Date();
 
@@ -246,10 +261,10 @@ export async function getCommerceAdminDashboardWithGuard(
     providerStatuses,
     linkedOfferRows,
   ] = await Promise.all([
-    db.select().from(offers).orderBy(desc(offers.updatedAt)).limit(CONFIG_LIMIT),
+    db.select().from(offers).orderBy(desc(offers.updatedAt)).limit(limits.config),
     countRows(undefined, offers),
     countRows(eq(offers.active, true), offers),
-    db.select().from(bookingTypes).orderBy(asc(bookingTypes.title)).limit(CONFIG_LIMIT),
+    db.select().from(bookingTypes).orderBy(asc(bookingTypes.title)).limit(limits.config),
     countRows(undefined, bookingTypes),
     countRows(eq(bookingTypes.active, true), bookingTypes),
     db
@@ -260,13 +275,13 @@ export async function getCommerceAdminDashboardWithGuard(
         asc(bookingAvailabilityWindows.weekday),
         asc(bookingAvailabilityWindows.startMinute),
       )
-      .limit(WINDOW_LIMIT),
+      .limit(limits.windows),
     countRows(undefined, bookingAvailabilityWindows),
-    readBookingRows("REQUESTED"),
+    readBookingRows("REQUESTED", limits.queue),
     countRows(eq(bookings.status, "REQUESTED"), bookings),
-    readBookingRows("PENDING_APPROVAL"),
+    readBookingRows("PENDING_APPROVAL", limits.queue),
     countRows(eq(bookings.status, "PENDING_APPROVAL"), bookings),
-    readBookingRows("CONFIRMED", now),
+    readBookingRows("CONFIRMED", limits.queue, now),
     countRows(and(eq(bookings.status, "CONFIRMED"), gte(bookings.endAt, now)), bookings),
     db
       .select({
@@ -282,7 +297,7 @@ export async function getCommerceAdminDashboardWithGuard(
       })
       .from(orders)
       .orderBy(desc(orders.createdAt))
-      .limit(ORDER_LIMIT),
+      .limit(limits.orders),
     countRows(undefined, orders),
     countRows(inArray(orders.status, ["PENDING", "REQUIRES_ACTION", "PAID"]), orders),
     db
@@ -300,7 +315,7 @@ export async function getCommerceAdminDashboardWithGuard(
       })
       .from(orchestrationEffects)
       .orderBy(desc(orchestrationEffects.updatedAt))
-      .limit(EFFECT_LIMIT),
+      .limit(limits.effects),
     countRows(undefined, orchestrationEffects),
     countRows(eq(orchestrationEffects.status, "BLOCKED"), orchestrationEffects),
     db
@@ -312,7 +327,7 @@ export async function getCommerceAdminDashboardWithGuard(
       })
       .from(courses)
       .orderBy(asc(courses.title))
-      .limit(COURSE_LIMIT),
+      .limit(limits.courses),
     countRows(undefined, courses),
     readProviderStatuses(),
     db
@@ -342,32 +357,32 @@ export async function getCommerceAdminDashboardWithGuard(
       openOrders: openOrderTotal,
       blockedEffects: blockedEffectTotal,
     },
-    offers: bounded(offerRows.map(mapOffer), offerTotal, CONFIG_LIMIT),
+    offers: bounded(offerRows.map(mapOffer), offerTotal, limits.config),
     bookingTypes: bounded(
       bookingTypeRows.map(mapBookingType),
       bookingTypeTotal,
-      CONFIG_LIMIT,
+      limits.config,
     ),
-    windows: bounded(windowRows.map(mapWindow), windowTotal, WINDOW_LIMIT),
+    windows: bounded(windowRows.map(mapWindow), windowTotal, limits.windows),
     requestedBookings: bounded(
       requestedRows.map(mapBooking),
       requestedTotal,
-      QUEUE_LIMIT,
+      limits.queue,
     ),
     approvalQueue: bounded(
       approvalRows.map(mapBooking),
       approvalTotal,
-      QUEUE_LIMIT,
+      limits.queue,
     ),
     upcomingBookings: bounded(
       upcomingRows.map(mapBooking),
       upcomingTotal,
-      QUEUE_LIMIT,
+      limits.queue,
     ),
-    orders: bounded(orderItems, orderTotal, ORDER_LIMIT),
-    orchestrationEffects: bounded(effectItems, effectTotal, EFFECT_LIMIT),
+    orders: bounded(orderItems, orderTotal, limits.orders),
+    orchestrationEffects: bounded(effectItems, effectTotal, limits.effects),
     providers: providerStatuses,
-    courses: bounded(courseItems, courseTotal, COURSE_LIMIT),
+    courses: bounded(courseItems, courseTotal, limits.courses),
     linkedOfferBookingTypeIds: linkedOfferRows
       .map((row) => row.bookingTypeId)
       .filter((id): id is string => Boolean(id)),
@@ -381,6 +396,7 @@ export async function getCommerceAdminDashboard(): Promise<CommerceAdminDashboar
 export async function getBookingAuditWithGuard(
   bookingId: string,
   guard: AdminGuard,
+  limit = DEFAULT_LIMITS.audit,
 ): Promise<CommerceAdminBookingAudit> {
   await guard();
   const db = await getDb();
@@ -399,14 +415,14 @@ export async function getBookingAuditWithGuard(
       .from(bookingHistory)
       .where(where)
       .orderBy(desc(bookingHistory.createdAt))
-      .limit(AUDIT_LIMIT),
+      .limit(limit),
     countRows(where, bookingHistory),
   ]);
   const items: CommerceAdminBookingHistory[] = rows.map((row) => ({
     ...row,
     createdAt: row.createdAt.toISOString(),
   }));
-  return { bookingId, history: bounded(items, total, AUDIT_LIMIT) };
+  return { bookingId, history: bounded(items, total, limit) };
 }
 
 export async function getBookingAuditForAdmin(
@@ -418,6 +434,7 @@ export async function getBookingAuditForAdmin(
 export async function getOrderAuditWithGuard(
   orderId: string,
   guard: AdminGuard,
+  limit = DEFAULT_LIMITS.audit,
 ): Promise<CommerceAdminOrderAudit> {
   await guard();
   const db = await getDb();
@@ -436,7 +453,7 @@ export async function getOrderAuditWithGuard(
       .from(orderHistory)
       .where(historyWhere)
       .orderBy(desc(orderHistory.createdAt))
-      .limit(AUDIT_LIMIT),
+      .limit(limit),
     countRows(historyWhere, orderHistory),
     db
       .select({
@@ -450,7 +467,7 @@ export async function getOrderAuditWithGuard(
       .from(paymentEvents)
       .where(eventWhere)
       .orderBy(desc(paymentEvents.createdAt))
-      .limit(AUDIT_LIMIT),
+      .limit(limit),
     countRows(eventWhere, paymentEvents),
   ]);
 
