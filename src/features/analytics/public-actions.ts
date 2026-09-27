@@ -4,7 +4,7 @@ import { z } from "zod";
 
 import { getPublicOfferBySlug } from "@/features/offers/service";
 import { consumePublicFixedWindowLimit } from "@/features/public-intake/rate-limit";
-import { recordBusinessEvent } from "./service";
+import { recordBusinessEventBestEffort } from "./service";
 
 const offerCtaSchema = z.object({
   eventKey: z.string().uuid(),
@@ -28,7 +28,7 @@ export async function recordPublicOfferCta(input: unknown): Promise<void> {
   });
   if (!admitted) return;
 
-  await recordBusinessEvent({
+  await recordBusinessEventBestEffort({
     dedupeKey: `public-cta:${parsed.eventKey}`,
     eventName: "offer_cta_clicked",
     subjectType: "OFFER",
