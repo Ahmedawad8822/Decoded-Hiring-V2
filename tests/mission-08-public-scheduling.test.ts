@@ -8,6 +8,7 @@ import { strict as assert } from "node:assert";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
+import { eq } from "drizzle-orm";
 
 import { disposeCloudflareBindings } from "../src/lib/cloudflare/bindings";
 import { getDb } from "../src/lib/db";
@@ -313,7 +314,7 @@ test("PUBLIC 08.6: booking action auto-confirms without exposing lease secrets",
   const stored = await db
     .select()
     .from(bookings)
-    .where((await import("drizzle-orm")).eq(bookings.id, state.bookingId))
+    .where(eq(bookings.id, state.bookingId))
     .get();
   assert.equal(stored?.status, "CONFIRMED");
 });
