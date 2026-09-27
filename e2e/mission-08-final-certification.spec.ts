@@ -144,17 +144,20 @@ test.describe("Mission 08 final integrated certification", () => {
 
     const run = Date.now().toString(36);
     await test.step("public scheduler confirms a real D1 booking", async () => {
-      await page.getByLabel("Name").fill("Mission Eight E2E");
-      await page.getByLabel("Work email").fill(`mission08-${run}@example.com`);
-      await page
+      const scheduler = page.locator(".hg-scheduler");
+      await scheduler.getByLabel("Name").fill("Mission Eight E2E");
+      await scheduler
+        .getByLabel("Work email")
+        .fill(`mission08-${run}@example.com`);
+      await scheduler
         .getByLabel("Useful context (optional)")
         .fill("Browser certification context.");
-      await page
+      await scheduler
         .getByRole("checkbox", {
           name: /I understand my details are used to reserve this time/i,
         })
         .check();
-      await page.getByRole("button", { name: "Reserve this time" }).click();
+      await scheduler.getByRole("button", { name: "Reserve this time" }).click();
       await expect(
         page.getByRole("status").getByText("Time reserved"),
       ).toBeVisible({ timeout: 90_000 });
