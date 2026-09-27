@@ -112,7 +112,7 @@ async function reconcileBookingEvents(sinceSeconds: number): Promise<void> {
         booking_type_id, booking_id, metadata, occurred_at, created_at)
        SELECT
          'bev_recon_' || h.id,
-         'booking-history:' || h.id || ':requested',
+         'booking-history:' || h.id || ':booking_requested',
          'booking_requested',
          'BOOKING',
          h.booking_id,
@@ -125,12 +125,7 @@ async function reconcileBookingEvents(sinceSeconds: number): Promise<void> {
        JOIN bookings b ON b.id = h.booking_id
        WHERE h.action = 'REQUESTED'
          AND h.created_at >= ?
-         AND NOT EXISTS (
-           SELECT 1 FROM business_events e
-           WHERE e.event_name = 'booking_requested'
-             AND e.booking_id = h.booking_id
-             AND e.occurred_at = h.created_at
-         )`,
+`,
     )
     .bind(sinceSeconds)
     .run();
@@ -142,7 +137,7 @@ async function reconcileBookingEvents(sinceSeconds: number): Promise<void> {
         booking_type_id, booking_id, metadata, occurred_at, created_at)
        SELECT
          'bev_recon_' || h.id || '_approved',
-         'booking-history:' || h.id || ':approved',
+         'booking-history:' || h.id || ':booking_approved',
          'booking_approved',
          'BOOKING',
          h.booking_id,
@@ -155,12 +150,7 @@ async function reconcileBookingEvents(sinceSeconds: number): Promise<void> {
        JOIN bookings b ON b.id = h.booking_id
        WHERE h.action = 'APPROVED'
          AND h.created_at >= ?
-         AND NOT EXISTS (
-           SELECT 1 FROM business_events e
-           WHERE e.event_name = 'booking_approved'
-             AND e.booking_id = h.booking_id
-             AND e.occurred_at = h.created_at
-         )`,
+`,
     )
     .bind(sinceSeconds)
     .run();
@@ -172,7 +162,7 @@ async function reconcileBookingEvents(sinceSeconds: number): Promise<void> {
         booking_type_id, booking_id, metadata, occurred_at, created_at)
        SELECT
          'bev_recon_' || h.id || '_confirmed',
-         'booking-history:' || h.id || ':confirmed',
+         'booking-history:' || h.id || ':booking_confirmed',
          'booking_confirmed',
          'BOOKING',
          h.booking_id,
@@ -186,12 +176,7 @@ async function reconcileBookingEvents(sinceSeconds: number): Promise<void> {
        WHERE h.to_status = 'CONFIRMED'
          AND h.action IN ('AUTO_CONFIRMED','APPROVED','CONFIRMED')
          AND h.created_at >= ?
-         AND NOT EXISTS (
-           SELECT 1 FROM business_events e
-           WHERE e.event_name = 'booking_confirmed'
-             AND e.booking_id = h.booking_id
-             AND e.occurred_at = h.created_at
-         )`,
+`,
     )
     .bind(sinceSeconds)
     .run();
@@ -221,12 +206,7 @@ async function reconcileBookingEvents(sinceSeconds: number): Promise<void> {
          JOIN bookings b ON b.id = h.booking_id
          WHERE h.action = ?
            AND h.created_at >= ?
-           AND NOT EXISTS (
-             SELECT 1 FROM business_events e
-             WHERE e.event_name = ?
-               AND e.booking_id = h.booking_id
-               AND e.occurred_at = h.created_at
-           )`,
+`,
       )
       .bind(
         `_${mapping[1]}`,
@@ -234,7 +214,6 @@ async function reconcileBookingEvents(sinceSeconds: number): Promise<void> {
         mapping[1],
         mapping[0],
         sinceSeconds,
-        mapping[1],
       )
       .run();
   }
