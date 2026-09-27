@@ -95,14 +95,6 @@ async function listAvailableSlots(params: {
   if (!bookingType || !bookingType.active) return [];
 
   const windows = await getBookingTypeWindows(bookingType.id);
-  const candidates = generateCandidateSlots({
-    bookingType,
-    windows,
-    rangeStart: params.rangeStart,
-    rangeEnd: params.rangeEnd,
-    now: params.now,
-  });
-  if (candidates.length === 0) return [];
 
   const db = await getDb();
   const [holdRows, confirmedRows] = await Promise.all([
@@ -166,20 +158,60 @@ async function listAvailableSlots(params: {
     throw new PublicAvailabilityProviderError();
   }
 
-  return candidates
-    .filter((slot) => !blockedSlotKeys.has(slot.slotKey))
-    .filter(
-      (slot) =>
-        !providerBusy.some((busy) =>
-          overlaps(slot.startAt, slot.endAt, busy.startAt, busy.endAt),
-        ),
-    )
-    .map((slot) => ({
-      startAt: slot.startAt.toISOString(),
-      endAt: slot.endAt.toISOString(),
-      slotKey: slot.slotKey,
-    }))
-    .slice(0, MAX_PUBLIC_SLOTS);
+  // Public pages are anonymous and refreshable, so cap server CPU as well as
+  // response size. Expand the candidate horizon progressively and stop once
+  // enough actually-available slots are found. Dense one-minute schedules
+  // therefore do not force generation of the entire 21–31 day horizon merely
+  // to return the first 60 rows.
+  const requestedRangeMs = Math.max(
+    DAY_MS,
+    params.rangeEnd.getTime() - params.rangeStart.getTime(),
+  );
+  const requestedDays = Math.max(1, Math.ceil(requestedRangeMs / DAY_MS));
+  let probeDays = 1;
+
+  while (true) {
+    const probeEnd = new Date(
+      Math.min(
+        params.rangeEnd.getTime(),
+        params.rangeStart.getTime() + probeDays * DAY_MS,
+      ),
+    );
+    const candidates = generateCandidateSlots({
+      bookingType,
+      windows,
+      rangeStart: params.rangeStart,
+      rangeEnd: probeEnd,
+      now: params.now,
+    });
+
+    const available = candidates
+      .filter((slot) => !blockedSlotKeys.has(slot.slotKey))
+      .filter(
+        (slot) =>
+          !providerBusy.some((busy) =>
+            overlaps(slot.startAt, slot.endAt, busy.startAt, busy.endAt),
+          ),
+      )
+      .map((slot) => ({
+        startAt: slot.startAt.toISOString(),
+        endAt: slot.endAt.toISOString(),
+        slotKey: slot.slotKey,
+      }));
+
+    if (
+      available.length >= MAX_PUBLIC_SLOTS ||
+      probeEnd.getTime() >= params.rangeEnd.getTime()
+    ) {
+      return available.slice(0, MAX_PUBLIC_SLOTS);
+    }
+
+    const nextProbeDays = Math.min(requestedDays, probeDays * 2);
+    if (nextProbeDays === probeDays) {
+      return available.slice(0, MAX_PUBLIC_SLOTS);
+    }
+    probeDays = nextProbeDays;
+  }
 }
 
 export async function publicBookingVelocityAllowed(params: {
