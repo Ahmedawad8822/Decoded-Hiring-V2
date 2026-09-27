@@ -2,7 +2,7 @@
 
 import type { CommerceAdminBookingType, CommerceAdminDashboard } from "@/features/commerce/admin-model";
 import { createAvailabilityWindowAdminAction, createBookingTypeAdminAction, deleteAvailabilityWindowAdminAction, updateBookingTypeAdminAction } from "@/features/commerce/admin-actions";
-import { BoundedListNote, ErrorBanner, cardStyle, clockFromMinutes, fieldStyle, integer, labelStyle, minutesFromClock, nullable, sectionTitleStyle, useAdminMutation } from "./admin-ui";
+import { BoundedListNote, ErrorBanner, PageControls, cardStyle, clockFromMinutes, fieldStyle, integer, labelStyle, minutesFromClock, nullable, sectionTitleStyle, useAdminMutation } from "./admin-ui";
 
 const ACCESS=["FREE","PAID_SESSION","MANUAL_INVOICE","PAYMENT_DISABLED"] as const;
 const POLICIES=["AUTO_CONFIRM","AHMED_APPROVAL","REQUEST_ONLY"] as const;
@@ -49,8 +49,11 @@ export function BookingTypesSection({initial}:{initial:CommerceAdminDashboard}) 
     };
   }
 
-  return <section style={{display:"grid",gap:14}}>
-    <div><h2 style={sectionTitleStyle}>Booking types & availability</h2><BoundedListNote list={initial.bookingTypes} label="booking types" /><BoundedListNote list={initial.windows} label="availability windows" /></div>
+  return <section id="booking-types" style={{display:"grid",gap:14}}>
+    <div style={{display:"flex",justifyContent:"space-between",gap:12,flexWrap:"wrap"}}>
+      <div><h2 style={sectionTitleStyle}>Booking types & availability</h2><BoundedListNote list={initial.bookingTypes} label="booking types" /><BoundedListNote list={initial.windows} label="availability windows on this page" /></div>
+      <PageControls pageKey="bookingTypes" list={initial.bookingTypes} anchor="booking-types" />
+    </div>
     <ErrorBanner error={mutation.error}/>
     <details style={cardStyle}><summary style={{cursor:"pointer",fontWeight:700}}>Create booking type</summary>
       <form onSubmit={async e=>{e.preventDefault();await mutation.run("create-booking-type",()=>createBookingTypeAdminAction(parse(new FormData(e.currentTarget))));}} style={{display:"grid",gap:12,marginTop:16}}><Fields/><button className="btn primary small" disabled={mutation.busy==="create-booking-type"} style={{justifySelf:"start"}}>Create booking type</button></form>
