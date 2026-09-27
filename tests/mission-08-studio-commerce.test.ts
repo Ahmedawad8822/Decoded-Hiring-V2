@@ -154,7 +154,7 @@ test("STUDIO 08.7: Studio surface is discoverable and cannot activate providers"
   assert.match(shell, /\/admin\/commerce/);
   assert.match(shell, /Scheduling & Commerce/);
   assert.match(page, /Provider readiness/);
-  assert.match(page, /Approval queue/);
+  assert.match(page, /Requests & approval queue/);
   assert.match(page, /Orders & payment truth/);
   assert.match(page, /Audit history/);
   assert.match(actions, /requireAdmin/);
