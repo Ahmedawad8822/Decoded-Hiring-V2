@@ -386,6 +386,19 @@ nav[aria-label="The five questions"] a.chip[aria-current="true"] b { color: var(
   max-width: 760px;
 }
 
+.hg-honeypot {
+  position: absolute !important;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
 .hg-scheduler {
   display: grid;
   gap: 1px;
