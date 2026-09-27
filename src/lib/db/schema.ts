@@ -218,6 +218,23 @@ export const leadSubmissions = sqliteTable(
 export type LeadSubmission = typeof leadSubmissions.$inferSelect;
 
 // ============================================================================
+// PUBLIC INTAKE RATE LIMITS (Mission 08.6 remediation)
+// ----------------------------------------------------------------------------
+// Fixed-window counters provide an atomic D1 admission boundary for anonymous
+// scheduling and lead-intake mutations. scopeKey contains only server-owned
+// identifiers or hashed identities; raw email addresses are not stored here.
+// ============================================================================
+
+export const publicRateLimits = sqliteTable("public_rate_limits", {
+  scopeKey: text("scope_key").primaryKey(),
+  windowStart: integer("window_start").notNull(),
+  count: integer("count").notNull().default(0),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+});
+
+export type PublicRateLimit = typeof publicRateLimits.$inferSelect;
+
+// ============================================================================
 // LEARNING PLATFORM DOMAIN (Mission 06 — vertical slice)
 // ----------------------------------------------------------------------------
 // Dedicated course tables. Archived courses: no NEW enrollments, but existing
