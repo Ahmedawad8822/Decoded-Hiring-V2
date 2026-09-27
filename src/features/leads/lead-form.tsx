@@ -26,7 +26,7 @@ export function LeadForm({
   submitLabel,
   className,
 }: LeadFormProps) {
-  const action = submitLead.bind(null, kind);
+  const action = submitLead.bind(null, kind, sourceRoute, audiencePath);
   const [state, formAction, pending] = useActionState(action, undefined);
   const [idempotencyKey] = useState(() => crypto.randomUUID());
   const isAiOs = kind === "ai_os";
@@ -49,8 +49,6 @@ export function LeadForm({
   return (
     <form action={formAction} className={className ?? "hg-form-grid"}>
       <input type="hidden" name="idempotencyKey" value={idempotencyKey} />
-      <input type="hidden" name="sourceRoute" value={sourceRoute} />
-      <input type="hidden" name="audiencePath" value={audiencePath} />
       <label className="hg-honeypot" aria-hidden="true">
         Website
         <input name="website" tabIndex={-1} autoComplete="off" />
