@@ -1206,3 +1206,94 @@ All were closed before the remediation re-review:
 - final security/concurrency/recovery certification across the integrated workflow
 
 No merge is authorized by this ledger entry. Ahmed's explicit GO remains required.
+
+
+## Slice 08.8 — Observability + Final Integrated Certification
+
+Status: **IMPLEMENTATION IN PROGRESS**
+
+Pinned branch:
+`mission-08.8-observability-final-certification`
+
+Pinned base:
+`mission-08-commerce-scheduling@e85fe6b3078b73947021a52d8ace8ec783af43d8`
+
+### Intent
+
+Close the remaining Mission 08 obligations after the accepted Studio control
+plane:
+- meaningful commerce/scheduling business-event observability
+- final browser/mobile/accessibility certification
+- integrated security/concurrency/recovery certification
+
+### Observability contract
+
+Provider-neutral D1 event ledger:
+`drizzle/migrations/0018_business_events.sql`
+
+Tracked event vocabulary remains the one pinned in
+`COMMERCE-SCHEDULING-SPEC.md`:
+- `offer_cta_clicked`
+- `booking_started`
+- `slot_held`
+- `booking_requested`
+- `booking_approved`
+- `booking_confirmed`
+- `booking_declined`
+- `booking_cancelled`
+- `booking_rescheduled`
+- `checkout_started`
+- `payment_confirmed`
+- `payment_failed`
+
+Rules:
+- business truth remains in booking/order/payment/orchestration tables;
+- the event ledger is an observability projection, never fulfillment authority;
+- durable events are reconstructable from append-only booking/order history;
+- duplicate event writes are idempotent;
+- front-of-funnel public telemetry is bounded and fail-safe;
+- analytics metadata must not contain names, emails, phone numbers,
+  qualification notes, free-text answers or other sensitive intake content;
+- no external analytics provider or credentials are activated by this slice.
+
+### Initial implementation
+
+- provider-neutral business-event service + typed event contract
+- gap-filling recovery projector from booking/order durable history
+- 30-day Studio funnel summary
+- public Offer CTA tracking
+- public booking-start and slot-held events
+- authoritative booking lifecycle instrumentation
+- authoritative checkout/payment instrumentation
+- dedicated observability regression suite for:
+  - duplicate/concurrent idempotency
+  - privacy guardrails
+  - booking/payment event truth
+  - crash-like event-loss reconstruction
+  - CTA idempotency
+  - complete event vocabulary
+
+### Final certification boundary still to add
+
+- integrated public scheduler browser lifecycle
+- Studio Scheduling & Commerce browser lifecycle
+- mobile/responsive overflow matrix
+- accessibility scan / keyboard-critical paths
+- unauthenticated admin denial
+- no provider-secret leakage
+- explicit concurrency/recovery evidence tying existing Mission 08 regressions
+  into the final certification report
+
+### Safety boundaries
+
+08.8 does **not**:
+- activate PostHog or another external analytics provider
+- activate payment/calendar/mailbox/meeting providers
+- add production provider credentials
+- deploy
+- change DNS
+- mutate production resources
+
+Mission 08 may only be declared complete after exact-head gates, independent
+release review, remediation/re-review if required, ChatGPT final exact-SHA
+verification, and Ahmed's explicit GO.
