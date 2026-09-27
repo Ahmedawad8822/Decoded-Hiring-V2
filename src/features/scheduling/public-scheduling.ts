@@ -10,7 +10,7 @@
 // remaining payment/admin UX is implemented.
 // ============================================================================
 
-import { and, eq, gt, gte, lt, or } from "drizzle-orm";
+import { and, eq, gt, gte, inArray, lt, or } from "drizzle-orm";
 
 import {
   bookings,
@@ -163,6 +163,38 @@ async function listAvailableSlots(params: {
       endAt: slot.endAt.toISOString(),
       slotKey: slot.slotKey,
     }));
+}
+
+export async function publicBookingVelocityAllowed(params: {
+  bookingTypeId: string;
+  requesterEmail: string;
+  now?: Date;
+  windowMinutes?: number;
+  maxBookings?: number;
+}): Promise<boolean> {
+  const now = params.now ?? new Date();
+  const windowMinutes = Math.max(1, Math.min(params.windowMinutes ?? 15, 60));
+  const maxBookings = Math.max(1, Math.min(params.maxBookings ?? 3, 10));
+  const cutoff = new Date(now.getTime() - windowMinutes * 60_000);
+  const db = await getDb();
+  const recent = await db
+    .select({ id: bookings.id })
+    .from(bookings)
+    .where(
+      and(
+        eq(bookings.bookingTypeId, params.bookingTypeId),
+        eq(bookings.requesterEmail, params.requesterEmail.toLowerCase()),
+        gte(bookings.createdAt, cutoff),
+        inArray(bookings.status, [
+          "REQUESTED",
+          "PENDING_APPROVAL",
+          "CONFIRMED",
+        ]),
+      ),
+    )
+    .limit(maxBookings);
+
+  return recent.length < maxBookings;
 }
 
 export async function resolvePublicSchedulingModel(params: {
