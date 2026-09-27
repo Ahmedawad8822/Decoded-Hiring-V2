@@ -72,6 +72,11 @@ export const createBookingTypeSchema = z.object({
  * startMinute/endMinute are minutes after local midnight in the booking
  * type's configured timezone.
  */
+export const updateBookingTypeSchema = createBookingTypeSchema.partial().extend({
+  id: z.string().trim().min(1),
+  active: z.boolean().optional(),
+});
+
 export const createAvailabilityWindowSchema = z
   .object({
     bookingTypeId: z.string().trim().min(1),
@@ -128,6 +133,7 @@ export const mutateSlotHoldSchema = z.object({
 
 // Type helpers — kept in sync with the schemas above.
 export type CreateBookingTypeInput = z.infer<typeof createBookingTypeSchema>;
+export type UpdateBookingTypeInput = z.infer<typeof updateBookingTypeSchema>;
 export type CreateAvailabilityWindowInput = z.infer<typeof createAvailabilityWindowSchema>;
 export type AcquireSlotHoldInput = z.infer<typeof acquireSlotHoldSchema>;
 export type MutateSlotHoldInput = z.infer<typeof mutateSlotHoldSchema>;
