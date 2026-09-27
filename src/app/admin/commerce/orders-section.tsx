@@ -3,7 +3,7 @@
 import { useState } from "react";
 import type { CommerceAdminDashboard, CommerceAdminOrder, CommerceAdminOrderAudit } from "@/features/commerce/admin-model";
 import { getOrderAuditAdminAction, recordManualPaymentAdminAction } from "@/features/commerce/admin-actions";
-import { BoundedListNote, ErrorBanner, StatusPill, cardStyle, dateTime, fieldStyle, labelStyle, money, sectionTitleStyle, useAdminMutation } from "./admin-ui";
+import { BoundedListNote, ErrorBanner, PageControls, StatusPill, cardStyle, dateTime, fieldStyle, labelStyle, money, sectionTitleStyle, useAdminMutation } from "./admin-ui";
 
 function OrderAudit({ orderId }:{orderId:string}) {
   const [audit,setAudit]=useState<CommerceAdminOrderAudit|null>(null);
@@ -59,9 +59,11 @@ function OrderCard({order,title}:{order:CommerceAdminOrder;title:string}) {
 }
 
 export function OrdersSection({initial}:{initial:CommerceAdminDashboard}) {
-  const offerMap=new Map(initial.offers.items.map(o=>[o.id,o.title]));
-  return <section style={{display:"grid",gap:14}}>
-    <div><h2 style={sectionTitleStyle}>Orders & payment truth</h2><p className="muted" style={{fontSize:12.5,margin:"5px 0 0"}}>Financial state is internal business truth. Manual payment requires operator evidence and explicit confirmation.</p><BoundedListNote list={initial.orders} label="Orders"/></div>
-    {initial.orders.items.length===0?<div style={cardStyle} className="muted">No Orders yet.</div>:initial.orders.items.map(order=><OrderCard key={order.id} order={order} title={offerMap.get(order.offerId)||order.offerId}/>)}
+  return <section id="orders" style={{display:"grid",gap:14}}>
+    <div style={{display:"flex",justifyContent:"space-between",gap:12,flexWrap:"wrap"}}>
+      <div><h2 style={sectionTitleStyle}>Orders & payment truth</h2><p className="muted" style={{fontSize:12.5,margin:"5px 0 0"}}>Financial state is internal business truth. Manual payment requires operator evidence and explicit confirmation.</p><BoundedListNote list={initial.orders} label="Orders"/></div>
+      <PageControls pageKey="orders" list={initial.orders} anchor="orders" />
+    </div>
+    {initial.orders.items.length===0?<div style={cardStyle} className="muted">No Orders on this page.</div>:initial.orders.items.map(order=><OrderCard key={order.id} order={order} title={order.offerTitle}/>)}
   </section>;
 }
