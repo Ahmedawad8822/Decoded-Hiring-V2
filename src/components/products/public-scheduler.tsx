@@ -95,7 +95,7 @@ export function PublicScheduler({
     [model.slots, model.timezone],
   );
   const effectiveSelectedStartAt = model.slots.some(
-    (slot) => slot.startAt === effectiveSelectedStartAt,
+    (slot) => slot.startAt === selectedStartAt,
   )
     ? selectedStartAt
     : model.slots[0]?.startAt ?? "";
