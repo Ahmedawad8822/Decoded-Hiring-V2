@@ -13,7 +13,7 @@ import {
   recoverBookingByRequestKey,
 } from "@/features/scheduling/bookings";
 import {
-  publicBookingVelocityAllowed,
+  consumePublicBookingAdmission,
   resolvePublicBookableSlot,
   type PublicSchedulingKind,
 } from "@/features/scheduling/public-scheduling";
@@ -235,20 +235,6 @@ export async function submitPublicBooking(
   }
 
   const now = new Date();
-  const velocityAllowed = await publicBookingVelocityAllowed({
-    bookingTypeId: parsed.data.bookingTypeId,
-    requesterEmail: parsed.data.requesterEmail,
-    now,
-  });
-  if (!velocityAllowed) {
-    return {
-      ok: false,
-      code: "RATE_LIMITED",
-      message:
-        "Too many booking attempts reached this scheduling route in a short window. Please try again later or use the enquiry form.",
-    };
-  }
-
   const requestedStartAt = new Date(parsed.data.startAt);
   const bookable = await resolvePublicBookableSlot({
     offerSlug: parsed.data.offerSlug,
@@ -266,6 +252,23 @@ export async function submitPublicBooking(
       code: "SLOT_UNAVAILABLE",
       message:
         "That time is no longer available. Refresh the page and choose another slot.",
+    };
+  }
+
+  // Only a server-validated Offer/BookingType/slot attempt may consume public
+  // booking capacity. Admission is atomic and happens before another lease is
+  // acquired, so concurrent rotating-email bursts cannot exceed the cap.
+  const admitted = await consumePublicBookingAdmission({
+    bookingTypeId: bookable.model.bookingTypeId,
+    requesterEmail: parsed.data.requesterEmail,
+    now,
+  });
+  if (!admitted) {
+    return {
+      ok: false,
+      code: "RATE_LIMITED",
+      message:
+        "This scheduling route has received too many booking attempts in a short window. Please try again later or use the enquiry form.",
     };
   }
 
