@@ -3,7 +3,7 @@
 import { useState } from "react";
 import type { CommerceAdminDashboard, CommerceAdminOffer } from "@/features/commerce/admin-model";
 import { createOfferAdminAction, updateOfferAdminAction } from "@/features/commerce/admin-actions";
-import { BoundedListNote, ErrorBanner, cardStyle, fieldStyle, integer, labelStyle, money, nullable, sectionTitleStyle, useAdminMutation } from "./admin-ui";
+import { BoundedListNote, ErrorBanner, PageControls, cardStyle, fieldStyle, integer, labelStyle, money, nullable, sectionTitleStyle, useAdminMutation } from "./admin-ui";
 
 const ACCESS_MODES = ["FREE","PAID_ONE_TIME","PAID_SESSION","MANUAL_INVOICE","PAYMENT_DISABLED","COMING_SOON"] as const;
 
@@ -36,8 +36,11 @@ export function OffersSection({ initial }: { initial:CommerceAdminDashboard }) {
   }
 
   return (
-    <section style={{display:"grid",gap:14}}>
-      <div><h2 style={sectionTitleStyle}>Offers</h2><BoundedListNote list={initial.offers} label="Offers" /></div>
+    <section id="offers" style={{display:"grid",gap:14}}>
+      <div style={{display:"flex",justifyContent:"space-between",gap:12,flexWrap:"wrap"}}>
+        <div><h2 style={sectionTitleStyle}>Offers</h2><BoundedListNote list={initial.offers} label="Offers" /></div>
+        <PageControls pageKey="offers" list={initial.offers} anchor="offers" />
+      </div>
       <ErrorBanner error={mutation.error} />
       <details style={cardStyle}>
         <summary style={{cursor:"pointer",fontWeight:700}}>Create Offer</summary>
@@ -47,7 +50,7 @@ export function OffersSection({ initial }: { initial:CommerceAdminDashboard }) {
             <label style={labelStyle}>Title<input name="title" required minLength={3} style={fieldStyle}/></label>
             <label style={labelStyle}>Slug<input name="slug" required style={fieldStyle}/></label>
             <label style={labelStyle}>Access mode<select value={newMode} onChange={e=>setNewMode(e.target.value as CommerceAdminOffer["accessMode"])} style={fieldStyle}>{ACCESS_MODES.map(v=><option key={v}>{v}</option>)}</select></label>
-            {newKind==="COURSE" && <label style={labelStyle}>Course<select name="courseId" required style={fieldStyle}><option value="">Choose course</option>{initial.courses.items.map(c=><option key={c.id} value={c.id}>{c.title} ({c.status})</option>)}</select><BoundedListNote list={initial.courses} label="courses" /></label>}
+            {newKind==="COURSE" && <label style={labelStyle}>Course<select name="courseId" required style={fieldStyle}><option value="">Choose course</option>{initial.courses.items.map(c=><option key={c.id} value={c.id}>{c.title} ({c.status})</option>)}</select><BoundedListNote list={initial.courses} label="courses" /><PageControls pageKey="courses" list={initial.courses} anchor="offers" /></label>}
             {(newKind==="COACHING"||newKind==="WORKSHOP") && <label style={labelStyle}>Booking type<select name="bookingTypeId" style={fieldStyle}><option value="">Lead-first / no booking type</option>{initial.bookingTypes.items.map(b=><option key={b.id} value={b.id}>{b.title}</option>)}</select></label>}
             <label style={labelStyle}>Currency<input name="currency" placeholder="USD" maxLength={3} style={fieldStyle}/></label>
             <label style={labelStyle}>Amount minor units<input name="amountMinor" type="number" min={0} step={1} style={fieldStyle}/></label>
