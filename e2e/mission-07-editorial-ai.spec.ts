@@ -60,13 +60,44 @@ async function signInAdmin(page: Page) {
   await expect(page).toHaveURL(/\/admin\/content/, { timeout: 30_000 });
 }
 
-async function clickReload(page: Page, selector: string) {
-  const reloaded = page.waitForEvent("framenavigated", {
-    predicate: (frame) => frame === page.mainFrame(),
-    timeout: 60_000,
-  });
+async function clickReload(
+  page: Page,
+  selector: string,
+  expectedText?: string,
+) {
+  const targetUrl = page.url();
+  const reloaded = page
+    .waitForEvent("framenavigated", {
+      predicate: (frame) => frame === page.mainFrame(),
+      timeout: 60_000,
+    })
+    .catch(() => null);
+
   await page.click(selector);
   await reloaded;
+
+  if (expectedText) {
+    await expect
+      .poll(
+        async () => {
+          const response = await page.request.get(targetUrl);
+          if (response.status() >= 400) return "";
+          return response.text();
+        },
+        {
+          timeout: 30_000,
+          intervals: [250, 500, 1_000, 2_000],
+          message: `editorial action ${selector} should persist ${expectedText}`,
+        },
+      )
+      .toContain(expectedText);
+    await page.goto(targetUrl, {
+      waitUntil: "domcontentloaded",
+      timeout: 60_000,
+    });
+    return;
+  }
+
   await page.waitForLoadState("domcontentloaded", { timeout: 60_000 });
 }
 
@@ -212,17 +243,21 @@ test.describe("mission 07 editorial ai lifecycle", () => {
     // === 8. EDIT DRAFT (change title) ===
     await page.click('button:has-text("Edit draft")');
     await page.fill('input[name="title"]', "Evidence: Hiring Signal Decay Guide");
-    await clickReload(page, 'button:has-text("Save changes")');
+    await clickReload(
+      page,
+      'button:has-text("Save changes")',
+      "Evidence: Hiring Signal Decay Guide",
+    );
     await expect(page.locator("h1")).toContainText("Evidence: Hiring Signal Decay Guide");
 
     // === 9. SUBMIT FOR REVIEW -> IN_REVIEW ===
-    await clickReload(page, 'button:has-text("Submit for Review")');
+    await clickReload(page, 'button:has-text("Submit for Review")', "IN_REVIEW");
     await expect(page.locator("text=IN_REVIEW").first()).toBeVisible({
       timeout: 20_000,
     });
 
     // === 10. REJECT -> REJECTED (RECOVERABLE, not terminal) ===
-    await clickReload(page, 'button:has-text("Reject")');
+    await clickReload(page, 'button:has-text("Reject")', "REJECTED");
     await expect(page.locator("text=REJECTED").first()).toBeVisible({
       timeout: 15_000,
     });
@@ -233,7 +268,7 @@ test.describe("mission 07 editorial ai lifecycle", () => {
     });
 
     // === 11. RECOVER -> DRAFT, then re-submit and publish ===
-    await clickReload(page, 'button:has-text("Recover to DRAFT")');
+    await clickReload(page, 'button:has-text("Recover to DRAFT")', "DRAFT");
     await expect(page.locator("text=DRAFT").first()).toBeVisible({
       timeout: 10_000,
     });
@@ -260,13 +295,13 @@ test.describe("mission 07 editorial ai lifecycle", () => {
     expect(hasExactSource2 || hasAnyKnowledge2).toBe(true);
 
     // === 13. SUBMIT FOR REVIEW -> IN_REVIEW ===
-    await clickReload(page, 'button:has-text("Submit for Review")');
+    await clickReload(page, 'button:has-text("Submit for Review")', "IN_REVIEW");
     await expect(page.locator("text=IN_REVIEW").first()).toBeVisible({
       timeout: 20_000,
     });
 
     // === 14. SEND BACK -> DRAFT ===
-    await clickReload(page, 'button:has-text("Send Back")');
+    await clickReload(page, 'button:has-text("Send Back")', "DRAFT");
     await expect(page.locator("text=DRAFT").first()).toBeVisible({
       timeout: 20_000,
     });
@@ -277,26 +312,26 @@ test.describe("mission 07 editorial ai lifecycle", () => {
       'textarea[name="excerpt"]',
       "Revised: evidence-based hiring requires calibrated scoring.",
     );
-    await clickReload(page, 'button:has-text("Save changes")');
+    await clickReload(page, 'button:has-text("Save changes")', "Revised:");
     // Verify excerpt updated
     await expect(
       page.locator("strong:has-text(\"Excerpt:\")").locator("xpath=following-sibling::*"),
     ).toContainText("Revised:");
 
     // === 16. RESUBMIT -> IN_REVIEW ===
-    await clickReload(page, 'button:has-text("Submit for Review")');
+    await clickReload(page, 'button:has-text("Submit for Review")', "IN_REVIEW");
     await expect(page.locator("text=IN_REVIEW").first()).toBeVisible({
       timeout: 20_000,
     });
 
     // === 17. APPROVE -> APPROVED ===
-    await clickReload(page, 'button:has-text("Approve")');
+    await clickReload(page, 'button:has-text("Approve")', "APPROVED");
     await expect(page.locator("text=APPROVED").first()).toBeVisible({
       timeout: 20_000,
     });
 
     // === 18. PUBLISH -> PUBLISHED ===
-    await clickReload(page, 'button:has-text("Publish")');
+    await clickReload(page, 'button:has-text("Publish")', "PUBLISHED");
     await expect(page.locator("text=PUBLISHED").first()).toBeVisible({
       timeout: 20_000,
     });
