@@ -147,8 +147,9 @@ test.describe("mission 07 editorial ai lifecycle", () => {
     await expect
       .poll(
         async () => {
-          await page.reload({ waitUntil: "domcontentloaded", timeout: 60_000 });
-          return (await page.locator("body").textContent()) ?? "";
+          const response = await page.request.get(`/admin/knowledge/${sourceId}`);
+          expect(response.status()).toBe(200);
+          return response.text();
         },
         {
           timeout: 30_000,
@@ -157,6 +158,10 @@ test.describe("mission 07 editorial ai lifecycle", () => {
         },
       )
       .toContain("READY");
+    await page.goto(`/admin/knowledge/${sourceId}`, {
+      waitUntil: "domcontentloaded",
+    });
+    await expect(page.locator("text=READY").first()).toBeVisible();
 
     // Verify chunks were actually created during ingestion
     const chunkCountCell = await page
