@@ -94,15 +94,11 @@ export function PublicScheduler({
     () => groupSlots(model.slots, model.timezone),
     [model.slots, model.timezone],
   );
-
-  useEffect(() => {
-    if (
-      selectedStartAt &&
-      !model.slots.some((slot) => slot.startAt === selectedStartAt)
-    ) {
-      setSelectedStartAt(model.slots[0]?.startAt ?? "");
-    }
-  }, [model.slots, selectedStartAt]);
+  const effectiveSelectedStartAt = model.slots.some(
+    (slot) => slot.startAt === effectiveSelectedStartAt,
+  )
+    ? selectedStartAt
+    : model.slots[0]?.startAt ?? "";
 
   useEffect(() => {
     if (state && !state.ok && state.code === "SLOT_UNAVAILABLE") {
@@ -151,7 +147,7 @@ export function PublicScheduler({
       <input type="hidden" name="offerSlug" value={model.offerSlug} />
       <input type="hidden" name="offerKind" value={model.offerKind} />
       <input type="hidden" name="bookingTypeId" value={model.bookingTypeId} />
-      <input type="hidden" name="startAt" value={selectedStartAt} />
+      <input type="hidden" name="startAt" value={effectiveSelectedStartAt} />
       <input type="hidden" name="requestKey" value={requestKey} />
       <input type="hidden" name="acquisitionKey" value={acquisitionKey} />
       <label className="hg-honeypot" aria-hidden="true">
@@ -181,7 +177,7 @@ export function PublicScheduler({
               <h4>{group.label}</h4>
               <div className="hg-slot-grid">
                 {group.slots.map((slot) => {
-                  const selected = slot.startAt === selectedStartAt;
+                  const selected = slot.startAt === effectiveSelectedStartAt;
                   return (
                     <button
                       key={slot.slotKey}
@@ -298,7 +294,7 @@ export function PublicScheduler({
           <button
             type="submit"
             className="hg-primary"
-            disabled={pending || !selectedStartAt}
+            disabled={pending || !effectiveSelectedStartAt}
           >
             {pending ? "Reserving safely…" : "Reserve this time"}
           </button>
