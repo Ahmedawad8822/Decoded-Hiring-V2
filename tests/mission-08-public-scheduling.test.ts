@@ -633,6 +633,54 @@ test("PUBLIC 08.6: booking velocity guard stops repeated bookings before another
   assert.equal(blocked.code, "RATE_LIMITED");
 });
 
+test("PUBLIC 08.6: rotating emails cannot bypass booking-type burst protection", async () => {
+  const setup = await setupOffer({ realtime: true });
+
+  for (let index = 0; index < 8; index += 1) {
+    const model = await resolvePublicSchedulingModel({
+      offerSlug: setup.offer.slug,
+      kind: "COACHING",
+    });
+    assert.equal(model.enabled, true);
+    if (!model.enabled) return;
+    const slot = model.slots[0];
+    assert.ok(slot);
+
+    const state = await submitPublicBooking(
+      undefined,
+      bookingForm({
+        offerSlug: setup.offer.slug,
+        bookingTypeId: setup.bookingType.id,
+        startAt: slot.startAt,
+        email: `burst-${index}@example.com`,
+      }),
+    );
+    assert.equal(state?.ok, true);
+  }
+
+  const after = await resolvePublicSchedulingModel({
+    offerSlug: setup.offer.slug,
+    kind: "COACHING",
+  });
+  assert.equal(after.enabled, true);
+  if (!after.enabled) return;
+  const nextSlot = after.slots[0];
+  assert.ok(nextSlot);
+
+  const blocked = await submitPublicBooking(
+    undefined,
+    bookingForm({
+      offerSlug: setup.offer.slug,
+      bookingTypeId: setup.bookingType.id,
+      startAt: nextSlot.startAt,
+      email: "burst-rotated@example.com",
+    }),
+  );
+  assert.equal(blocked?.ok, false);
+  if (!blocked || blocked.ok) return;
+  assert.equal(blocked.code, "RATE_LIMITED");
+});
+
 test("PUBLIC 08.6: honeypot submission is rejected without creating a booking", async () => {
   const setup = await setupOffer({ realtime: true });
   const model = await resolvePublicSchedulingModel({
