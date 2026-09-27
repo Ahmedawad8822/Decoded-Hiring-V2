@@ -104,8 +104,11 @@ async function warmAuthenticatedRoute(
   url: string,
 ) {
   const response = await page.request.get(url);
-  expect(response.status(), `warm route ${url}`).toBe(200);
-  await response.body();
+  const body = await response.text();
+  expect(
+    response.status(),
+    `warm route ${url}; finalUrl=${response.url()}; body=${body.slice(0, 800)}`,
+  ).toBe(200);
 }
 
 test.describe("mission 06 learning platform lifecycle", () => {
