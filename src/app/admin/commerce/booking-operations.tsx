@@ -3,7 +3,7 @@
 import { useState } from "react";
 import type { CommerceAdminBooking, CommerceAdminBookingAudit, CommerceAdminDashboard } from "@/features/commerce/admin-model";
 import { bookingDecisionAdminAction, getBookingAuditAdminAction } from "@/features/commerce/admin-actions";
-import { BoundedListNote, ErrorBanner, StatusPill, cardStyle, dateTime, sectionTitleStyle, useAdminMutation } from "./admin-ui";
+import { BoundedListNote, ErrorBanner, PageControls, StatusPill, cardStyle, dateTime, sectionTitleStyle, useAdminMutation } from "./admin-ui";
 
 function BookingAudit({ bookingId }: { bookingId: string }) {
   const [audit,setAudit]=useState<CommerceAdminBookingAudit | null>(null);
@@ -34,7 +34,7 @@ function BookingAudit({ bookingId }: { bookingId: string }) {
   );
 }
 
-function BookingCard({ booking, typeTitle, actions }: { booking:CommerceAdminBooking; typeTitle:string; actions:"request"|"approval"|"upcoming" }) {
+function BookingCard({ booking, actions }: { booking:CommerceAdminBooking; actions:"request"|"approval"|"upcoming" }) {
   const mutation=useAdminMutation();
 
   async function decide(action:"approve"|"decline"|"cancel"|"complete") {
@@ -60,7 +60,7 @@ function BookingCard({ booking, typeTitle, actions }: { booking:CommerceAdminBoo
       <div style={{display:"flex",justifyContent:"space-between",gap:12,flexWrap:"wrap"}}>
         <div>
           <b>{booking.requesterName}</b>
-          <div className="muted" style={{fontSize:12,marginTop:4}}>{typeTitle} · {dateTime(booking.startAt)}</div>
+          <div className="muted" style={{fontSize:12,marginTop:4}}>{booking.bookingTypeTitle} · {dateTime(booking.startAt)}</div>
           <div className="muted" style={{fontSize:12}}>{booking.requesterEmail}</div>
         </div>
         <StatusPill>{booking.status}</StatusPill>
@@ -76,25 +76,32 @@ function BookingCard({ booking, typeTitle, actions }: { booking:CommerceAdminBoo
   );
 }
 
-function BookingQueue({ title, description, list, typeMap, actions }:{
-  title:string; description:string; list:CommerceAdminDashboard["requestedBookings"]; typeMap:Map<string,string>; actions:"request"|"approval"|"upcoming"
+function BookingQueue({ title, description, list, pageKey, anchor, actions }:{
+  title:string;
+  description:string;
+  list:CommerceAdminDashboard["requestedBookings"];
+  pageKey:"requested"|"approvals"|"upcoming";
+  anchor:string;
+  actions:"request"|"approval"|"upcoming";
 }) {
   return (
-    <section style={{display:"grid",gap:14}}>
-      <div><h2 style={sectionTitleStyle}>{title}</h2><p className="muted" style={{fontSize:12.5,margin:"5px 0 0"}}>{description}</p><BoundedListNote list={list} label="bookings" /></div>
+    <section id={anchor} style={{display:"grid",gap:14}}>
+      <div style={{display:"flex",justifyContent:"space-between",gap:12,flexWrap:"wrap"}}>
+        <div><h2 style={sectionTitleStyle}>{title}</h2><p className="muted" style={{fontSize:12.5,margin:"5px 0 0"}}>{description}</p><BoundedListNote list={list} label="bookings" /></div>
+        <PageControls pageKey={pageKey} list={list} anchor={anchor} />
+      </div>
       {list.items.length===0 ? <div style={cardStyle} className="muted">No bookings in this queue.</div> :
-        list.items.map(row=><BookingCard key={row.id} booking={row} typeTitle={typeMap.get(row.bookingTypeId) || row.bookingTypeId} actions={actions} />)}
+        list.items.map(row=><BookingCard key={row.id} booking={row} actions={actions} />)}
     </section>
   );
 }
 
 export function BookingOperations({ initial }: { initial:CommerceAdminDashboard }) {
-  const typeMap=new Map(initial.bookingTypes.items.map(row=>[row.id,row.title]));
   return (
     <>
-      <BookingQueue title="Requested bookings" description="Request-only or otherwise unconfirmed requests that need operator attention." list={initial.requestedBookings} typeMap={typeMap} actions="request" />
-      <BookingQueue title="Approval queue" description="Bookings explicitly waiting for Ahmed/admin approval." list={initial.approvalQueue} typeMap={typeMap} actions="approval" />
-      <BookingQueue title="Upcoming bookings" description="Confirmed future bookings." list={initial.upcomingBookings} typeMap={typeMap} actions="upcoming" />
+      <BookingQueue title="Requested bookings" description="Request-only or otherwise unconfirmed requests that need operator attention." list={initial.requestedBookings} pageKey="requested" anchor="requested" actions="request" />
+      <BookingQueue title="Approval queue" description="Bookings explicitly waiting for Ahmed/admin approval." list={initial.approvalQueue} pageKey="approvals" anchor="approvals" actions="approval" />
+      <BookingQueue title="Upcoming bookings" description="Confirmed future bookings." list={initial.upcomingBookings} pageKey="upcoming" anchor="upcoming" actions="upcoming" />
     </>
   );
 }
