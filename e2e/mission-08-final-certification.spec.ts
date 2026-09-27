@@ -75,6 +75,49 @@ test.beforeAll(() => {
   }
 });
 
+test.beforeAll(async ({ browser }) => {
+  const page = await browser.newPage();
+  try {
+    await page.goto("/admin/login", {
+      waitUntil: "domcontentloaded",
+      timeout: 30_000,
+    });
+    await page
+      .getByLabel(/Admin Email/)
+      .waitFor({ state: "visible", timeout: 10_000 });
+
+    for (const [route, payload] of [
+      ["/api/auth/sign-in/email", {}],
+      ["/api/auth/sign-up/email", {}],
+    ] as const) {
+      const response = await page.request.post(route, { data: payload });
+      if (response.status() < 400 || response.status() > 499) {
+        throw new Error(
+          `auth warm-up failed for ${route}: HTTP ${response.status()}`,
+        );
+      }
+    }
+
+    const session = await page.request.get("/api/auth/get-session");
+    if (session.status() > 499) {
+      throw new Error(
+        `auth session warm-up failed: HTTP ${session.status()}`,
+      );
+    }
+
+    try {
+      await page.goto("/admin/commerce", {
+        waitUntil: "domcontentloaded",
+        timeout: 30_000,
+      });
+    } catch {
+      // Best-effort cold-page compilation warm. The real assertions remain strict.
+    }
+  } finally {
+    await page.close();
+  }
+});
+
 test.describe("Mission 08 final integrated certification", () => {
   test.describe.configure({ mode: "serial" });
 
