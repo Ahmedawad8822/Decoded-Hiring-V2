@@ -22,6 +22,18 @@ function fail(error: unknown, fallback: string): ActionState<never> {
   return { ok: false, error: (error as Error).message || fallback };
 }
 
+async function revalidateLearnerLessonPaths(
+  courseId: string,
+  lessonSlug: string,
+): Promise<void> {
+  const course = await courseService.getAdminCourseById(courseId);
+  if (!course) return;
+  revalidatePath("/learn");
+  revalidatePath("/learn/courses");
+  revalidatePath(`/learn/courses/${course.slug}`);
+  revalidatePath(`/learn/courses/${course.slug}/lessons/${lessonSlug}`);
+}
+
 export async function createCourseAction(
   input: unknown
 ): Promise<ActionState<{ id: string; slug: string }>> {
@@ -180,6 +192,7 @@ export async function publishLessonAction(id: string): Promise<ActionState<{ slu
     await requireAdmin();
     const lesson = await courseService.publishLesson(id);
     revalidatePath(`/admin/courses/${lesson.courseId}/curriculum`);
+    await revalidateLearnerLessonPaths(lesson.courseId, lesson.slug);
     return { ok: true, data: { slug: lesson.slug } };
   } catch (err: unknown) {
     return fail(err, "Failed to publish lesson");
@@ -191,6 +204,7 @@ export async function unpublishLessonAction(id: string): Promise<ActionState<{ s
     await requireAdmin();
     const lesson = await courseService.unpublishLesson(id);
     revalidatePath(`/admin/courses/${lesson.courseId}/curriculum`);
+    await revalidateLearnerLessonPaths(lesson.courseId, lesson.slug);
     return { ok: true, data: { slug: lesson.slug } };
   } catch (err: unknown) {
     return fail(err, "Failed to unpublish lesson");
