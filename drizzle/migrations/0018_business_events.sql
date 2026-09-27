@@ -32,3 +32,10 @@ ON `business_events` (`order_id`);
 --> statement-breakpoint
 CREATE INDEX `business_events_offer_idx`
 ON `business_events` (`offer_id`);
+
+--> statement-breakpoint
+CREATE INDEX `booking_history_action_created_idx`
+ON `booking_history` (`action`, `created_at`);
+--> statement-breakpoint
+CREATE INDEX `order_history_status_created_idx`
+ON `order_history` (`to_status`, `created_at`);
