@@ -91,6 +91,17 @@ export async function recordBusinessEvent(
     .run();
 }
 
+export async function recordBusinessEventBestEffort(
+  input: BusinessEventInput,
+): Promise<boolean> {
+  try {
+    await recordBusinessEvent(input);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 async function reconcileBookingEvents(): Promise<void> {
   const d1 = await getD1Database();
 
