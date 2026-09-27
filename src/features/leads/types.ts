@@ -8,6 +8,15 @@ export const LEAD_SUBMISSION_KINDS = [
 export type LeadSubmissionKind =
   (typeof LEAD_SUBMISSION_KINDS)[number];
 
+export const LEAD_SUBMISSION_STATUSES = [
+  "NEW",
+  "REVIEWED",
+  "CLOSED",
+] as const;
+
+export type LeadSubmissionStatus =
+  (typeof LEAD_SUBMISSION_STATUSES)[number];
+
 export type LeadActionState =
   | undefined
   | { ok: true; message: string }
