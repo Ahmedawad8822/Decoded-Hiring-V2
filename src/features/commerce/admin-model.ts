@@ -1,3 +1,5 @@
+import type { BusinessEventSummary } from "@/features/analytics/types";
+
 export type CommerceAdminPageKey =
   | "offers"
   | "bookingTypes"
@@ -182,6 +184,7 @@ export type CommerceAdminDashboard = {
   providers: CommerceAdminProviderStatus[];
   courses: BoundedAdminList<CommerceAdminCourse>;
   linkedOfferBookingTypeIds: string[];
+  observability: BusinessEventSummary;
 };
 
 export type CommerceAdminBookingAudit = {
