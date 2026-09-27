@@ -72,11 +72,8 @@ type BookingRow = {
   bookingTypeId: string;
   requesterName: string;
   requesterEmail: string;
-  requesterPhone: string | null;
-  notes: string | null;
   startAt: string;
   endAt: string;
-  timezone: string;
   status:
     | "REQUESTED"
     | "PENDING_APPROVAL"
@@ -85,7 +82,6 @@ type BookingRow = {
     | "CANCELLED"
     | "DECLINED";
   version: number;
-  createdAt: string;
 };
 
 type BookingHistoryRow = {
@@ -102,20 +98,13 @@ type BookingHistoryRow = {
 type OrderRow = {
   id: string;
   offerId: string;
-  offerKind: string;
   accessMode: string;
-  bookingId: string | null;
-  userId: string | null;
   customerEmail: string;
-  quantity: number;
   amountMinor: number | null;
   currency: string | null;
   status: string;
   version: number;
-  providerCheckoutId: string | null;
-  providerPaymentId: string | null;
   createdAt: string;
-  updatedAt: string;
 };
 
 type OrderHistoryRow = {
