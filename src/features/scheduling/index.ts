@@ -26,6 +26,7 @@ export type {
 } from "./types";
 export type {
   CreateBookingTypeInput,
+  UpdateBookingTypeInput,
   CreateAvailabilityWindowInput,
   AcquireSlotHoldInput,
   MutateSlotHoldInput,
@@ -34,6 +35,7 @@ export type {
 // Zod schemas
 export {
   createBookingTypeSchema,
+  updateBookingTypeSchema,
   createAvailabilityWindowSchema,
   acquireSlotHoldSchema,
   mutateSlotHoldSchema,
@@ -70,11 +72,14 @@ export {
 // Policy / service layer
 export {
   createBookingType,
+  updateBookingType,
   getBookingTypeBySlug,
   getBookingTypeById,
   getActiveBookingType,
   listBookingTypes,
+  listAllBookingTypes,
   createAvailabilityWindow,
+  deleteAvailabilityWindow,
   getBookingTypeWindows,
   getActiveBookingTypeWithWindows,
 } from "./policy";
