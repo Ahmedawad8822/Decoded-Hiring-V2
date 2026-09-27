@@ -127,6 +127,13 @@
       "when": 1790487600000,
       "tag": "0017_public_rate_limits",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "6",
+      "when": 1790515200000,
+      "tag": "0018_business_events",
+      "breakpoints": true
     }
   ]
 }
