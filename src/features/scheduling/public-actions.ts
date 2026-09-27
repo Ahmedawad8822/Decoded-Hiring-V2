@@ -261,23 +261,7 @@ export async function submitPublicBooking(
     };
   }
 
-  await recordBusinessEventBestEffort({
-    dedupeKey: `public-booking:${parsed.data.requestKey}:started`,
-    eventName: "booking_started",
-    subjectType: "BOOKING_TYPE",
-    subjectId: bookable.model.bookingTypeId,
-    bookingTypeId: bookable.model.bookingTypeId,
-    route: publicRoute(parsed.data.offerKind),
-    surface: "public-scheduler",
-    metadata: {
-      offer_kind: parsed.data.offerKind,
-      offer_slug: parsed.data.offerSlug,
-      access_mode: "FREE",
-    },
-    occurredAt: now,
-  });
-
-    // Only a server-validated Offer/BookingType/slot attempt may consume public
+  // Only a server-validated Offer/BookingType/slot attempt may consume public
   // booking capacity. Admission is atomic and happens before another lease is
   // acquired, so concurrent rotating-email bursts cannot exceed the cap.
   const admitted = await consumePublicBookingAdmission({
