@@ -245,7 +245,7 @@ export async function submitPublicBooking(
       ok: false,
       code: "RATE_LIMITED",
       message:
-        "Too many booking attempts were created for this email in a short window. Please use the enquiry form if you need help.",
+        "Too many booking attempts reached this scheduling route in a short window. Please try again later or use the enquiry form.",
     };
   }
 
