@@ -104,7 +104,6 @@ async function recoverExistingPublicBooking(
   booking: {
     id: string;
     requestKey: string;
-    requestKey: string;
     bookingTypeId: string;
     requesterName: string;
     requesterEmail: string;
