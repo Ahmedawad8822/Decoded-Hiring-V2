@@ -161,6 +161,16 @@ async function getBookingByRequestKey(requestKey: string): Promise<Booking | und
   return db.select().from(bookings).where(eq(bookings.requestKey, requestKey)).get();
 }
 
+/**
+ * Server-internal idempotency recovery seam for public scheduling actions.
+ * Intentionally not exported from the scheduling barrel.
+ */
+export async function recoverBookingByRequestKey(
+  requestKey: string,
+): Promise<Booking | undefined> {
+  return getBookingByRequestKey(requestKey);
+}
+
 async function getBookingHistory(bookingId: string): Promise<BookingHistory[]> {
   const db = await getDb();
   return db
