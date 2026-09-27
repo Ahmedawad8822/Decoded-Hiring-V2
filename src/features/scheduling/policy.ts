@@ -19,8 +19,10 @@ import type { BookingType, BookingAvailabilityWindow } from "@/lib/db";
 import { SchedulingDomainError } from "./errors";
 import {
   createBookingTypeSchema,
+  updateBookingTypeSchema,
   createAvailabilityWindowSchema,
   type CreateBookingTypeInput,
+  type UpdateBookingTypeInput,
   type CreateAvailabilityWindowInput,
 } from "./schemas";
 
@@ -106,6 +108,57 @@ export async function createBookingType(data: CreateBookingTypeInput): Promise<B
 /**
  * Look up a booking type by slug. Returns null if not found.
  */
+export async function updateBookingType(data: UpdateBookingTypeInput): Promise<BookingType> {
+  const parsed = updateBookingTypeSchema.parse(data);
+  const db = await getDb();
+  const current = await db
+    .select()
+    .from(bookingTypes)
+    .where(eq(bookingTypes.id, parsed.id))
+    .get();
+  if (!current) {
+    throw new SchedulingDomainError("Booking type not found.", "BOOKING_TYPE_NOT_FOUND");
+  }
+
+  const changes: Partial<typeof bookingTypes.$inferInsert> = {
+    updatedAt: new Date(),
+  };
+  if (parsed.slug !== undefined) changes.slug = parsed.slug;
+  if (parsed.title !== undefined) changes.title = parsed.title;
+  if (parsed.description !== undefined) changes.description = parsed.description ?? null;
+  if (parsed.durationMinutes !== undefined) changes.durationMinutes = parsed.durationMinutes;
+  if (parsed.bufferBeforeMinutes !== undefined) changes.bufferBeforeMinutes = parsed.bufferBeforeMinutes;
+  if (parsed.bufferAfterMinutes !== undefined) changes.bufferAfterMinutes = parsed.bufferAfterMinutes;
+  if (parsed.minimumNoticeMinutes !== undefined) changes.minimumNoticeMinutes = parsed.minimumNoticeMinutes;
+  if (parsed.bookingHorizonDays !== undefined) changes.bookingHorizonDays = parsed.bookingHorizonDays;
+  if (parsed.timezone !== undefined) changes.timezone = parsed.timezone;
+  if (parsed.confirmationPolicy !== undefined) changes.confirmationPolicy = parsed.confirmationPolicy;
+  if (parsed.accessMode !== undefined) changes.accessMode = parsed.accessMode;
+  if (parsed.meetingMethod !== undefined) changes.meetingMethod = parsed.meetingMethod;
+  if (parsed.attendeeLimit !== undefined) changes.attendeeLimit = parsed.attendeeLimit;
+  if (parsed.active !== undefined) changes.active = parsed.active;
+
+  try {
+    await db.update(bookingTypes).set(changes).where(eq(bookingTypes.id, current.id));
+  } catch (error: unknown) {
+    if (isUniqueConstraintError(error)) {
+      throw new SchedulingDomainError(
+        `Booking type with slug "${parsed.slug ?? current.slug}" already exists.`,
+        "DUPLICATE_SLUG",
+      );
+    }
+    throw error;
+  }
+
+  const updated = await db
+    .select()
+    .from(bookingTypes)
+    .where(eq(bookingTypes.id, current.id))
+    .get();
+  if (!updated) throw new Error("Booking type update committed but could not be re-read.");
+  return updated;
+}
+
 export async function getBookingTypeBySlug(slug: string): Promise<BookingType | null> {
   const db = await getDb();
   const row = await db
@@ -145,6 +198,12 @@ export async function getActiveBookingType(slug: string): Promise<BookingType | 
 /**
  * Return all active booking types, ordered by title.
  */
+export async function listAllBookingTypes(): Promise<BookingType[]> {
+  const db = await getDb();
+  const { asc } = await import("drizzle-orm");
+  return db.select().from(bookingTypes).orderBy(asc(bookingTypes.title));
+}
+
 export async function listBookingTypes(): Promise<BookingType[]> {
   const db = await getDb();
   const { asc } = await import("drizzle-orm");
@@ -301,4 +360,20 @@ export async function getActiveBookingTypeWithWindows(
   if (!bookingType) return null;
   const windows = await getBookingTypeWindows(bookingType.id);
   return { bookingType, windows };
+}
+
+
+/** Admin configuration helper: remove one exact availability window. */
+export async function deleteAvailabilityWindow(id: string): Promise<boolean> {
+  const db = await getDb();
+  const existing = await db
+    .select({ id: bookingAvailabilityWindows.id })
+    .from(bookingAvailabilityWindows)
+    .where(eq(bookingAvailabilityWindows.id, id))
+    .get();
+  if (!existing) return false;
+  await db
+    .delete(bookingAvailabilityWindows)
+    .where(eq(bookingAvailabilityWindows.id, id));
+  return true;
 }
