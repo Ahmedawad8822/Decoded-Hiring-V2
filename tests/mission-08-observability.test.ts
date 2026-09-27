@@ -189,6 +189,64 @@ test("OBS 08.8: booking lifecycle emits requested + confirmed without PII", asyn
   assert.doesNotMatch(serialized, /example\.com/i);
   assert.doesNotMatch(serialized, /Sensitive qualification/i);
   assert.doesNotMatch(serialized, /201000000000/);
+
+  const beforeReconcile = rows.length;
+  await reconcileDurableBusinessEvents({ since: NOW });
+  const afterReconcile = await rawEvents("booking_id", booking.id);
+  assert.equal(
+    afterReconcile.length,
+    beforeReconcile,
+    "direct and reconstructed booking events must share durable dedupe identity",
+  );
+});
+
+test("OBS 08.8: recovery preserves repeated same-second booking transitions", async () => {
+  const { booking } = await makeAutoConfirmBooking();
+  const d1 = await getD1Database();
+  const occurredAt = Math.floor((NOW.getTime() + 5_000) / 1000);
+  const historyA = `bkh_${unique("same-second-a")}`;
+  const historyB = `bkh_${unique("same-second-b")}`;
+
+  await d1.batch([
+    d1
+      .prepare(
+        `INSERT INTO booking_history
+         (id, booking_id, action, from_status, to_status, actor_id, detail, created_at)
+         VALUES (?, ?, 'RESCHEDULED', 'CONFIRMED', 'CONFIRMED', 'test-admin', '{}', ?)`,
+      )
+      .bind(historyA, booking.id, occurredAt),
+    d1
+      .prepare(
+        `INSERT INTO booking_history
+         (id, booking_id, action, from_status, to_status, actor_id, detail, created_at)
+         VALUES (?, ?, 'RESCHEDULED', 'CONFIRMED', 'CONFIRMED', 'test-admin', '{}', ?)`,
+      )
+      .bind(historyB, booking.id, occurredAt),
+  ]);
+
+  await reconcileDurableBusinessEvents({
+    since: new Date(occurredAt * 1000),
+  });
+
+  const rows = (await rawEvents("booking_id", booking.id)).filter(
+    (row) => row.eventName === "booking_rescheduled",
+  );
+  assert.equal(rows.length, 2);
+  assert.deepEqual(
+    new Set(rows.map((row) => row.dedupeKey)),
+    new Set([
+      `booking-history:${historyA}:booking_rescheduled`,
+      `booking-history:${historyB}:booking_rescheduled`,
+    ]),
+  );
+
+  await reconcileDurableBusinessEvents({
+    since: new Date(occurredAt * 1000),
+  });
+  const repeated = (await rawEvents("booking_id", booking.id)).filter(
+    (row) => row.eventName === "booking_rescheduled",
+  );
+  assert.equal(repeated.length, 2, "recovery must remain idempotent");
 });
 
 test("OBS 08.8: checkout + manual payment emit durable payment funnel truth", async () => {
