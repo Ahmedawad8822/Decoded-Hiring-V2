@@ -19,9 +19,5 @@ export default async function AdminCommercePage() {
 
   const dashboard = await getCommerceAdminDashboard();
 
-  // Explicit JSON round-trip gives the client a stable wire model: all Date
-  // values become ISO strings and no server/provider objects cross the RSC seam.
-  const initial = JSON.parse(JSON.stringify(dashboard));
-
-  return <CommerceAdminClient initial={initial} />;
+  return <CommerceAdminClient initial={dashboard} />;
 }
