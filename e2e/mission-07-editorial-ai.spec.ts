@@ -45,12 +45,19 @@ const FIXTURE_BASE = path.resolve(__dirname, "fixtures", "sample-knowledge.md");
 const FORBIDDEN = ["builders", "gcc", "compiler", "production features", "production systems"];
 
 async function signInAdmin(page: Page) {
-  await page.goto("/admin/login");
-  await page.getByLabel(/Admin Email/).waitFor({ state: "visible" });
-  await page.getByLabel(/Admin Email/).fill(ADMIN_EMAIL);
-  await page.getByLabel(/^Password/).fill(ADMIN_PASSWORD);
-  await page.getByRole("button", { name: /Sign in to Studio/ }).click();
-  await page.waitForURL(/\/admin\/content/);
+  const response = await page.request.post("/api/auth/sign-in/email", {
+    data: {
+      email: ADMIN_EMAIL,
+      password: ADMIN_PASSWORD,
+      callbackURL: "/admin/content",
+    },
+  });
+  expect(
+    response.status(),
+    `admin Better Auth sign-in returned HTTP ${response.status()}`,
+  ).toBeLessThan(400);
+  await page.goto("/admin/content", { waitUntil: "domcontentloaded" });
+  await expect(page).toHaveURL(/\/admin\/content/, { timeout: 30_000 });
 }
 
 async function clickReload(page: Page, selector: string) {
