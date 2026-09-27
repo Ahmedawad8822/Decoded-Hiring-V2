@@ -417,6 +417,40 @@ export async function createBookingRequest(
   return created;
 }
 
+export async function recoverAutoConfirmBooking(
+  bookingId: string,
+  expectedVersion: number,
+  now: Date,
+): Promise<Booking> {
+  const booking = await getBookingById(bookingId);
+  if (!booking) {
+    throw new SchedulingDomainError("Booking not found.", "BOOKING_NOT_FOUND");
+  }
+  if (booking.status === "CONFIRMED") return booking;
+
+  const db = await getDb();
+  const bookingType = await db
+    .select()
+    .from(bookingTypes)
+    .where(eq(bookingTypes.id, booking.bookingTypeId))
+    .get();
+  if (
+    !bookingType ||
+    bookingType.confirmationPolicy !== "AUTO_CONFIRM"
+  ) {
+    throw new SchedulingDomainError(
+      "Only AUTO_CONFIRM bookings may use system recovery.",
+      "AUTHORIZATION_REQUIRED",
+    );
+  }
+
+  return confirmBoundBooking(
+    { bookingId, expectedVersion, now },
+    "AUTO_CONFIRMED",
+    { id: "system:auto-confirm-recovery", role: "system" },
+  );
+}
+
 async function confirmBoundBooking(
   input: BookingTransitionInput,
   action: Extract<BookingHistoryAction, "AUTO_CONFIRMED" | "APPROVED" | "CONFIRMED">,
