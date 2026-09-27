@@ -390,6 +390,81 @@ test("PUBLIC 08.6: concurrent attempts at one slot produce one winner", async ()
   assert.equal(losers.length, 1);
 });
 
+test("PUBLIC 08.6: booking velocity guard stops repeated bookings before another lease", async () => {
+  const setup = await setupOffer({ realtime: true });
+  const email = "velocity@example.com";
+
+  for (let index = 0; index < 3; index += 1) {
+    const model = await resolvePublicSchedulingModel({
+      offerSlug: setup.offer.slug,
+      kind: "COACHING",
+    });
+    assert.equal(model.enabled, true);
+    if (!model.enabled) return;
+    const slot = model.slots[0];
+    assert.ok(slot);
+
+    const state = await submitPublicBooking(
+      undefined,
+      bookingForm({
+        offerSlug: setup.offer.slug,
+        bookingTypeId: setup.bookingType.id,
+        startAt: slot.startAt,
+        email,
+      }),
+    );
+    assert.equal(state?.ok, true);
+  }
+
+  const after = await resolvePublicSchedulingModel({
+    offerSlug: setup.offer.slug,
+    kind: "COACHING",
+  });
+  assert.equal(after.enabled, true);
+  if (!after.enabled) return;
+  const nextSlot = after.slots[0];
+  assert.ok(nextSlot);
+
+  const blocked = await submitPublicBooking(
+    undefined,
+    bookingForm({
+      offerSlug: setup.offer.slug,
+      bookingTypeId: setup.bookingType.id,
+      startAt: nextSlot.startAt,
+      email,
+    }),
+  );
+  assert.equal(blocked?.ok, false);
+  if (!blocked || blocked.ok) return;
+  assert.equal(blocked.code, "RATE_LIMITED");
+});
+
+test("PUBLIC 08.6: honeypot submission is rejected without creating a booking", async () => {
+  const setup = await setupOffer({ realtime: true });
+  const model = await resolvePublicSchedulingModel({
+    offerSlug: setup.offer.slug,
+    kind: "COACHING",
+  });
+  assert.equal(model.enabled, true);
+  if (!model.enabled) return;
+  const slot = model.slots[0];
+  const form = bookingForm({
+    offerSlug: setup.offer.slug,
+    bookingTypeId: setup.bookingType.id,
+    startAt: slot.startAt,
+    email: "bot@example.com",
+  });
+  form.set("website", "https://spam.example");
+
+  const db = await getDb();
+  const before = await db.select().from(bookings).all();
+  const state = await submitPublicBooking(undefined, form);
+  const after = await db.select().from(bookings).all();
+
+  assert.equal(state?.ok, false);
+  assert.equal(after.length, before.length);
+});
+
 test("PUBLIC 08.6: tampered bookingTypeId fails closed", async () => {
   const setup = await setupOffer({ realtime: true });
   const model = await resolvePublicSchedulingModel({
