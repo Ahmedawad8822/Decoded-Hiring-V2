@@ -730,6 +730,22 @@ test("PUBLIC 08.6: tampered bookingTypeId fails closed", async () => {
   assert.equal(state.code, "SLOT_UNAVAILABLE");
 });
 
+test("PUBLIC 08.6: honeypot remains submitted but visually hidden from real users", () => {
+  const css = readFileSync(
+    join(process.cwd(), "src", "app", "(site)", "site.css"),
+    "utf8",
+  );
+  const scheduler = readFileSync(
+    join(process.cwd(), "src", "components", "products", "public-scheduler.tsx"),
+    "utf8",
+  );
+
+  assert.ok(scheduler.includes('className="hg-honeypot"'));
+  assert.ok(css.includes(".hg-honeypot {"));
+  assert.ok(css.includes("clip-path: inset(50%)"));
+  assert.ok(css.includes("width: 1px"));
+});
+
 test("PUBLIC 08.6: public pages keep scheduler conditional and lead fallback present", () => {
   const coaching = readFileSync(
     join(process.cwd(), "src", "app", "(site)", "coaching", "page.tsx"),
