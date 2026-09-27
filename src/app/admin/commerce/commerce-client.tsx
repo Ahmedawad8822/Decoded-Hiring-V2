@@ -175,6 +175,7 @@ type Snapshot = {
     activeOffers: number;
     activeBookingTypes: number;
     approvalQueue: number;
+    requestedBookings: number;
     upcomingBookings: number;
     openOrders: number;
     blockedEffects: number;
@@ -549,6 +550,7 @@ export function CommerceAdminClient({ initial }: { initial: Snapshot }) {
           ["Active Offers", initial.summary.activeOffers],
           ["Booking Types", initial.summary.activeBookingTypes],
           ["Approval Queue", initial.summary.approvalQueue],
+          ["Requests", initial.summary.requestedBookings],
           ["Upcoming", initial.summary.upcomingBookings],
           ["Open Orders", initial.summary.openOrders],
           ["Blocked Effects", initial.summary.blockedEffects],
@@ -597,7 +599,7 @@ export function CommerceAdminClient({ initial }: { initial: Snapshot }) {
 
       <section style={{ display: "grid", gap: 14 }}>
         <div>
-          <h2 style={sectionTitleStyle}>Approval queue</h2>
+          <h2 style={sectionTitleStyle}>Requests & approval queue</h2>
           <p className="muted" style={{ fontSize: 12.5, margin: "5px 0 0" }}>
             Only server-authorized lifecycle transitions are available here.
           </p>
