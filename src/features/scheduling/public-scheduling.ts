@@ -145,9 +145,9 @@ async function listAvailableSlots(params: {
   ]);
 
   let providerBusy: Array<{ startAt: Date; endAt: Date }> = [];
-  const calendarStatus = await providers.calendar.getStatus();
-  if (calendarStatus.configured) {
-    try {
+  try {
+    const calendarStatus = await providers.calendar.getStatus();
+    if (calendarStatus.configured) {
       const busy = await providers.calendar.getFreeBusy({
         calendarId: "decoded-hiring-primary",
         rangeStart: params.rangeStart,
@@ -156,12 +156,13 @@ async function listAvailableSlots(params: {
       providerBusy = busy
         .filter((entry) => entry.busy)
         .map((entry) => ({ startAt: entry.startAt, endAt: entry.endAt }));
-    } catch {
-      // A configured calendar is an authoritative conflict input. If it cannot
-      // be read, fail the public scheduler closed instead of showing slots that
-      // may already be occupied or crashing the product page.
-      throw new PublicAvailabilityProviderError();
     }
+  } catch {
+    // A configured calendar is an authoritative conflict input. If provider
+    // readiness or free/busy cannot be verified, fail the public scheduler
+    // closed instead of showing slots that may already be occupied or crashing
+    // the product page.
+    throw new PublicAvailabilityProviderError();
   }
 
   return candidates
