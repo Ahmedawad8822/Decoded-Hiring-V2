@@ -28,6 +28,7 @@ import { generateCandidateSlots } from "./availability";
 import { getBookingTypeById, getBookingTypeWindows } from "./policy";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
+const MAX_PUBLIC_SLOTS = 60;
 
 export type PublicSchedulingKind = Extract<Offer["kind"], "COACHING" | "WORKSHOP">;
 
@@ -177,7 +178,8 @@ async function listAvailableSlots(params: {
       startAt: slot.startAt.toISOString(),
       endAt: slot.endAt.toISOString(),
       slotKey: slot.slotKey,
-    }));
+    }))
+    .slice(0, MAX_PUBLIC_SLOTS);
 }
 
 export async function publicBookingVelocityAllowed(params: {
