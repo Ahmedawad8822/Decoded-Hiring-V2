@@ -21,11 +21,22 @@ const ADMIN_EMAIL = localEnv("ADMIN_INITIAL_EMAIL");
 const ADMIN_PASSWORD = localEnv("ADMIN_INITIAL_PASSWORD");
 
 async function signInAdmin(page: Page) {
-  await page.goto("/admin/login");
-  await page.getByLabel(/Admin Email/).fill(ADMIN_EMAIL);
-  await page.getByLabel(/^Password/).fill(ADMIN_PASSWORD);
-  await page.getByRole("button", { name: "Sign in to Studio" }).click();
-  await expect(page).toHaveURL(/\/admin\/content/, { timeout: 90_000 });
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    await page.goto("/admin/login", { waitUntil: "domcontentloaded" });
+    await page.getByLabel(/Admin Email/).fill(ADMIN_EMAIL);
+    await page.getByLabel(/^Password/).fill(ADMIN_PASSWORD);
+    await page.getByRole("button", { name: "Sign in to Studio" }).click();
+    const signedIn = await page
+      .waitForURL(/\/admin\/content/, { timeout: 30_000 })
+      .then(() => true)
+      .catch(() => false);
+    if (signedIn) return;
+    if (attempt === 0) {
+      await page.waitForTimeout(250);
+      continue;
+    }
+  }
+  await expect(page).toHaveURL(/\/admin\/content/, { timeout: 5_000 });
 }
 
 async function assertNoHorizontalOverflow(page: Page, url: string, width: number) {
