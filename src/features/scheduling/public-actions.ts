@@ -12,6 +12,7 @@ import {
   recoverBookingByRequestKey,
 } from "@/features/scheduling/bookings";
 import {
+  publicBookingVelocityAllowed,
   resolvePublicBookableSlot,
   type PublicSchedulingKind,
 } from "@/features/scheduling/public-scheduling";
@@ -59,6 +60,7 @@ export type PublicBookingActionState =
         | "VALIDATION"
         | "UNAVAILABLE"
         | "SLOT_UNAVAILABLE"
+        | "RATE_LIMITED"
         | "CONFLICT"
         | "UNEXPECTED";
       message: string;
@@ -168,6 +170,20 @@ export async function submitPublicBooking(
   }
 
   const now = new Date();
+  const velocityAllowed = await publicBookingVelocityAllowed({
+    bookingTypeId: parsed.data.bookingTypeId,
+    requesterEmail: parsed.data.requesterEmail,
+    now,
+  });
+  if (!velocityAllowed) {
+    return {
+      ok: false,
+      code: "RATE_LIMITED",
+      message:
+        "Too many booking attempts were created for this email in a short window. Please use the enquiry form if you need help.",
+    };
+  }
+
   const requestedStartAt = new Date(parsed.data.startAt);
   const bookable = await resolvePublicBookableSlot({
     offerSlug: parsed.data.offerSlug,
