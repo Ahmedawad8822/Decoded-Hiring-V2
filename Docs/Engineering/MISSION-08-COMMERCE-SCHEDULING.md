@@ -1069,3 +1069,84 @@ Do not merge Slice 08.6 into `mission-08-commerce-scheduling` until:
 - any Critical/Major findings are remediated and re-reviewed
 - ChatGPT final exact-SHA verification passes
 - Ahmed explicitly says GO
+
+
+## Slice 08.7 — Studio Scheduling / Commerce Control Plane
+
+Status: **IMPLEMENTATION IN PROGRESS**
+
+Pinned branch:
+`mission-08.7-studio-commerce-control-plane`
+
+Pinned base:
+`mission-08-commerce-scheduling@1acd15278012de8e9e03d0a100d9a472c7e1bc1b`
+
+### Intent
+
+Close the admin/control-plane obligation in `COMMERCE-SCHEDULING-SPEC.md`
+without activating any external payment, calendar, mailbox or meeting provider.
+
+### Scope
+
+- one discoverable Studio `/admin/commerce` operational surface
+- Offers create/edit/activate/deactivate
+- Booking Type create/edit/activate/deactivate
+- weekly availability window add/remove
+- requested / pending-approval queue
+- upcoming confirmed bookings
+- authorized approve / decline / cancel / complete transitions
+- Orders and internal payment-state truth
+- authorized MANUAL_INVOICE payment recording
+- payment and booking audit/history visibility
+- provider runtime status visibility
+- durable orchestration health visibility
+- loading / error / empty / mutation-busy states
+- server-side Better Auth authorization on reads and mutations
+
+### Safety boundaries
+
+Slice 08.7 does **not**:
+- activate a payment provider
+- activate a calendar, mailbox or meeting provider
+- accept or persist provider credentials/secrets
+- expose raw card data
+- create a provider-configuration UI
+- deploy
+- change DNS
+- change production resources
+
+Provider status is read-only. Existing fail-closed provider-neutral adapters remain
+authoritative.
+
+### Architecture
+
+The control plane composes existing Mission 08 domain services instead of
+reimplementing booking/payment transitions in UI code:
+
+- Offer truth remains in `features/offers`
+- scheduling policy remains in `features/scheduling`
+- booking lifecycle remains in `features/scheduling/bookings.ts`
+- Order/payment truth remains in `features/commerce/orders.ts`
+- orchestration truth remains in `features/commerce/orchestration.ts`
+- `features/commerce/admin.ts` is an authenticated aggregate read model only
+- `features/commerce/admin-actions.ts` is the authorized Server Action boundary
+
+### Initial regression boundary
+
+Dedicated suite:
+`tests/mission-08-studio-commerce.test.ts`
+
+The suite covers:
+- in-place Booking Type configuration updates
+- explicit availability-window removal
+- fail-closed unauthenticated Studio mutation
+- fail-closed unauthenticated aggregate read
+- Studio discoverability
+- absence of provider-activation/credential controls
+
+### Residual Mission 08 work after 08.7
+
+08.7 is not the final Mission 08 certification slice. Still outstanding:
+- meaningful commerce/scheduling business-event analytics/observability
+- complete browser/mobile/accessibility E2E
+- final security/concurrency/recovery certification across the integrated workflow
