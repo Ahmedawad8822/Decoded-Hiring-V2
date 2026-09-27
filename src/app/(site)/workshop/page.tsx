@@ -4,6 +4,7 @@ import Image from "next/image";
 
 import { WorkshopProgramme } from "@/components/products/workshop-programme";
 import { PublicScheduler } from "@/components/products/public-scheduler";
+import { TrackedOfferLink } from "@/components/products/tracked-offer-link";
 import { WorkshopSystemMap } from "@/components/products/workshop-system-map";
 import { LeadForm } from "@/features/leads/lead-form";
 import { publicMetadata } from "@/lib/seo";
@@ -62,8 +63,12 @@ export default async function WorkshopPage() {
                 Currently unavailable
               </span>
             ) : (
-              <a
+              <TrackedOfferLink
                 className="hg-primary"
+                offerSlug={PUBLIC_OFFER_SLUGS.workshop}
+                route="/workshop"
+                surface="hero-primary"
+                target={scheduling.enabled ? "schedule" : "lead"}
                 href={
                   scheduling.enabled
                     ? "#workshop-schedule"
@@ -74,11 +79,18 @@ export default async function WorkshopPage() {
                   ? "Choose a time"
                   : offerPresentation?.ctaLabel ?? "Bring this to my team"}{" "}
                 <ArrowUpRight aria-hidden="true" />
-              </a>
+              </TrackedOfferLink>
             )}
-            <a className="hg-secondary" href="#workshop-brief">
+            <TrackedOfferLink
+              className="hg-secondary"
+              offerSlug={PUBLIC_OFFER_SLUGS.workshop}
+              route="/workshop"
+              surface="hero-secondary"
+              target="lead"
+              href="#workshop-brief"
+            >
               Join the open-cohort list
-            </a>
+            </TrackedOfferLink>
           </div>
         </div>
         <figure className="hg-product-portrait hg-product-portrait--workshop">
