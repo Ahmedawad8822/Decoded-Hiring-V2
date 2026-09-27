@@ -14,7 +14,6 @@ import { and, eq, gt, gte, inArray, lt, or } from "drizzle-orm";
 
 import {
   bookings,
-  bookingTypes,
   slotHolds,
   type BookingType,
   type Offer,
