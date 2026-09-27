@@ -79,7 +79,6 @@ export {
   listBookingTypes,
   listAllBookingTypes,
   createAvailabilityWindow,
-  deleteAvailabilityWindow,
   getBookingTypeWindows,
   getActiveBookingTypeWithWindows,
 } from "./policy";
