@@ -1,6 +1,5 @@
 "use client";
 
-import { useMemo } from "react";
 import type { CommerceAdminBookingType, CommerceAdminDashboard } from "@/features/commerce/admin-model";
 import { createAvailabilityWindowAdminAction, createBookingTypeAdminAction, deleteAvailabilityWindowAdminAction, updateBookingTypeAdminAction } from "@/features/commerce/admin-actions";
 import { BoundedListNote, ErrorBanner, cardStyle, clockFromMinutes, fieldStyle, integer, labelStyle, minutesFromClock, nullable, sectionTitleStyle, useAdminMutation } from "./admin-ui";
@@ -30,7 +29,12 @@ function Fields({value,offerOwned=false}:{value?:CommerceAdminBookingType;offerO
 
 export function BookingTypesSection({initial}:{initial:CommerceAdminDashboard}) {
   const mutation=useAdminMutation();
-  const windows=useMemo(()=>{const m=new Map<string,typeof initial.windows.items>();for(const w of initial.windows.items){const a=m.get(w.bookingTypeId)||[];a.push(w);m.set(w.bookingTypeId,a);}return m;},[initial.windows.items]);
+  const windows=new Map<string,typeof initial.windows.items>();
+  for(const w of initial.windows.items){
+    const existing=windows.get(w.bookingTypeId) ?? [];
+    existing.push(w);
+    windows.set(w.bookingTypeId,existing);
+  }
   const offerOwned=new Set(initial.linkedOfferBookingTypeIds);
 
   function parse(form:FormData,value?:CommerceAdminBookingType) {
