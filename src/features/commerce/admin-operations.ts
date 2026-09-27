@@ -30,6 +30,22 @@ export type CommerceAdminActionState<T = unknown> = {
 
 export type CommerceAdminGuard = () => Promise<unknown>;
 
+type AdminOperationDependencies = {
+  approveBooking: typeof approveBooking;
+  declineBooking: typeof declineBooking;
+  cancelBooking: typeof cancelBooking;
+  completeBooking: typeof completeBooking;
+  recordManualPayment: typeof recordManualPaymentForAdmin;
+};
+
+const productionDependencies: AdminOperationDependencies = {
+  approveBooking,
+  declineBooking,
+  cancelBooking,
+  completeBooking,
+  recordManualPayment: recordManualPaymentForAdmin,
+};
+
 const SAFE_BUSINESS_ERROR =
   /^(An offer|This course|This booking type|Linked course|Linked booking type|COURSE offers|COACHING offers|WORKSHOP offers|Standalone PRODUCT offers|PAID_|An offer with an amount|FREE offers|Alternative CTA|PAYMENT_DISABLED|COMING_SOON|Offer not found|Booking access is owned by linked Offer)/i;
 
@@ -77,6 +93,7 @@ const manualPaymentActionSchema = manualPaymentSchema
 export function createCommerceAdminOperations(
   guard: CommerceAdminGuard,
   clock: () => Date = () => new Date(),
+  dependencies: AdminOperationDependencies = productionDependencies,
 ) {
   return {
     async createOffer(
@@ -178,26 +195,26 @@ export function createCommerceAdminOperations(
         const now = clock();
         const booking =
           parsed.action === "approve"
-            ? await approveBooking({
+            ? await dependencies.approveBooking({
                 bookingId: parsed.bookingId,
                 expectedVersion: parsed.expectedVersion,
                 now,
               })
             : parsed.action === "decline"
-              ? await declineBooking({
+              ? await dependencies.declineBooking({
                   bookingId: parsed.bookingId,
                   expectedVersion: parsed.expectedVersion,
                   reason: parsed.reason ?? null,
                   now,
                 })
               : parsed.action === "cancel"
-                ? await cancelBooking({
+                ? await dependencies.cancelBooking({
                     bookingId: parsed.bookingId,
                     expectedVersion: parsed.expectedVersion,
                     reason: parsed.reason ?? null,
                     now,
                   })
-                : await completeBooking({
+                : await dependencies.completeBooking({
                     bookingId: parsed.bookingId,
                     expectedVersion: parsed.expectedVersion,
                     now,
@@ -220,7 +237,7 @@ export function createCommerceAdminOperations(
       try {
         await guard();
         const parsed = manualPaymentActionSchema.parse(input);
-        const order = await recordManualPaymentForAdmin({
+        const order = await dependencies.recordManualPayment({
           ...parsed,
           now: clock(),
         });
