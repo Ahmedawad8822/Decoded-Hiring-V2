@@ -10,6 +10,7 @@
 // ============================================================================
 
 import { and, asc, eq } from "drizzle-orm";
+import { recordBusinessEventBestEffort } from "@/features/analytics/service";
 import {
   bookings,
   enrollments,
@@ -79,6 +80,36 @@ function toUnixSeconds(value: Date): number {
 
 function detail(value: Record<string, unknown>): string {
   return JSON.stringify(value);
+}
+
+type OrderBusinessEventName =
+  | "checkout_started"
+  | "payment_confirmed"
+  | "payment_failed";
+
+async function recordOrderBusinessEvent(params: {
+  eventName: OrderBusinessEventName;
+  order: Order;
+  occurredAt: Date;
+  source: string;
+}): Promise<void> {
+  await recordBusinessEventBestEffort({
+    dedupeKey: `order:${params.order.id}:${params.eventName}:v${params.order.version}`,
+    eventName: params.eventName,
+    subjectType: "ORDER",
+    subjectId: params.order.id,
+    offerId: params.order.offerId,
+    bookingTypeId: params.order.bookingTypeId,
+    bookingId: params.order.bookingId,
+    orderId: params.order.id,
+    metadata: {
+      source: params.source,
+      offer_kind: params.order.offerKind,
+      access_mode: params.order.accessMode,
+      state: params.order.status,
+    },
+    occurredAt: params.occurredAt,
+  });
 }
 
 async function resolveAdminId(): Promise<string> {
@@ -297,6 +328,12 @@ export async function createOrder(input: CreateOrderInput): Promise<Order> {
 
   const created = await getOrderById(id);
   if (!created) throw new Error("Order insert committed but could not be re-read.");
+  await recordOrderBusinessEvent({
+    eventName: "checkout_started",
+    order: created,
+    occurredAt: now,
+    source: "order_created",
+  });
   return created;
 }
 
@@ -465,6 +502,21 @@ async function applyVerifiedPaymentObservation(params: {
         if (winner?.orderId === order.id) return (await getOrderById(order.id))!;
       }
       throw error;
+    }
+    if (target === "PAID") {
+      await recordOrderBusinessEvent({
+        eventName: "payment_confirmed",
+        order,
+        occurredAt: params.now,
+        source: params.source.toLowerCase(),
+      });
+    } else if (target === "FAILED") {
+      await recordOrderBusinessEvent({
+        eventName: "payment_failed",
+        order,
+        occurredAt: params.now,
+        source: params.source.toLowerCase(),
+      });
     }
     return order;
   }
@@ -675,6 +727,21 @@ async function applyVerifiedPaymentObservation(params: {
       "Order payment transition lost a concurrent modification.",
       "CONCURRENT_MODIFICATION",
     );
+  }
+  if (updated.status === "PAID") {
+    await recordOrderBusinessEvent({
+      eventName: "payment_confirmed",
+      order: updated,
+      occurredAt: params.now,
+      source: params.source.toLowerCase(),
+    });
+  } else if (updated.status === "FAILED") {
+    await recordOrderBusinessEvent({
+      eventName: "payment_failed",
+      order: updated,
+      occurredAt: params.now,
+      source: params.source.toLowerCase(),
+    });
   }
   return updated;
 }
@@ -916,6 +983,12 @@ async function recordManualPaymentAsActor(
       "CONCURRENT_MODIFICATION",
     );
   }
+  await recordOrderBusinessEvent({
+    eventName: "payment_confirmed",
+    order: updated,
+    occurredAt: parsed.now,
+    source: "admin_manual",
+  });
   return updated;
 }
 
