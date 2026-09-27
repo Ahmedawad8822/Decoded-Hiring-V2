@@ -167,6 +167,47 @@ test("PUBLIC 08.6: FREE + AUTO_CONFIRM exposes a truthful scheduler", async () =
   assert.ok(model.slots.length > 0);
 });
 
+test("PUBLIC 08.6: public slot projection is bounded for pathological availability", async () => {
+  const bookingType = await createBookingType({
+    slug: slug("dense-public-booking"),
+    title: "Dense Public Booking",
+    description: "Projection bound regression",
+    durationMinutes: 1,
+    bufferBeforeMinutes: 0,
+    bufferAfterMinutes: 0,
+    minimumNoticeMinutes: 0,
+    bookingHorizonDays: 30,
+    timezone: "UTC",
+    confirmationPolicy: "AUTO_CONFIRM",
+    accessMode: "FREE",
+    meetingMethod: "TO_BE_CONFIRMED",
+    attendeeLimit: 1,
+  });
+  await createAvailabilityWindow({
+    bookingTypeId: bookingType.id,
+    weekday: FIXED_NOW.getUTCDay(),
+    startMinute: 0,
+    endMinute: 1440,
+  });
+  const offer = await createOffer({
+    kind: "COACHING",
+    bookingTypeId: bookingType.id,
+    title: "Dense Public Offer",
+    slug: slug("dense-public-offer"),
+    accessMode: "FREE",
+  });
+
+  const model = await resolvePublicSchedulingModel({
+    offerSlug: offer.slug,
+    kind: "COACHING",
+    now: FIXED_NOW,
+    rangeDays: 7,
+  });
+  assert.equal(model.enabled, true);
+  if (!model.enabled) return;
+  assert.equal(model.slots.length, 60);
+});
+
 test("PUBLIC 08.6: paid/manual Offer never renders self-service scheduling", async () => {
   const paid = await setupOffer({ accessMode: "PAID_SESSION" });
   const model = await resolvePublicSchedulingModel({
