@@ -76,6 +76,10 @@ async function main() {
 
   await seedMission06Demo();
 
+  console.log("🧪 e2e-bootstrap: seeding Mission 08 public scheduling fixture...");
+  const { seedMission08E2E } = await import("./seed-mission-08-e2e");
+  await seedMission08E2E();
+
   console.log("✅ e2e-bootstrap complete: prerequisites guaranteed.");
   await disposeCloudflareBindings();
   process.exit(0);
