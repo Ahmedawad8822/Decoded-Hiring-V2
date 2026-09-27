@@ -102,7 +102,7 @@ export async function recordBusinessEventBestEffort(
   }
 }
 
-async function reconcileBookingEvents(): Promise<void> {
+async function reconcileBookingEvents(sinceSeconds: number): Promise<void> {
   const d1 = await getD1Database();
 
   await d1
@@ -124,6 +124,7 @@ async function reconcileBookingEvents(): Promise<void> {
        FROM booking_history h
        JOIN bookings b ON b.id = h.booking_id
        WHERE h.action = 'REQUESTED'
+         AND h.created_at >= ?
          AND NOT EXISTS (
            SELECT 1 FROM business_events e
            WHERE e.event_name = 'booking_requested'
@@ -131,6 +132,7 @@ async function reconcileBookingEvents(): Promise<void> {
              AND e.occurred_at = h.created_at
          )`,
     )
+    .bind(sinceSeconds)
     .run();
 
   await d1
@@ -152,6 +154,7 @@ async function reconcileBookingEvents(): Promise<void> {
        FROM booking_history h
        JOIN bookings b ON b.id = h.booking_id
        WHERE h.action = 'APPROVED'
+         AND h.created_at >= ?
          AND NOT EXISTS (
            SELECT 1 FROM business_events e
            WHERE e.event_name = 'booking_approved'
@@ -159,6 +162,7 @@ async function reconcileBookingEvents(): Promise<void> {
              AND e.occurred_at = h.created_at
          )`,
     )
+    .bind(sinceSeconds)
     .run();
 
   await d1
@@ -181,6 +185,7 @@ async function reconcileBookingEvents(): Promise<void> {
        JOIN bookings b ON b.id = h.booking_id
        WHERE h.to_status = 'CONFIRMED'
          AND h.action IN ('AUTO_CONFIRMED','APPROVED','CONFIRMED')
+         AND h.created_at >= ?
          AND NOT EXISTS (
            SELECT 1 FROM business_events e
            WHERE e.event_name = 'booking_confirmed'
@@ -188,6 +193,7 @@ async function reconcileBookingEvents(): Promise<void> {
              AND e.occurred_at = h.created_at
          )`,
     )
+    .bind(sinceSeconds)
     .run();
 
   for (const mapping of [
@@ -214,6 +220,7 @@ async function reconcileBookingEvents(): Promise<void> {
          FROM booking_history h
          JOIN bookings b ON b.id = h.booking_id
          WHERE h.action = ?
+           AND h.created_at >= ?
            AND NOT EXISTS (
              SELECT 1 FROM business_events e
              WHERE e.event_name = ?
@@ -226,13 +233,14 @@ async function reconcileBookingEvents(): Promise<void> {
         `:${mapping[1]}`,
         mapping[1],
         mapping[0],
+        sinceSeconds,
         mapping[1],
       )
       .run();
   }
 }
 
-async function reconcileOrderEvents(): Promise<void> {
+async function reconcileOrderEvents(sinceSeconds: number): Promise<void> {
   const d1 = await getD1Database();
 
   await d1
@@ -258,6 +266,7 @@ async function reconcileOrderEvents(): Promise<void> {
        JOIN orders o ON o.id = h.order_id
        WHERE h.from_status IS NULL
          AND h.to_status = 'PENDING'
+         AND h.created_at >= ?
          AND NOT EXISTS (
            SELECT 1 FROM business_events e
            WHERE e.event_name = 'checkout_started'
@@ -265,6 +274,7 @@ async function reconcileOrderEvents(): Promise<void> {
              AND e.occurred_at = h.created_at
          )`,
     )
+    .bind(sinceSeconds)
     .run();
 
   await d1
@@ -289,6 +299,7 @@ async function reconcileOrderEvents(): Promise<void> {
        FROM order_history h
        JOIN orders o ON o.id = h.order_id
        WHERE h.to_status = 'PAID'
+         AND h.created_at >= ?
          AND NOT EXISTS (
            SELECT 1 FROM business_events e
            WHERE e.event_name = 'payment_confirmed'
@@ -296,6 +307,7 @@ async function reconcileOrderEvents(): Promise<void> {
              AND e.occurred_at = h.created_at
          )`,
     )
+    .bind(sinceSeconds)
     .run();
 
   await d1
@@ -320,6 +332,7 @@ async function reconcileOrderEvents(): Promise<void> {
        FROM order_history h
        JOIN orders o ON o.id = h.order_id
        WHERE h.to_status = 'FAILED'
+         AND h.created_at >= ?
          AND NOT EXISTS (
            SELECT 1 FROM business_events e
            WHERE e.event_name = 'payment_failed'
@@ -327,12 +340,16 @@ async function reconcileOrderEvents(): Promise<void> {
              AND e.occurred_at = h.created_at
          )`,
     )
+    .bind(sinceSeconds)
     .run();
 }
 
-export async function reconcileDurableBusinessEvents(): Promise<void> {
-  await reconcileBookingEvents();
-  await reconcileOrderEvents();
+export async function reconcileDurableBusinessEvents(params?: {
+  since?: Date;
+}): Promise<void> {
+  const sinceSeconds = params?.since ? unixSeconds(params.since) : 0;
+  await reconcileBookingEvents(sinceSeconds);
+  await reconcileOrderEvents(sinceSeconds);
 }
 
 function emptyCounts(): BusinessEventCounts {
@@ -345,12 +362,12 @@ export async function getBusinessEventSummary(params?: {
   windowDays?: number;
   now?: Date;
 }): Promise<BusinessEventSummary> {
-  await reconcileDurableBusinessEvents();
   const now = params?.now ?? new Date();
   const windowDays = Math.max(1, Math.min(params?.windowDays ?? 30, 365));
   const windowStart = new Date(
     now.getTime() - windowDays * 24 * 60 * 60 * 1000,
   );
+  await reconcileDurableBusinessEvents({ since: windowStart });
   const d1 = await getD1Database();
   const result = await d1
     .prepare(
