@@ -59,10 +59,18 @@ export type PublicSchedulingModel =
         | "OFFER_INACTIVE"
         | "BOOKING_TYPE_MISSING"
         | "BOOKING_TYPE_INACTIVE"
+        | "PROVIDER_UNAVAILABLE"
         | "PAID_OR_MANUAL"
         | "APPROVAL_REQUIRED"
         | "REQUEST_ONLY";
     };
+
+class PublicAvailabilityProviderError extends Error {
+  constructor() {
+    super("Configured calendar availability could not be verified.");
+    this.name = "PublicAvailabilityProviderError";
+  }
+}
 
 function overlaps(
   startA: Date,
@@ -139,14 +147,21 @@ async function listAvailableSlots(params: {
   let providerBusy: Array<{ startAt: Date; endAt: Date }> = [];
   const calendarStatus = await providers.calendar.getStatus();
   if (calendarStatus.configured) {
-    const busy = await providers.calendar.getFreeBusy({
-      calendarId: "decoded-hiring-primary",
-      rangeStart: params.rangeStart,
-      rangeEnd: params.rangeEnd,
-    });
-    providerBusy = busy
-      .filter((entry) => entry.busy)
-      .map((entry) => ({ startAt: entry.startAt, endAt: entry.endAt }));
+    try {
+      const busy = await providers.calendar.getFreeBusy({
+        calendarId: "decoded-hiring-primary",
+        rangeStart: params.rangeStart,
+        rangeEnd: params.rangeEnd,
+      });
+      providerBusy = busy
+        .filter((entry) => entry.busy)
+        .map((entry) => ({ startAt: entry.startAt, endAt: entry.endAt }));
+    } catch {
+      // A configured calendar is an authoritative conflict input. If it cannot
+      // be read, fail the public scheduler closed instead of showing slots that
+      // may already be occupied or crashing the product page.
+      throw new PublicAvailabilityProviderError();
+    }
   }
 
   return candidates
@@ -231,13 +246,21 @@ export async function resolvePublicSchedulingModel(params: {
   const now = params.now ?? new Date();
   const rangeDays = Math.max(1, Math.min(params.rangeDays ?? 21, 31));
   const rangeEnd = new Date(now.getTime() + rangeDays * DAY_MS);
-  const slots = await listAvailableSlots({
-    bookingTypeId: bookingType.id,
-    rangeStart: now,
-    rangeEnd,
-    now,
-    providers: params.providers,
-  });
+  let slots: PublicSchedulingSlot[];
+  try {
+    slots = await listAvailableSlots({
+      bookingTypeId: bookingType.id,
+      rangeStart: now,
+      rangeEnd,
+      now,
+      providers: params.providers,
+    });
+  } catch (error: unknown) {
+    if (error instanceof PublicAvailabilityProviderError) {
+      return { enabled: false, reason: "PROVIDER_UNAVAILABLE" };
+    }
+    throw error;
+  }
 
   return {
     enabled: true,
