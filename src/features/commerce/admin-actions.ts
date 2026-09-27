@@ -21,7 +21,6 @@ import {
   createBookingType,
   createBookingTypeSchema,
   declineBooking,
-  deleteAvailabilityWindow,
   updateBookingType,
   updateBookingTypeSchema,
 } from "@/features/scheduling";
@@ -29,6 +28,7 @@ import {
   manualPaymentSchema,
   recordManualPaymentForAdmin,
 } from "@/features/commerce";
+import { deleteAvailabilityWindow } from "@/features/scheduling/policy";
 
 export type CommerceAdminActionState<T = unknown> = {
   ok: boolean;
