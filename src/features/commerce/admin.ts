@@ -15,10 +15,12 @@ import {
   type BookingHistory,
   type OrderHistory,
   type PaymentEvent,
-  type ProviderRuntimeStatus,
 } from "@/lib/db";
 import { getDb } from "@/lib/db";
-import { UnconfiguredCommerceSchedulingProviders } from "@/features/scheduling/providers";
+import {
+  UnconfiguredCommerceSchedulingProviders,
+  type ProviderRuntimeStatus,
+} from "@/features/scheduling/providers";
 
 export type CommerceAdminProviderStatus = ProviderRuntimeStatus & {
   statusError?: string | null;
