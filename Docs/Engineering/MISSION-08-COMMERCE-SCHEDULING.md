@@ -602,11 +602,12 @@ Ahmed gave explicit GO and PR #9 was merged into canonical Mission 08 at `7a417f
 
 ## Slice 08.5 — Order / Payment Truth + Durable Orchestration
 
-Status: **RUNTIME CERTIFIED / INDEPENDENT REVIEW PASSED — AWAITING AHMED GO**
+Status: **ACCEPTED / MERGED INTO CANONICAL MISSION 08**
 
 Implementation branch: `mission-08.5-order-orchestration`  
-Accepted base: `7a417f67621c73de97bb1b6002ee70dfdf4c0202`  
-Source-certified head before this final documentation sync: `42fcc04aff6ea1d5d7451dddf832bd3e5f1c45c6`
+Accepted source head: `42fcc04aff6ea1d5d7451dddf832bd3e5f1c45c6`  
+Accepted final head: `341559a9648c6340655ea2ceb8f5260d965f2d72`  
+Canonical merge commit: `2d123f462160f80d4238714a1379aae537a44f3c`
 
 ### Scope implemented
 
@@ -788,15 +789,236 @@ PR #10 received multiple independent `dh-release-review` passes. Production-clas
 
 Final re-review on source head `42fcc04aff6ea1d5d7451dddf832bd3e5f1c45c6` found no unresolved Critical or Major findings.
 
-Review verdict: **SAFE TO MERGE for Slice 08.5**, pending the documentation-only exact-head CI/spot-check and Ahmed explicit GO.
+Review verdict: **SAFE TO MERGE for Slice 08.5**.
 
-A final exact-head certification is required after this engineering-ledger synchronization.
+Ahmed gave explicit GO. PR #10 was merged into canonical Mission 08 at `2d123f462160f80d4238714a1379aae537a44f3c`. The merge Git tree exactly matched the approved 08.5 head, with zero file-content drift.
 
 ### Slice 08.5 stop rule
 
-Do not merge Slice 08.5 into `mission-08-commerce-scheduling` until:
-- final exact-head typecheck/lint/tests/Drizzle/build are green,
-- independent `dh-release-review` passes,
-- any Critical/Major findings are remediated and re-reviewed,
-- ChatGPT final exact-SHA verification passes,
-- Ahmed explicitly says GO.
+**Satisfied.** Slice 08.5 is frozen in canonical Mission 08 at `2d123f462160f80d4238714a1379aae537a44f3c`.
+
+
+## Slice 08.6 — Public Coaching / Workshop Scheduling UX
+
+Status: **SOURCE CERTIFIED — INDEPENDENT RELEASE REVIEW PENDING**
+
+Implementation branch: `mission-08.6-public-scheduling-ux`  
+Accepted base: `mission-08-commerce-scheduling@2d123f462160f80d4238714a1379aae537a44f3c`  
+Source-certified head before this documentation sync: `467a1d1320c6ae44eca59755065e095cf390b5d8`
+
+### Scope implemented
+
+Slice 08.6 makes the provider-neutral scheduling domain usable from the existing public Coaching and Workshop product surfaces without activating a real payment, calendar, mailbox, or meeting provider.
+
+#### Public scheduling truth model
+
+A public self-service scheduler is exposed only when all of the following are authoritative:
+
+- linked Offer exists and is active
+- Offer kind matches the public surface
+- Offer access mode is `FREE`
+- linked BookingType exists and is active
+- confirmation policy is `AUTO_CONFIRM`
+
+The scheduler remains hidden and the existing lead/contact path stays available when:
+
+- Offer is missing/inactive
+- BookingType is missing/inactive
+- Offer is paid/manual
+- confirmation requires Ahmed approval
+- policy is request-only
+- configured calendar availability cannot be verified
+
+This keeps paid/manual/approval workflows truthful rather than presenting a dead or misleading calendar/checkout control.
+
+#### Availability projection
+
+Public availability is derived server-side from the existing Mission 08 scheduling engine:
+
+- BookingType weekly policy
+- minimum notice / booking horizon
+- canonical timezone/DST-safe slots
+- existing confirmed bookings
+- live unexpired holds
+- configured provider free/busy when present
+
+A configured calendar is treated as an authoritative conflict input. If provider status/free-busy cannot be verified, the public scheduler fails closed instead of showing potentially occupied slots.
+
+Public slot payloads are bounded to at most **60** candidate slots.
+
+Lease owner tokens and provider metadata are never included in the public read model.
+
+#### Public booking mutation
+
+The server action:
+
+- validates all input with Zod
+- re-resolves the Offer + BookingType + chosen slot server-side
+- acquires a short five-minute canonical hold using a high-entropy acquisition key
+- creates the durable booking using the existing booking lifecycle
+- auto-confirms only through existing FREE + AUTO_CONFIRM authority
+- returns only safe booking confirmation data
+- never returns the hold owner token
+- best-effort releases a newly acquired hold if booking creation fails
+- maps stale/concurrent/domain failures to safe public UX states
+
+#### Retry / concurrency integrity
+
+Public booking uses two separate high-entropy identities:
+
+- `requestKey` for durable booking idempotency
+- `acquisitionKey` for slot-hold acquisition recovery
+
+Lost-response retry returns the same business result.
+
+Retry identity is bound to the complete public intent:
+
+- request key
+- booking type
+- requester name
+- requester email
+- requester phone
+- notes
+- acquisition key
+- selected start time
+
+A concurrent same-identity race with edited requester intent returns one winner and one conflict instead of allowing the losing request to inherit another requester's booking result.
+
+Concurrent different callers competing for the same slot still collapse to one confirmed booking winner.
+
+Interrupted FREE auto-confirm requests can safely recover through the existing internal booking lifecycle.
+
+#### Public abuse preparation
+
+The public mutation includes layered server-side abuse preparation without introducing an external dependency:
+
+- empty honeypot requirement
+- per-email short-window booking velocity limit
+- booking-type-wide short-window burst limit so rotating email addresses cannot create an unbounded reservation wave
+- velocity checks happen before another slot lease is acquired
+
+Turnstile remains a later optional hardening layer; 08.6 does not add provider keys/secrets.
+
+#### Coaching UX
+
+The existing decision brief remains intact.
+
+When a linked FREE + AUTO_CONFIRM schedule is enabled:
+
+- hero CTA routes to the inline scheduler
+- available times are grouped by BookingType timezone
+- visitor enters name/work email, optional phone and useful context
+- required privacy acknowledgement is explicit
+- loading, field-error, stale-slot, empty, fallback, and success states are rendered
+- the existing coaching decision-brief LeadForm remains available as the fallback route
+
+When scheduling is not enabled, the page retains its prior Offer/decision-brief CTA behavior.
+
+#### Workshop UX
+
+Team enquiries remain lead-first.
+
+When the linked Workshop Offer is explicitly FREE + AUTO_CONFIRM, an inline configured conversation scheduler is shown. The existing workshop enquiry/open-cohort LeadForm remains present regardless.
+
+Paid/manual/approval/request-only Workshop modes do not expose self-service booking.
+
+#### Provider honesty
+
+No external provider is activated in 08.6.
+
+The success state explicitly states that the Decoded Hiring booking is reserved in-site while external calendar invites/email delivery are not promised when those providers remain dormant.
+
+### Reliability / security hardening discovered during implementation review
+
+Before source freeze, review found and remediated:
+
+1. **Concurrent edited-intent idempotency race** — simultaneous requests sharing request/acquisition identity but carrying different requester details could recover the same lower-level booking result. The public boundary now revalidates the complete intent on every recovered result, including race recovery.
+2. **Email-rotation abuse bypass** — per-email velocity alone could be bypassed by rotating addresses. A booking-type-wide burst backstop now complements the per-email guard.
+
+Both findings have dedicated regressions.
+
+### Regression coverage
+
+Dedicated `tests/mission-08-public-scheduling.test.ts` contains **17 passing regressions**, including:
+
+- FREE + AUTO_CONFIRM truthful scheduler exposure
+- bounded public slot projection
+- paid/manual self-service suppression
+- approval/request-only lead-first behavior
+- live hold filtering
+- configured calendar busy filtering
+- configured calendar outage fail-closed behavior
+- safe FREE auto-confirm without lease-token exposure
+- lost-response retry
+- edited-intent retry conflict
+- concurrent edited-intent race conflict
+- one winner under same-slot concurrency
+- per-email velocity protection
+- rotating-email booking-type burst protection
+- honeypot rejection
+- tampered BookingType fail-closed behavior
+- coaching/workshop conditional scheduler + lead fallback wiring
+
+Existing Mission 08.1–08.5 suites remain green.
+
+### Explicit 08.6 deferrals / non-scope
+
+08.6 deliberately does **not**:
+
+- activate a real payment provider
+- activate calendar/mailbox/meeting providers
+- add provider credentials/secrets
+- build paid checkout UI
+- expose MANUAL_INVOICE self-service payment
+- expose asynchronous AHMED_APPROVAL slot reservation UX
+- replace the existing lead-first paths for paid/manual/approval/request-only flows
+- build Studio Scheduling/Commerce admin UX
+- add product-funnel analytics events
+- perform browser E2E certification
+- deploy or change DNS/production resources
+
+The approval lifecycle currently depends on a short live hold and is therefore not exposed as an asynchronous public approval flow in 08.6.
+
+Business analytics/event instrumentation and full browser E2E/security/recovery certification remain Slice 08.7 (Mission 08 implementation slice 8) work.
+
+### Source runtime certification
+
+GitHub Actions run `36293648150` passed on source-certified head `467a1d1320c6ae44eca59755065e095cf390b5d8`:
+
+- typecheck — PASS
+- lint with zero warnings — PASS
+- full sequential `npm test` — **364 pass / 0 fail**
+- 08.1 scheduling — **78 / 78**
+- 08.2 booking lifecycle — **18 / 18**
+- 08.3 Offer/access — **18 / 18**
+- 08.4 provider adapters — **11 / 11**
+- 08.5 Order/orchestration — **37 / 37**
+- 08.6 public scheduling — **17 / 17**
+- Drizzle drift — PASS: `No schema changes, nothing to migrate`
+- production build — PASS
+
+No DB/schema/migration change was required by 08.6.
+
+### Release-review posture
+
+- Functional / Spec — source-certified for the scoped FREE + AUTO_CONFIRM path with truthful fallbacks for deferred modes
+- UX / Product — loading/error/empty/success/fallback states implemented; browser E2E is explicitly deferred to Slice 08.7
+- Security — server-authoritative slot resolution, Zod validation, no token leak, honeypot + dual velocity abuse backstops
+- Performance — bounded public range and 60-slot projection; no unbounded public payload
+- Reliability / Data Integrity — existing DB/CAS/lease invariants reused; public retry/concurrency regressions cover discovered races
+- Architecture — public read/action layers reuse deep scheduling/booking modules rather than duplicating domain rules
+- Discoverability — existing canonical Coaching/Workshop routes and metadata are preserved; no duplicate public routes added
+- Measurability — **DEFERRED WITH REASON** to Slice 08.7 analytics/certification work
+- Test Quality — integration/action regressions green; browser E2E **DEFERRED WITH REASON** to Slice 08.7
+
+Independent `dh-release-review` is still required before merge.
+
+### Slice 08.6 stop rule
+
+Do not merge Slice 08.6 into `mission-08-commerce-scheduling` until:
+
+- documentation-synced exact-head typecheck/lint/tests/Drizzle/build are green
+- independent `dh-release-review` passes
+- any Critical/Major findings are remediated and re-reviewed
+- ChatGPT final exact-SHA verification passes
+- Ahmed explicitly says GO
