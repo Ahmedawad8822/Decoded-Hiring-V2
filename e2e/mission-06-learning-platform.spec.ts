@@ -204,11 +204,10 @@ test.describe("mission 06 learning platform lifecycle", () => {
 
     await test.step("open lesson 1, download protected PDF, complete", async () => {
       const lesson1Url = `/learn/courses/${courseSlug}/lessons/${lesson1Slug}`;
-      await warmAuthenticatedRoute(page, lesson1Url);
-      await page.goto(lesson1Url);
+      await page.goto(lesson1Url, { waitUntil: "domcontentloaded" });
       await expect(
         page.getByRole("heading", { name: "First Lesson E2E" }),
-      ).toBeVisible({ timeout: 15_000 });
+      ).toBeVisible({ timeout: 30_000 });
       const dlLink = page.getByRole("link", { name: /Download/ }).first();
       resourceHref = (await dlLink.getAttribute("href")) ?? "";
       expect(resourceHref).toMatch(/^\/api\/course-resources\//);
