@@ -267,6 +267,19 @@ test("OBS 08.8: checkout + manual payment emit durable payment funnel truth", as
 
   rows = await rawEvents("order_id", order.id);
   assert.ok(rows.some((row) => row.eventName === "payment_confirmed"));
+  const beforeReconcile = rows.length;
+  assert.ok(
+    rows.every((row) => row.dedupeKey.startsWith("order-history:")),
+    "direct Order telemetry must use durable order_history identity",
+  );
+
+  await reconcileDurableBusinessEvents({ since: NOW });
+  rows = await rawEvents("order_id", order.id);
+  assert.equal(
+    rows.length,
+    beforeReconcile,
+    "direct and reconstructed Order events must share durable dedupe identity",
+  );
 
   const db = await getDb();
   const effect = await db

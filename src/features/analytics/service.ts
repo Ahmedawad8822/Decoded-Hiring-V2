@@ -246,12 +246,7 @@ async function reconcileOrderEvents(sinceSeconds: number): Promise<void> {
        WHERE h.from_status IS NULL
          AND h.to_status = 'PENDING'
          AND h.created_at >= ?
-         AND NOT EXISTS (
-           SELECT 1 FROM business_events e
-           WHERE e.event_name = 'checkout_started'
-             AND e.order_id = h.order_id
-             AND e.occurred_at = h.created_at
-         )`,
+`,
     )
     .bind(sinceSeconds)
     .run();
@@ -279,12 +274,7 @@ async function reconcileOrderEvents(sinceSeconds: number): Promise<void> {
        JOIN orders o ON o.id = h.order_id
        WHERE h.to_status = 'PAID'
          AND h.created_at >= ?
-         AND NOT EXISTS (
-           SELECT 1 FROM business_events e
-           WHERE e.event_name = 'payment_confirmed'
-             AND e.order_id = h.order_id
-             AND e.occurred_at = h.created_at
-         )`,
+`,
     )
     .bind(sinceSeconds)
     .run();
@@ -312,12 +302,7 @@ async function reconcileOrderEvents(sinceSeconds: number): Promise<void> {
        JOIN orders o ON o.id = h.order_id
        WHERE h.to_status = 'FAILED'
          AND h.created_at >= ?
-         AND NOT EXISTS (
-           SELECT 1 FROM business_events e
-           WHERE e.event_name = 'payment_failed'
-             AND e.order_id = h.order_id
-             AND e.occurred_at = h.created_at
-         )`,
+`,
     )
     .bind(sinceSeconds)
     .run();

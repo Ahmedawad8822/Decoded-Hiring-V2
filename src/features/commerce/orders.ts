@@ -89,12 +89,13 @@ type OrderBusinessEventName =
 
 async function recordOrderBusinessEvent(params: {
   eventName: OrderBusinessEventName;
+  historyId: string;
   order: Order;
   occurredAt: Date;
   source: string;
 }): Promise<void> {
   await recordBusinessEventBestEffort({
-    dedupeKey: `order:${params.order.id}:${params.eventName}:v${params.order.version}`,
+    dedupeKey: `order-history:${params.historyId}:${params.eventName}`,
     eventName: params.eventName,
     subjectType: "ORDER",
     subjectId: params.order.id,
@@ -277,6 +278,7 @@ export async function createOrder(input: CreateOrderInput): Promise<Order> {
   await validateOrderTarget(offer, parsed);
 
   const id = newId("order");
+  const auditId = newId("ordh");
   const now = parsed.now;
   const values = {
     id,
@@ -303,7 +305,7 @@ export async function createOrder(input: CreateOrderInput): Promise<Order> {
     await db.batch([
       db.insert(orders).values(values),
       db.insert(orderHistory).values({
-        id: newId("ordh"),
+        id: auditId,
         orderId: id,
         fromStatus: null,
         toStatus: "PENDING",
@@ -330,6 +332,7 @@ export async function createOrder(input: CreateOrderInput): Promise<Order> {
   if (!created) throw new Error("Order insert committed but could not be re-read.");
   await recordOrderBusinessEvent({
     eventName: "checkout_started",
+    historyId: auditId,
     order: created,
     occurredAt: now,
     source: "order_created",
@@ -463,6 +466,7 @@ async function applyVerifiedPaymentObservation(params: {
   const nowSec = toUnixSeconds(params.now);
   const transition = `ordtr_${crypto.randomUUID()}`;
   const targetVersion = order.version + (target === order.status ? 0 : 1);
+  const auditId = newId("ordh");
   const d1 = await getD1Database();
 
   const insertEvent = d1
@@ -503,21 +507,10 @@ async function applyVerifiedPaymentObservation(params: {
       }
       throw error;
     }
-    if (target === "PAID") {
-      await recordOrderBusinessEvent({
-        eventName: "payment_confirmed",
-        order,
-        occurredAt: params.now,
-        source: params.source.toLowerCase(),
-      });
-    } else if (target === "FAILED") {
-      await recordOrderBusinessEvent({
-        eventName: "payment_failed",
-        order,
-        occurredAt: params.now,
-        source: params.source.toLowerCase(),
-      });
-    }
+    // This payment observation did not change business state. Do not emit a
+    // second state-transition event here. If the original best-effort
+    // analytics write was lost after commit, reconciliation rebuilds it from
+    // the durable order_history row using the same dedupe identity.
     return order;
   }
 
@@ -594,7 +587,7 @@ async function applyVerifiedPaymentObservation(params: {
        WHERE id = ? AND transition_key = ? AND version = ? AND status = ?`,
     )
     .bind(
-      newId("ordh"),
+      auditId,
       order.status,
       target,
       params.source === "WEBHOOK" ? "PAYMENT_WEBHOOK" : "PAYMENT_CALLBACK",
@@ -731,6 +724,7 @@ async function applyVerifiedPaymentObservation(params: {
   if (updated.status === "PAID") {
     await recordOrderBusinessEvent({
       eventName: "payment_confirmed",
+      historyId: auditId,
       order: updated,
       occurredAt: params.now,
       source: params.source.toLowerCase(),
@@ -738,6 +732,7 @@ async function applyVerifiedPaymentObservation(params: {
   } else if (updated.status === "FAILED") {
     await recordOrderBusinessEvent({
       eventName: "payment_failed",
+      historyId: auditId,
       order: updated,
       occurredAt: params.now,
       source: params.source.toLowerCase(),
@@ -901,6 +896,7 @@ async function recordManualPaymentAsActor(
   const nowSec = toUnixSeconds(parsed.now);
   const transition = `ordtr_${crypto.randomUUID()}`;
   const targetVersion = order.version + 1;
+  const auditId = newId("ordh");
   const effectId = `fx_order_${order.id}_fulfill`;
 
   await d1.batch([
@@ -928,7 +924,7 @@ async function recordManualPaymentAsActor(
          WHERE id=? AND transition_key=? AND version=? AND status='PAID'`,
       )
       .bind(
-        newId("ordh"),
+        auditId,
         order.status,
         actorId,
         detail({ note: parsed.note ?? null }),
@@ -985,6 +981,7 @@ async function recordManualPaymentAsActor(
   }
   await recordOrderBusinessEvent({
     eventName: "payment_confirmed",
+    historyId: auditId,
     order: updated,
     occurredAt: parsed.now,
     source: "admin_manual",
