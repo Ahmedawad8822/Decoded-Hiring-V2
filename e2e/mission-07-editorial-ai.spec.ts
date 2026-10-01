@@ -92,13 +92,13 @@ async function clickReload(
       )
       .toContain(expectedText);
     await page.goto(targetUrl, {
-      waitUntil: "domcontentloaded",
+      waitUntil: "load",
       timeout: 60_000,
     });
     return;
   }
 
-  await page.waitForLoadState("domcontentloaded", { timeout: 60_000 });
+  await page.waitForLoadState("load", { timeout: 60_000 });
 }
 
 test.describe("mission 07 editorial ai lifecycle", () => {
