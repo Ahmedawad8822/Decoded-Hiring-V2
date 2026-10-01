@@ -91,9 +91,27 @@ async function clickReload(
         },
       )
       .toContain(expectedText);
-    await page.goto(targetUrl, {
-      waitUntil: "load",
-      timeout: 60_000,
+    let refreshed = false;
+    for (let attempt = 0; attempt < 2 && !refreshed; attempt += 1) {
+      try {
+        await page.goto(targetUrl, {
+          waitUntil: "domcontentloaded",
+          timeout: 60_000,
+        });
+        refreshed = true;
+      } catch (error) {
+        if (
+          attempt === 0 &&
+          error instanceof Error &&
+          error.message.includes("ERR_ABORTED")
+        ) {
+          continue;
+        }
+        throw error;
+      }
+    }
+    await expect(page.locator("body")).toContainText(expectedText, {
+      timeout: 20_000,
     });
     return;
   }
