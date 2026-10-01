@@ -223,6 +223,7 @@ test.describe("Mission 08 final integrated certification", () => {
       await expect(page.getByText("NOT CONFIGURED").first()).toBeVisible();
 
       for (const label of [
+        "CTA clicks",
         "Booking starts",
         "Slots held",
         "Requests",
