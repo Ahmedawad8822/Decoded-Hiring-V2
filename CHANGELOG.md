@@ -41,8 +41,8 @@
 - Permanent `dh-release-review`: all nine applicable gates PASS. Two Major
   findings found during final review (D1 free-tier write exhaustion risk and
   stale Next.js 16.3.6 security baseline) were remediated and re-certified.
-- Merge remains gated on documentation cleanup, final exact-SHA verification
-  and Ahmed's explicit GO.
+- Documentation cleanup and final exact-SHA verification are complete. Merge
+  remains gated solely on Ahmed's explicit GO.
 
 
 ## [Unreleased] — Mission 07 Post-Certification Release Review

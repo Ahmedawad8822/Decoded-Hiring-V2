@@ -1210,7 +1210,7 @@ No merge is authorized by this ledger entry. Ahmed's explicit GO remains require
 
 ## Slice 08.8 — Observability + Final Integrated Certification
 
-Status: **CODE / PRODUCT RELEASE REVIEW PASSED — FINAL DOCUMENTATION + EXACT-SHA VERIFICATION PENDING**
+Status: **FINAL RELEASE VERIFIED — AWAITING AHMED EXPLICIT GO**
 
 Pinned branch:
 `mission-08.8-observability-final-certification`
@@ -1339,9 +1339,13 @@ No unresolved Critical or Major finding remains on the product/code boundary.
 - change DNS
 - mutate production resources
 
-The product/code boundary has passed exact-head gates and independent
-`dh-release-review`. Remaining release mechanics are documentation-only sync,
-removal of temporary 08.8 validation scaffolding, final exact-SHA verification,
-and Ahmed's explicit GO.
+The product/code boundary and documentation sync passed their exact-head gates
+and independent `dh-release-review`. Temporary 08.8 validation scaffolding has
+been removed. Final cleanup verification confirms zero executable product,
+migration, dependency, test or browser-certification drift from the fully green
+certified code boundary.
+
+Mission 08.8 is release-verified. The only remaining authorization gate is
+Ahmed's explicit GO.
 
 No merge is authorized by this status.
