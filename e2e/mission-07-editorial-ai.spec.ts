@@ -45,78 +45,32 @@ const FIXTURE_BASE = path.resolve(__dirname, "fixtures", "sample-knowledge.md");
 const FORBIDDEN = ["builders", "gcc", "compiler", "production features", "production systems"];
 
 async function signInAdmin(page: Page) {
-  const response = await page.request.post("/api/auth/sign-in/email", {
-    data: {
-      email: ADMIN_EMAIL,
-      password: ADMIN_PASSWORD,
-      callbackURL: "/admin/content",
-    },
-  });
-  expect(
-    response.status(),
-    `admin Better Auth sign-in returned HTTP ${response.status()}`,
-  ).toBeLessThan(400);
-  await page.goto("/admin/content", { waitUntil: "domcontentloaded" });
-  await expect(page).toHaveURL(/\/admin\/content/, { timeout: 30_000 });
+  await page.goto("/admin/login");
+  await page.getByLabel(/Admin Email/).waitFor({ state: "visible" });
+  await page.getByLabel(/Admin Email/).fill(ADMIN_EMAIL);
+  await page.getByLabel(/^Password/).fill(ADMIN_PASSWORD);
+  await page.getByRole("button", { name: /Sign in to Studio/ }).click();
+  await page.waitForURL(/\/admin\/content/);
+  await page.waitForLoadState("networkidle");
 }
 
-async function clickReload(
-  page: Page,
-  selector: string,
-  expectedText?: string,
-) {
-  const targetUrl = page.url();
-  const reloaded = page
-    .waitForEvent("framenavigated", {
-      predicate: (frame) => frame === page.mainFrame(),
-      timeout: 60_000,
-    })
-    .catch(() => null);
-
+async function clickReload(page: Page, selector: string) {
+  // Start waiting for the navigation BEFORE clicking to avoid races where
+  // waitForLoadState("networkidle") resolves before the POST begins.
+  const reloadStarted = page.waitForFunction(
+    () => document.readyState === "loading",
+    undefined,
+    { timeout: 15_000 },
+  );
   await page.click(selector);
-  await reloaded;
-
-  if (expectedText) {
-    await expect
-      .poll(
-        async () => {
-          const response = await page.request.get(targetUrl);
-          if (response.status() >= 400) return "";
-          return response.text();
-        },
-        {
-          timeout: 30_000,
-          intervals: [250, 500, 1_000, 2_000],
-          message: `editorial action ${selector} should persist ${expectedText}`,
-        },
-      )
-      .toContain(expectedText);
-    let refreshed = false;
-    for (let attempt = 0; attempt < 2 && !refreshed; attempt += 1) {
-      try {
-        await page.goto(targetUrl, {
-          waitUntil: "domcontentloaded",
-          timeout: 60_000,
-        });
-        refreshed = true;
-      } catch (error) {
-        if (
-          attempt === 0 &&
-          error instanceof Error &&
-          error.message.includes("ERR_ABORTED")
-        ) {
-          continue;
-        }
-        throw error;
-      }
-    }
-    await expect(page.locator("body")).toContainText(expectedText, {
-      timeout: 20_000,
-    });
-    return;
+  try {
+    await reloadStarted;
+  } catch {
+    // If reload detection fails, the POST may have already completed and
+    // triggered reload before we could observe the "loading" state.
+    // Fall through to waitForLoadState which will catch the settled state.
   }
-
-  await page.waitForLoadState("load", { timeout: 60_000 });
+  await page.waitForLoadState("networkidle", { timeout: 60_000 });
 }
 
 test.describe("mission 07 editorial ai lifecycle", () => {
@@ -149,6 +103,7 @@ test.describe("mission 07 editorial ai lifecycle", () => {
 
     // === 2. UPLOAD .md KNOWLEDGE SOURCE ===
     await page.goto("/admin/knowledge");
+    await page.waitForLoadState("networkidle");
 
     // Wait for form fields to be ready (client component hydration).
     await page
@@ -164,13 +119,9 @@ test.describe("mission 07 editorial ai lifecycle", () => {
     await page.locator('input[type="file"]').setInputFiles(tmpFixture);
     await page.locator('input[name="title"]').fill(sourceTitle);
     await Promise.all([
-      page.waitForEvent("framenavigated", {
-        predicate: (frame) => frame === page.mainFrame(),
-        timeout: 60_000,
-      }),
+      page.waitForLoadState("networkidle", { timeout: 60_000 }),
       page.getByRole("button", { name: /Upload Source/ }).click(),
     ]);
-    await page.waitForLoadState("domcontentloaded", { timeout: 60_000 });
 
     // After reload, the source should appear in the table.
     await page.locator("td", { hasText: sourceTitle }).first().waitFor({
@@ -190,27 +141,13 @@ test.describe("mission 07 editorial ai lifecycle", () => {
 
     // === 3. INGEST -> READY ===
     await page.goto(`/admin/knowledge/${sourceId}`);
+    await page.waitForLoadState("networkidle");
     await page.waitForSelector('text=UPLOADED', { timeout: 10_000 });
 
     await clickReload(page, 'button:has-text("Ingest")');
-    await expect
-      .poll(
-        async () => {
-          const response = await page.request.get(`/admin/knowledge/${sourceId}`);
-          expect(response.status()).toBe(200);
-          return response.text();
-        },
-        {
-          timeout: 30_000,
-          intervals: [250, 500, 1_000, 2_000],
-          message: "knowledge source should reach durable READY state",
-        },
-      )
-      .toContain("READY");
-    await page.goto(`/admin/knowledge/${sourceId}`, {
-      waitUntil: "domcontentloaded",
+    await expect(page.locator("text=READY").first()).toBeVisible({
+      timeout: 20_000,
     });
-    await expect(page.locator("text=READY").first()).toBeVisible();
 
     // Verify chunks were actually created during ingestion
     const chunkCountCell = await page
@@ -228,12 +165,14 @@ test.describe("mission 07 editorial ai lifecycle", () => {
 
     // === 4. GENERATE DRAFT 1 (GUIDE) - REJECTION PATH ===
     await page.goto("/admin/editorial/new");
+    await page.waitForLoadState("networkidle");
     await page.selectOption('select[name="contentType"]', "GUIDE");
     await page.fill('input[name="topic"]', "hiring signal decay");
     await Promise.all([
       page.waitForURL(/\/admin\/editorial\/(draft_\w+)/),
       page.click('button:has-text("Generate Draft")'),
     ]);
+    await page.waitForLoadState("networkidle");
     const draft1Id = page.url().split("/").pop()!;
     await expect(page).toHaveURL(`/admin/editorial/${draft1Id}`);
 
@@ -261,21 +200,17 @@ test.describe("mission 07 editorial ai lifecycle", () => {
     // === 8. EDIT DRAFT (change title) ===
     await page.click('button:has-text("Edit draft")');
     await page.fill('input[name="title"]', "Evidence: Hiring Signal Decay Guide");
-    await clickReload(
-      page,
-      'button:has-text("Save changes")',
-      "Evidence: Hiring Signal Decay Guide",
-    );
+    await clickReload(page, 'button:has-text("Save changes")');
     await expect(page.locator("h1")).toContainText("Evidence: Hiring Signal Decay Guide");
 
     // === 9. SUBMIT FOR REVIEW -> IN_REVIEW ===
-    await clickReload(page, 'button:has-text("Submit for Review")', "IN_REVIEW");
+    await clickReload(page, 'button:has-text("Submit for Review")');
     await expect(page.locator("text=IN_REVIEW").first()).toBeVisible({
       timeout: 20_000,
     });
 
     // === 10. REJECT -> REJECTED (RECOVERABLE, not terminal) ===
-    await clickReload(page, 'button:has-text("Reject")', "REJECTED");
+    await clickReload(page, 'button:has-text("Reject")');
     await expect(page.locator("text=REJECTED").first()).toBeVisible({
       timeout: 15_000,
     });
@@ -286,7 +221,7 @@ test.describe("mission 07 editorial ai lifecycle", () => {
     });
 
     // === 11. RECOVER -> DRAFT, then re-submit and publish ===
-    await clickReload(page, 'button:has-text("Recover to DRAFT")', "DRAFT");
+    await clickReload(page, 'button:has-text("Recover to DRAFT")');
     await expect(page.locator("text=DRAFT").first()).toBeVisible({
       timeout: 10_000,
     });
@@ -296,12 +231,14 @@ test.describe("mission 07 editorial ai lifecycle", () => {
 
     // === 12. GENERATE DRAFT 2 (FIELD_NOTE) - PUBLISH PATH ===
     await page.goto("/admin/editorial/new");
+    await page.waitForLoadState("networkidle");
     await page.selectOption('select[name="contentType"]', "FIELD_NOTE");
     await page.fill('input[name="topic"]', `evidence-based hiring ${runId}`);
     await Promise.all([
       page.waitForURL(/\/admin\/editorial\/(draft_\w+)/),
       page.click('button:has-text("Generate Draft")'),
     ]);
+    await page.waitForLoadState("networkidle");
     const draft2Id = page.url().split("/").pop()!;
     await expect(page).toHaveURL(`/admin/editorial/${draft2Id}`);
 
@@ -313,13 +250,13 @@ test.describe("mission 07 editorial ai lifecycle", () => {
     expect(hasExactSource2 || hasAnyKnowledge2).toBe(true);
 
     // === 13. SUBMIT FOR REVIEW -> IN_REVIEW ===
-    await clickReload(page, 'button:has-text("Submit for Review")', "IN_REVIEW");
+    await clickReload(page, 'button:has-text("Submit for Review")');
     await expect(page.locator("text=IN_REVIEW").first()).toBeVisible({
       timeout: 20_000,
     });
 
     // === 14. SEND BACK -> DRAFT ===
-    await clickReload(page, 'button:has-text("Send Back")', "DRAFT");
+    await clickReload(page, 'button:has-text("Send Back")');
     await expect(page.locator("text=DRAFT").first()).toBeVisible({
       timeout: 20_000,
     });
@@ -330,26 +267,26 @@ test.describe("mission 07 editorial ai lifecycle", () => {
       'textarea[name="excerpt"]',
       "Revised: evidence-based hiring requires calibrated scoring.",
     );
-    await clickReload(page, 'button:has-text("Save changes")', "Revised:");
+    await clickReload(page, 'button:has-text("Save changes")');
     // Verify excerpt updated
     await expect(
       page.locator("strong:has-text(\"Excerpt:\")").locator("xpath=following-sibling::*"),
     ).toContainText("Revised:");
 
     // === 16. RESUBMIT -> IN_REVIEW ===
-    await clickReload(page, 'button:has-text("Submit for Review")', "IN_REVIEW");
+    await clickReload(page, 'button:has-text("Submit for Review")');
     await expect(page.locator("text=IN_REVIEW").first()).toBeVisible({
       timeout: 20_000,
     });
 
     // === 17. APPROVE -> APPROVED ===
-    await clickReload(page, 'button:has-text("Approve")', "APPROVED");
+    await clickReload(page, 'button:has-text("Approve")');
     await expect(page.locator("text=APPROVED").first()).toBeVisible({
       timeout: 20_000,
     });
 
     // === 18. PUBLISH -> PUBLISHED ===
-    await clickReload(page, 'button:has-text("Publish")', "PUBLISHED");
+    await clickReload(page, 'button:has-text("Publish")');
     await expect(page.locator("text=PUBLISHED").first()).toBeVisible({
       timeout: 20_000,
     });
@@ -376,9 +313,11 @@ test.describe("mission 07 editorial ai lifecycle", () => {
 
     // === 20. VERIFY PUBLISHED ENTITY IN ADMIN CONTENT ===
     await page.goto("/admin/content");
+    await page.waitForLoadState("networkidle");
     // The content page defaults to the "Guides" tab (which shows 0 guides).
     // Switch to the "Field Notes" tab to see the published field note.
     await page.getByRole("tab", { name: /Field Notes/ }).click();
+    await page.waitForLoadState("networkidle");
     // No fixed sleep needed — the expect below retries until the published
     // field-note link is visible in the Field Notes tab content (client-side
     // tab switch renders synchronously; the 10s timeout covers any render

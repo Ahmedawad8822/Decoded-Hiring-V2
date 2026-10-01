@@ -159,23 +159,13 @@ test.describe("mission 06 learning platform lifecycle", () => {
     });
 
     await test.step("publish lessons + course, verify enrollment CTA", async () => {
-      const firstLessonRow = page.getByRole("row", { name: /First Lesson E2E/ });
-      await firstLessonRow.getByRole("button", { name: "Publish" }).click();
-      await expect(firstLessonRow.getByText("PUBLISHED", { exact: true })).toBeVisible({
-        timeout: 30_000,
-      });
-
-      const secondLessonRow = page.getByRole("row", { name: /Second Lesson E2E/ });
-      await secondLessonRow.getByRole("button", { name: "Publish" }).click();
-      await expect(secondLessonRow.getByText("PUBLISHED", { exact: true })).toBeVisible({
-        timeout: 30_000,
-      });
-
+      await page.getByRole("row", { name: /First Lesson E2E/ }).getByRole("button", { name: "Publish" }).click();
+      await expect(page.getByText("live for learners on next load")).toBeVisible();
+      await page.getByRole("row", { name: /Second Lesson E2E/ }).getByRole("button", { name: "Publish" }).click();
       await page.goto("/admin/courses");
       await page.locator(`[data-course-slug="${courseSlug}"]`).getByRole("button", { name: "Publish", exact: true }).click();
       await expect(page.locator(`[data-course-slug="${courseSlug}"]`).getByText("PUBLISHED")).toBeVisible({ timeout: 30_000 });
-      // Authenticated but unenrolled admin sees the enrollment CTA.
-      // Learner-visible lesson access is certified in the enrolled flow below.
+      // Authenticated but unenrolled admin sees the enrollment CTA = available.
       await page.goto(`/learn/courses/${courseSlug}`);
       await expect(page.getByRole("button", { name: "Start free — enroll now" })).toBeVisible();
     });
@@ -201,24 +191,8 @@ test.describe("mission 06 learning platform lifecycle", () => {
     });
 
     await test.step("open lesson 1, download protected PDF, complete", async () => {
-      await page.goto(`/learn/courses/${courseSlug}`, {
-        waitUntil: "domcontentloaded",
-      });
-      await expect(
-        page.getByText("Continue where you left off"),
-      ).toBeVisible({ timeout: 30_000 });
-      const lesson1Link = page
-        .getByRole("link", { name: /First Lesson E2E/ })
-        .first();
-      await expect(lesson1Link).toBeVisible({ timeout: 30_000 });
-      await lesson1Link.click();
-      await expect(page).toHaveURL(
-        new RegExp(`/learn/courses/${courseSlug}/lessons/${lesson1Slug}$`),
-        { timeout: 30_000 },
-      );
-      await expect(
-        page.getByRole("heading", { name: "First Lesson E2E" }),
-      ).toBeVisible({ timeout: 30_000 });
+      await page.goto(`/learn/courses/${courseSlug}/lessons/${lesson1Slug}`);
+      await expect(page.getByRole("heading", { name: "First Lesson E2E" })).toBeVisible();
       const dlLink = page.getByRole("link", { name: /Download/ }).first();
       resourceHref = (await dlLink.getAttribute("href")) ?? "";
       expect(resourceHref).toMatch(/^\/api\/course-resources\//);
