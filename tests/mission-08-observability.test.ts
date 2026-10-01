@@ -383,16 +383,25 @@ test("OBS 08.8: public CTA route must match Offer kind", async () => {
   );
 });
 
-test("OBS 08.8: anonymous front-funnel telemetry keeps D1 write headroom", () => {
+test("OBS 08.8: anonymous front-funnel telemetry keeps D1 write headroom", async () => {
   // A scope-anchored window may begin before the UTC billing boundary and
   // carry unused capacity into the next day, so reserve one extra window.
   const windowsPerDay =
     Math.ceil((24 * 60) / PUBLIC_ANALYTICS_BUDGET.windowMinutes) + 1;
-  // D1 counts index maintenance as rows written. The event ledger currently
-  // writes the table plus its primary/unique/query indexes, while the limiter
-  // also persists its counter. Nine rows/admission deliberately overestimates
-  // the steady-state cost so future release work retains meaningful headroom.
-  const conservativeRowsWrittenPerAdmission = 9;
+
+  // D1 bills index maintenance as rows written. Derive the current schema
+  // amplification from SQLite itself so adding an index later automatically
+  // tightens this release guard instead of silently invalidating the estimate.
+  const d1 = await getD1Database();
+  const [eventIndexes, limiterIndexes] = await Promise.all([
+    d1.prepare("PRAGMA index_list('business_events')").all<{ name: string }>(),
+    d1.prepare("PRAGMA index_list('public_rate_limits')").all<{ name: string }>(),
+  ]);
+  const conservativeRowsWrittenPerAdmission =
+    1 +
+    (eventIndexes.results?.length ?? 0) +
+    1 +
+    (limiterIndexes.results?.length ?? 0);
   const worstCaseRowsWritten =
     windowsPerDay *
     PUBLIC_ANALYTICS_BUDGET.maxCount *
@@ -403,7 +412,7 @@ test("OBS 08.8: anonymous front-funnel telemetry keeps D1 write headroom", () =>
   assert.equal(PUBLIC_ANALYTICS_BUDGET.maxCount, 50);
   assert.ok(
     worstCaseRowsWritten < 50_000,
-    `front-funnel telemetry budget would consume ${worstCaseRowsWritten} D1 row writes/day at saturation`,
+    `front-funnel telemetry budget would consume ${worstCaseRowsWritten} D1 row writes/day at saturation (estimated ${conservativeRowsWrittenPerAdmission} billed rows/admission)`,
   );
 });
 
