@@ -384,9 +384,10 @@ test("OBS 08.8: public CTA route must match Offer kind", async () => {
 });
 
 test("OBS 08.8: anonymous front-funnel telemetry keeps D1 write headroom", () => {
-  const windowsPerDay = Math.ceil(
-    (24 * 60) / PUBLIC_ANALYTICS_BUDGET.windowMinutes,
-  );
+  // A scope-anchored window may begin before the UTC billing boundary and
+  // carry unused capacity into the next day, so reserve one extra window.
+  const windowsPerDay =
+    Math.ceil((24 * 60) / PUBLIC_ANALYTICS_BUDGET.windowMinutes) + 1;
   const worstCaseRowsWritten =
     windowsPerDay * PUBLIC_ANALYTICS_BUDGET.maxCount * 2;
 

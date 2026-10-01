@@ -222,12 +222,19 @@ test.describe("Mission 08 final integrated certification", () => {
       ).toBeVisible();
       await expect(page.getByText("NOT CONFIGURED").first()).toBeVisible();
 
-      const confirmedCard = funnel
-        .getByText("Confirmed", { exact: true })
-        .locator("..");
-      const confirmedText = await confirmedCard.textContent();
-      const confirmedMatch = confirmedText?.match(/Confirmed\s*(\d+)/);
-      expect(Number(confirmedMatch?.[1] ?? 0)).toBeGreaterThan(0);
+      for (const label of [
+        "Booking starts",
+        "Slots held",
+        "Requests",
+        "Confirmed",
+      ]) {
+        const card = funnel.getByText(label, { exact: true }).locator("..");
+        const valueText = await card.locator("div").nth(1).textContent();
+        expect(
+          Number(valueText ?? 0),
+          `${label} should be non-zero after the certified booking flow`,
+        ).toBeGreaterThan(0);
+      }
     });
 
     await test.step("server projections do not leak provider-secret shapes", async () => {

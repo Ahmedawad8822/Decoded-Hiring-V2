@@ -15,9 +15,10 @@ export const BUSINESS_EVENT_NAMES = [
 
 // One shared anonymous front-funnel budget prevents analytics abuse from
 // consuming the D1 write allowance needed by real booking/content flows.
-// At continuous saturation this budget admits at most 9,600 events/day;
-// with one limiter-row write + one event-row write per admission, that is
-// at most 19,200 D1 row writes/day before business traffic.
+// Across an arbitrary UTC billing day, allow one carry-over anchored window
+// plus the 96 full 15-minute windows: at most 9,700 admissions/day. With one
+// limiter-row write + one event-row write per admission, that is at most
+// 19,400 D1 row writes/day before business traffic.
 export const PUBLIC_ANALYTICS_BUDGET = {
   scopeKey: "analytics:public-funnel",
   windowMinutes: 15,
