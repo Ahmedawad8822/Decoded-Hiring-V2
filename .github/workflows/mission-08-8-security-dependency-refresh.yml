@@ -24,6 +24,7 @@ jobs:
         run: |
           npm install --package-lock-only --ignore-scripts --save-exact next@16.3.8 eslint-config-next@16.3.8
           node -e "const p=require('./package.json'); if(p.dependencies.next!=='16.3.8'||p.devDependencies['eslint-config-next']!=='16.3.8') process.exit(1)"
+          git diff -- package.json package-lock.json > next-16.3.8.patch
       - name: Upload generated package state
         uses: actions/upload-artifact@v4
         with:
@@ -31,5 +32,6 @@ jobs:
           path: |
             package.json
             package-lock.json
+            next-16.3.8.patch
           if-no-files-found: error
           retention-days: 1
