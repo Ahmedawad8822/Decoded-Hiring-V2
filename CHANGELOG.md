@@ -1,5 +1,50 @@
 # Changelog
 
+## [Unreleased] — Mission 08.8 Observability + Final Integrated Certification
+
+### Added
+- Provider-neutral D1 `business_events` projection covering the complete
+  Commerce/Scheduling event vocabulary, with privacy-safe metadata, durable
+  history reconstruction and idempotent event identities.
+- A 30-day Scheduling & Commerce funnel in Studio and tracked public Offer CTA,
+  booking-start and slot-held events.
+- Final Mission 08 browser certification for the real public booking → durable
+  confirmation → Studio observability journey, plus mobile overflow and
+  semantic-accessibility checks.
+
+### Reliability / performance
+- Direct and reconstructed booking telemetry now share
+  `booking_history.id` identity; Order/payment telemetry shares
+  `order_history.id` identity, preserving repeated same-second transitions
+  without double-counting crash recovery.
+- Public fixed-window limits are scope-anchored, closing the wall-clock boundary
+  double-burst.
+- Anonymous CTA + booking-start telemetry shares a single 50 / 15-minute
+  front-funnel budget. The release regression derives SQLite index
+  amplification and keeps worst-case telemetry below half of the Workers Free
+  D1 daily write allowance.
+
+### Security
+- Analytics remains projection-only and best-effort; booking, Order, payment and
+  orchestration tables remain authoritative.
+- Sensitive/free-text-shaped analytics metadata is rejected and provider-secret
+  shaped values are absent from the Studio projection.
+- Next.js and `eslint-config-next` were moved to the current 16.3.8 Active LTS
+  security patch line during final review.
+
+### Certification
+- Exact product/code boundary:
+  `b448e16f58266a3f4d8bdf46fd8afedfe6aa37e1`.
+- GitHub Actions run `36870986000`: typecheck, lint, **399/399** source tests,
+  Drizzle drift, production build, Mission 08 browser **2/2**, Field Notes
+  **3/3**, and smoke **3/3** all pass.
+- Permanent `dh-release-review`: all nine applicable gates PASS. Two Major
+  findings found during final review (D1 free-tier write exhaustion risk and
+  stale Next.js 16.3.6 security baseline) were remediated and re-certified.
+- Merge remains gated on documentation cleanup, final exact-SHA verification
+  and Ahmed's explicit GO.
+
+
 ## [Unreleased] — Mission 07 Post-Certification Release Review
 
 ### Fixed

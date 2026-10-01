@@ -1210,7 +1210,7 @@ No merge is authorized by this ledger entry. Ahmed's explicit GO remains require
 
 ## Slice 08.8 — Observability + Final Integrated Certification
 
-Status: **IMPLEMENTATION IN PROGRESS**
+Status: **CODE / PRODUCT RELEASE REVIEW PASSED — FINAL DOCUMENTATION + EXACT-SHA VERIFICATION PENDING**
 
 Pinned branch:
 `mission-08.8-observability-final-certification`
@@ -1256,7 +1256,7 @@ Rules:
   qualification notes, free-text answers or other sensitive intake content;
 - no external analytics provider or credentials are activated by this slice.
 
-### Initial implementation
+### Final implementation
 
 - provider-neutral business-event service + typed event contract
 - gap-filling recovery projector from booking/order durable history
@@ -1265,24 +1265,69 @@ Rules:
 - public booking-start and slot-held events
 - authoritative booking lifecycle instrumentation
 - authoritative checkout/payment instrumentation
-- dedicated observability regression suite for:
+- durable booking and Order event identity keyed to append-only history rows
+- scope-anchored public rate limiting with one shared anonymous front-funnel budget
+- index-aware D1 free-tier write-headroom regression
+- Studio mobile overflow hardening
+- Next.js / eslint-config-next Active LTS security baseline 16.3.8
+- dedicated observability regressions for:
   - duplicate/concurrent idempotency
   - privacy guardrails
   - booking/payment event truth
   - crash-like event-loss reconstruction
-  - CTA idempotency
+  - same-second transition preservation
+  - public telemetry rate limiting
+  - D1 write-budget headroom
   - complete event vocabulary
 
-### Final certification boundary still to add
+### Final certification evidence
 
-- integrated public scheduler browser lifecycle
-- Studio Scheduling & Commerce browser lifecycle
-- mobile/responsive overflow matrix
-- accessibility scan / keyboard-critical paths
-- unauthenticated admin denial
-- no provider-secret leakage
-- explicit concurrency/recovery evidence tying existing Mission 08 regressions
-  into the final certification report
+Certified product/code boundary:
+`mission-08.8-observability-final-certification@b448e16f58266a3f4d8bdf46fd8afedfe6aa37e1`
+
+Exact-head GitHub Actions run:
+`36870986000`
+
+Gates:
+- typecheck — PASS
+- lint with zero warnings — PASS
+- full sequential source suite — **399 / 399 PASS**
+- Mission 08.1 scheduling core — 78 / 78
+- Mission 08.2 booking lifecycle — 18 / 18
+- Mission 08.3 Offer/access — 18 / 18
+- Mission 08.4 provider adapters — 11 / 11
+- Mission 08.5 Order/orchestration — 37 / 37
+- Mission 08.6 public scheduling — 20 / 20
+- Mission 08.6 lead fallback — 11 / 11
+- Mission 08.7 Studio — 11 / 11
+- Mission 08.8 observability — 10 / 10
+- Drizzle drift — PASS, no schema changes pending
+- production build — PASS
+- Mission 08 final browser certification — **2 / 2 PASS**
+- Field Notes public browser regression — 3 / 3
+- public/admin smoke — 3 / 3
+
+Browser certification proves:
+- unauthenticated Studio denial
+- keyboard-operable public coaching scheduling CTA
+- real public D1 booking through durable confirmation
+- Studio visibility of the full public funnel:
+  CTA click → booking start → slot hold → booking request → confirmation
+- provider-secret-shaped values absent from the rendered Studio projection
+- no horizontal overflow across 320 / 375 / 430 / 768 / 1024 / 1440 px
+  on coaching, workshop and Studio Commerce routes
+- semantic form labels, image alt coverage and one-H1 structure on critical routes
+
+The permanent `dh-release-review` passed all nine applicable gates on the
+certified code boundary. Two Major findings discovered during final review were
+closed before this status was recorded:
+1. public telemetry could consume the D1 free daily write allowance under abuse;
+   remediated with a shared 50 / 15-minute front-funnel budget and a
+   schema-derived billed-write regression;
+2. Next.js 16.3.6 was superseded by the 2026-09-30 security release;
+   remediated by moving the exact npm-generated package state to 16.3.8.
+
+No unresolved Critical or Major finding remains on the product/code boundary.
 
 ### Safety boundaries
 
@@ -1294,6 +1339,9 @@ Rules:
 - change DNS
 - mutate production resources
 
-Mission 08 may only be declared complete after exact-head gates, independent
-release review, remediation/re-review if required, ChatGPT final exact-SHA
-verification, and Ahmed's explicit GO.
+The product/code boundary has passed exact-head gates and independent
+`dh-release-review`. Remaining release mechanics are documentation-only sync,
+removal of temporary 08.8 validation scaffolding, final exact-SHA verification,
+and Ahmed's explicit GO.
+
+No merge is authorized by this status.
