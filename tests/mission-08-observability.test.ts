@@ -13,6 +13,7 @@ import { migrateLocalDb } from "../src/lib/db/migrate";
 import { getDb, orchestrationEffects } from "../src/lib/db";
 import {
   BUSINESS_EVENT_NAMES,
+  PUBLIC_ANALYTICS_BUDGET,
   type BusinessEventName,
 } from "@/features/analytics/types";
 import {
@@ -379,6 +380,21 @@ test("OBS 08.8: public CTA route must match Offer kind", async () => {
   assert.equal(
     rows.filter((row) => row.eventName === "offer_cta_clicked").length,
     0,
+  );
+});
+
+test("OBS 08.8: anonymous front-funnel telemetry keeps D1 write headroom", () => {
+  const windowsPerDay = Math.ceil(
+    (24 * 60) / PUBLIC_ANALYTICS_BUDGET.windowMinutes,
+  );
+  const worstCaseRowsWritten =
+    windowsPerDay * PUBLIC_ANALYTICS_BUDGET.maxCount * 2;
+
+  assert.equal(PUBLIC_ANALYTICS_BUDGET.scopeKey, "analytics:public-funnel");
+  assert.equal(PUBLIC_ANALYTICS_BUDGET.windowMinutes, 15);
+  assert.ok(
+    worstCaseRowsWritten <= 20_000,
+    `front-funnel telemetry budget would consume ${worstCaseRowsWritten} D1 row writes/day at saturation`,
   );
 });
 

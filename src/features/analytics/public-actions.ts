@@ -5,6 +5,7 @@ import { z } from "zod";
 import { getPublicOfferBySlug } from "@/features/offers/service";
 import { consumePublicFixedWindowLimit } from "@/features/public-intake/rate-limit";
 import { recordBusinessEventBestEffort } from "./service";
+import { PUBLIC_ANALYTICS_BUDGET } from "./types";
 
 const offerCtaSchema = z.object({
   eventKey: z.string().uuid(),
@@ -26,10 +27,10 @@ export async function recordPublicOfferCta(input: unknown): Promise<void> {
 
   const now = new Date();
   const admitted = await consumePublicFixedWindowLimit({
-    scopeKey: `analytics:offer-cta:${parsed.route}`,
+    scopeKey: PUBLIC_ANALYTICS_BUDGET.scopeKey,
     now,
-    windowMinutes: 15,
-    maxCount: 500,
+    windowMinutes: PUBLIC_ANALYTICS_BUDGET.windowMinutes,
+    maxCount: PUBLIC_ANALYTICS_BUDGET.maxCount,
   });
   if (!admitted) return;
 
@@ -72,10 +73,10 @@ export async function recordPublicBookingStarted(input: unknown): Promise<void> 
 
   const now = new Date();
   const admitted = await consumePublicFixedWindowLimit({
-    scopeKey: `analytics:booking-start:${parsed.bookingTypeId}`,
+    scopeKey: PUBLIC_ANALYTICS_BUDGET.scopeKey,
     now,
-    windowMinutes: 15,
-    maxCount: 500,
+    windowMinutes: PUBLIC_ANALYTICS_BUDGET.windowMinutes,
+    maxCount: PUBLIC_ANALYTICS_BUDGET.maxCount,
   });
   if (!admitted) return;
 

@@ -13,6 +13,17 @@ export const BUSINESS_EVENT_NAMES = [
   "payment_failed",
 ] as const;
 
+// One shared anonymous front-funnel budget prevents analytics abuse from
+// consuming the D1 write allowance needed by real booking/content flows.
+// At continuous saturation this budget admits at most 9,600 events/day;
+// with one limiter-row write + one event-row write per admission, that is
+// at most 19,200 D1 row writes/day before business traffic.
+export const PUBLIC_ANALYTICS_BUDGET = {
+  scopeKey: "analytics:public-funnel",
+  windowMinutes: 15,
+  maxCount: 100,
+} as const;
+
 export type BusinessEventName = (typeof BUSINESS_EVENT_NAMES)[number];
 
 export type BusinessEventMetadataValue =
