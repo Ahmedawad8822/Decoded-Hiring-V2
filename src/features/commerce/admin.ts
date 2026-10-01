@@ -9,6 +9,7 @@ import {
 } from "drizzle-orm";
 
 import { requireAdmin } from "@/lib/auth";
+import { getBusinessEventSummary } from "@/features/analytics/service";
 import {
   bookingAvailabilityWindows,
   bookingHistory,
@@ -256,6 +257,7 @@ export async function getCommerceAdminDashboardWithGuard(
     blockedEffectTotal,
     courseTotal,
     providerStatuses,
+    observability,
   ] = await Promise.all([
     countRows(undefined, offers),
     countRows(eq(offers.active, true), offers),
@@ -276,6 +278,7 @@ export async function getCommerceAdminDashboardWithGuard(
     countRows(eq(orchestrationEffects.status, "BLOCKED"), orchestrationEffects),
     countRows(undefined, courses),
     readProviderStatuses(),
+    getBusinessEventSummary({ windowDays: 30, now }),
   ]);
 
   const pages = {
@@ -457,6 +460,7 @@ export async function getCommerceAdminDashboardWithGuard(
     linkedOfferBookingTypeIds: linkedOfferRows
       .map((row) => row.bookingTypeId)
       .filter((id): id is string => Boolean(id)),
+    observability,
   };
 }
 

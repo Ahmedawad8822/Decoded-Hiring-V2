@@ -43,6 +43,7 @@ import {
   type PublicSchedulingKind,
 } from "@/features/scheduling/public-scheduling";
 import { submitPublicBooking } from "@/features/scheduling/public-actions";
+import { consumePublicFixedWindowLimit } from "@/features/public-intake/rate-limit";
 
 const FIXED_NOW = new Date("2026-10-27T12:00:00.000Z");
 let seq = 0;
@@ -633,6 +634,41 @@ test("PUBLIC 08.6: booking velocity guard stops repeated bookings before another
   assert.equal(blocked?.ok, false);
   if (!blocked || blocked.ok) return;
   assert.equal(blocked.code, "RATE_LIMITED");
+});
+
+test("PUBLIC 08.6: anchored fixed window cannot be doubled across a wall-clock boundary", async () => {
+  const scopeKey = `boundary-${crypto.randomUUID()}`;
+  const first = new Date("2026-10-27T11:59:59.900Z");
+
+  for (let index = 0; index < 8; index += 1) {
+    const admitted = await consumePublicFixedWindowLimit({
+      scopeKey,
+      now: first,
+      windowMinutes: 15,
+      maxCount: 8,
+    });
+    assert.equal(admitted, true);
+  }
+
+  // The old wall-aligned implementation reset here at 12:00:00, allowing a
+  // second full burst within milliseconds. A scope-anchored window must not.
+  const justAfterClockBoundary = await consumePublicFixedWindowLimit({
+    scopeKey,
+    now: new Date("2026-10-27T12:00:00.100Z"),
+    windowMinutes: 15,
+    maxCount: 8,
+  });
+  assert.equal(justAfterClockBoundary, false);
+
+  // Once the full 15-minute interval from the first admitted request expires,
+  // the same scope receives a fresh budget.
+  const afterWindow = await consumePublicFixedWindowLimit({
+    scopeKey,
+    now: new Date("2026-10-27T12:14:59.900Z"),
+    windowMinutes: 15,
+    maxCount: 8,
+  });
+  assert.equal(afterWindow, true);
 });
 
 test("PUBLIC 08.6: rotating emails cannot bypass booking-type burst protection", async () => {

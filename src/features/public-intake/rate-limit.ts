@@ -8,11 +8,6 @@ function clampInteger(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, Math.trunc(value)));
 }
 
-function fixedWindowStart(now: Date, windowMinutes: number): number {
-  const windowMs = windowMinutes * MINUTE_MS;
-  return Math.floor(now.getTime() / windowMs) * windowMs;
-}
-
 export async function anonymousRateLimitFingerprint(
   value: string,
 ): Promise<string> {
@@ -27,11 +22,13 @@ export async function anonymousRateLimitFingerprint(
 }
 
 /**
- * Atomically consumes one slot from a fixed-window public mutation budget.
+ * Atomically consumes one slot from a scope-anchored fixed-window public
+ * mutation budget.
  *
- * The INSERT/ON CONFLICT UPDATE is one SQLite write statement. Under
- * concurrent requests D1 serializes the row update, and the WHERE predicate
- * prevents count from crossing maxCount. A rejected consume returns no row.
+ * The first admitted request starts the window. The INSERT/ON CONFLICT UPDATE
+ * is one SQLite write statement. Under concurrent requests D1 serializes the
+ * row update, and the WHERE predicate prevents count from crossing maxCount.
+ * A rejected consume returns no row.
  */
 export async function consumePublicFixedWindowLimit(params: {
   scopeKey: string;
@@ -41,7 +38,12 @@ export async function consumePublicFixedWindowLimit(params: {
 }): Promise<boolean> {
   const windowMinutes = clampInteger(params.windowMinutes, 1, 60);
   const maxCount = clampInteger(params.maxCount, 1, 500);
-  const windowStart = fixedWindowStart(params.now, windowMinutes);
+  const windowMs = windowMinutes * MINUTE_MS;
+  const nowMs = params.now.getTime();
+  // Scope-anchored fixed window: the first admitted request owns the start.
+  // This avoids the synchronized-boundary weakness of wall-clock windows
+  // (e.g. max requests at 14:59:59 plus max again at 15:00:00).
+  const windowStart = nowMs;
   const db = await getDb();
 
   const admitted = await db
@@ -55,16 +57,20 @@ export async function consumePublicFixedWindowLimit(params: {
     .onConflictDoUpdate({
       target: publicRateLimits.scopeKey,
       set: {
-        windowStart,
+        windowStart: sql<number>`CASE
+          WHEN ${publicRateLimits.windowStart} + ${windowMs} <= ${nowMs}
+          THEN ${nowMs}
+          ELSE ${publicRateLimits.windowStart}
+        END`,
         count: sql<number>`CASE
-          WHEN ${publicRateLimits.windowStart} = ${windowStart}
-          THEN ${publicRateLimits.count} + 1
-          ELSE 1
+          WHEN ${publicRateLimits.windowStart} + ${windowMs} <= ${nowMs}
+          THEN 1
+          ELSE ${publicRateLimits.count} + 1
         END`,
         updatedAt: params.now,
       },
       where: sql`
-        ${publicRateLimits.windowStart} != ${windowStart}
+        ${publicRateLimits.windowStart} + ${windowMs} <= ${nowMs}
         OR ${publicRateLimits.count} < ${maxCount}
       `,
     })

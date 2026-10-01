@@ -1206,3 +1206,146 @@ All were closed before the remediation re-review:
 - final security/concurrency/recovery certification across the integrated workflow
 
 No merge is authorized by this ledger entry. Ahmed's explicit GO remains required.
+
+
+## Slice 08.8 — Observability + Final Integrated Certification
+
+Status: **FINAL RELEASE VERIFIED — AWAITING AHMED EXPLICIT GO**
+
+Pinned branch:
+`mission-08.8-observability-final-certification`
+
+Pinned base:
+`mission-08-commerce-scheduling@e85fe6b3078b73947021a52d8ace8ec783af43d8`
+
+### Intent
+
+Close the remaining Mission 08 obligations after the accepted Studio control
+plane:
+- meaningful commerce/scheduling business-event observability
+- final browser/mobile/accessibility certification
+- integrated security/concurrency/recovery certification
+
+### Observability contract
+
+Provider-neutral D1 event ledger:
+`drizzle/migrations/0018_business_events.sql`
+
+Tracked event vocabulary remains the one pinned in
+`COMMERCE-SCHEDULING-SPEC.md`:
+- `offer_cta_clicked`
+- `booking_started`
+- `slot_held`
+- `booking_requested`
+- `booking_approved`
+- `booking_confirmed`
+- `booking_declined`
+- `booking_cancelled`
+- `booking_rescheduled`
+- `checkout_started`
+- `payment_confirmed`
+- `payment_failed`
+
+Rules:
+- business truth remains in booking/order/payment/orchestration tables;
+- the event ledger is an observability projection, never fulfillment authority;
+- durable events are reconstructable from append-only booking/order history;
+- duplicate event writes are idempotent;
+- front-of-funnel public telemetry is bounded and fail-safe;
+- analytics metadata must not contain names, emails, phone numbers,
+  qualification notes, free-text answers or other sensitive intake content;
+- no external analytics provider or credentials are activated by this slice.
+
+### Final implementation
+
+- provider-neutral business-event service + typed event contract
+- gap-filling recovery projector from booking/order durable history
+- 30-day Studio funnel summary
+- public Offer CTA tracking
+- public booking-start and slot-held events
+- authoritative booking lifecycle instrumentation
+- authoritative checkout/payment instrumentation
+- durable booking and Order event identity keyed to append-only history rows
+- scope-anchored public rate limiting with one shared anonymous front-funnel budget
+- index-aware D1 free-tier write-headroom regression
+- Studio mobile overflow hardening
+- Next.js / eslint-config-next Active LTS security baseline 16.3.8
+- dedicated observability regressions for:
+  - duplicate/concurrent idempotency
+  - privacy guardrails
+  - booking/payment event truth
+  - crash-like event-loss reconstruction
+  - same-second transition preservation
+  - public telemetry rate limiting
+  - D1 write-budget headroom
+  - complete event vocabulary
+
+### Final certification evidence
+
+Certified product/code boundary:
+`mission-08.8-observability-final-certification@b448e16f58266a3f4d8bdf46fd8afedfe6aa37e1`
+
+Exact-head GitHub Actions run:
+`36870986000`
+
+Gates:
+- typecheck — PASS
+- lint with zero warnings — PASS
+- full sequential source suite — **399 / 399 PASS**
+- Mission 08.1 scheduling core — 78 / 78
+- Mission 08.2 booking lifecycle — 18 / 18
+- Mission 08.3 Offer/access — 18 / 18
+- Mission 08.4 provider adapters — 11 / 11
+- Mission 08.5 Order/orchestration — 37 / 37
+- Mission 08.6 public scheduling — 20 / 20
+- Mission 08.6 lead fallback — 11 / 11
+- Mission 08.7 Studio — 11 / 11
+- Mission 08.8 observability — 10 / 10
+- Drizzle drift — PASS, no schema changes pending
+- production build — PASS
+- Mission 08 final browser certification — **2 / 2 PASS**
+- Field Notes public browser regression — 3 / 3
+- public/admin smoke — 3 / 3
+
+Browser certification proves:
+- unauthenticated Studio denial
+- keyboard-operable public coaching scheduling CTA
+- real public D1 booking through durable confirmation
+- Studio visibility of the full public funnel:
+  CTA click → booking start → slot hold → booking request → confirmation
+- provider-secret-shaped values absent from the rendered Studio projection
+- no horizontal overflow across 320 / 375 / 430 / 768 / 1024 / 1440 px
+  on coaching, workshop and Studio Commerce routes
+- semantic form labels, image alt coverage and one-H1 structure on critical routes
+
+The permanent `dh-release-review` passed all nine applicable gates on the
+certified code boundary. Two Major findings discovered during final review were
+closed before this status was recorded:
+1. public telemetry could consume the D1 free daily write allowance under abuse;
+   remediated with a shared 50 / 15-minute front-funnel budget and a
+   schema-derived billed-write regression;
+2. Next.js 16.3.6 was superseded by the 2026-09-30 security release;
+   remediated by moving the exact npm-generated package state to 16.3.8.
+
+No unresolved Critical or Major finding remains on the product/code boundary.
+
+### Safety boundaries
+
+08.8 does **not**:
+- activate PostHog or another external analytics provider
+- activate payment/calendar/mailbox/meeting providers
+- add production provider credentials
+- deploy
+- change DNS
+- mutate production resources
+
+The product/code boundary and documentation sync passed their exact-head gates
+and independent `dh-release-review`. Temporary 08.8 validation scaffolding has
+been removed. Final cleanup verification confirms zero executable product,
+migration, dependency, test or browser-certification drift from the fully green
+certified code boundary.
+
+Mission 08.8 is release-verified. The only remaining authorization gate is
+Ahmed's explicit GO.
+
+No merge is authorized by this status.

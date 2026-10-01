@@ -2,6 +2,8 @@
 
 import { z } from "zod";
 
+import { recordBusinessEventBestEffort } from "@/features/analytics/service";
+
 import {
   acquireSlotHold,
   releaseSlotHold,
@@ -70,6 +72,10 @@ export type PublicBookingActionState =
 
 function formBoolean(value: FormDataEntryValue | null): boolean {
   return value === "true" || value === "on";
+}
+
+function publicRoute(kind: "COACHING" | "WORKSHOP"): "/coaching" | "/workshop" {
+  return kind === "COACHING" ? "/coaching" : "/workshop";
 }
 
 function safeSuccess(booking: {
@@ -288,6 +294,21 @@ export async function submitPublicBooking(
         "Someone else reached that slot first. Refresh the page and choose another time.",
     };
   }
+
+  await recordBusinessEventBestEffort({
+    dedupeKey: `public-slot:${parsed.data.acquisitionKey}:held`,
+    eventName: "slot_held",
+    subjectType: "BOOKING_TYPE",
+    subjectId: bookable.model.bookingTypeId,
+    bookingTypeId: bookable.model.bookingTypeId,
+    route: publicRoute(parsed.data.offerKind),
+    surface: "public-scheduler",
+    metadata: {
+      offer_kind: parsed.data.offerKind,
+      offer_slug: parsed.data.offerSlug,
+    },
+    occurredAt: now,
+  });
 
   try {
     const booking = await createBookingRequest({

@@ -10,6 +10,7 @@
 // ============================================================================
 
 import { and, asc, eq } from "drizzle-orm";
+import { recordBusinessEventBestEffort } from "@/features/analytics/service";
 import {
   bookings,
   enrollments,
@@ -79,6 +80,37 @@ function toUnixSeconds(value: Date): number {
 
 function detail(value: Record<string, unknown>): string {
   return JSON.stringify(value);
+}
+
+type OrderBusinessEventName =
+  | "checkout_started"
+  | "payment_confirmed"
+  | "payment_failed";
+
+async function recordOrderBusinessEvent(params: {
+  eventName: OrderBusinessEventName;
+  historyId: string;
+  order: Order;
+  occurredAt: Date;
+  source: string;
+}): Promise<void> {
+  await recordBusinessEventBestEffort({
+    dedupeKey: `order-history:${params.historyId}:${params.eventName}`,
+    eventName: params.eventName,
+    subjectType: "ORDER",
+    subjectId: params.order.id,
+    offerId: params.order.offerId,
+    bookingTypeId: params.order.bookingTypeId,
+    bookingId: params.order.bookingId,
+    orderId: params.order.id,
+    metadata: {
+      source: params.source,
+      offer_kind: params.order.offerKind,
+      access_mode: params.order.accessMode,
+      state: params.order.status,
+    },
+    occurredAt: params.occurredAt,
+  });
 }
 
 async function resolveAdminId(): Promise<string> {
@@ -246,6 +278,7 @@ export async function createOrder(input: CreateOrderInput): Promise<Order> {
   await validateOrderTarget(offer, parsed);
 
   const id = newId("order");
+  const auditId = newId("ordh");
   const now = parsed.now;
   const values = {
     id,
@@ -272,7 +305,7 @@ export async function createOrder(input: CreateOrderInput): Promise<Order> {
     await db.batch([
       db.insert(orders).values(values),
       db.insert(orderHistory).values({
-        id: newId("ordh"),
+        id: auditId,
         orderId: id,
         fromStatus: null,
         toStatus: "PENDING",
@@ -297,6 +330,13 @@ export async function createOrder(input: CreateOrderInput): Promise<Order> {
 
   const created = await getOrderById(id);
   if (!created) throw new Error("Order insert committed but could not be re-read.");
+  await recordOrderBusinessEvent({
+    eventName: "checkout_started",
+    historyId: auditId,
+    order: created,
+    occurredAt: now,
+    source: "order_created",
+  });
   return created;
 }
 
@@ -426,6 +466,7 @@ async function applyVerifiedPaymentObservation(params: {
   const nowSec = toUnixSeconds(params.now);
   const transition = `ordtr_${crypto.randomUUID()}`;
   const targetVersion = order.version + (target === order.status ? 0 : 1);
+  const auditId = newId("ordh");
   const d1 = await getD1Database();
 
   const insertEvent = d1
@@ -466,6 +507,10 @@ async function applyVerifiedPaymentObservation(params: {
       }
       throw error;
     }
+    // This payment observation did not change business state. Do not emit a
+    // second state-transition event here. If the original best-effort
+    // analytics write was lost after commit, reconciliation rebuilds it from
+    // the durable order_history row using the same dedupe identity.
     return order;
   }
 
@@ -542,7 +587,7 @@ async function applyVerifiedPaymentObservation(params: {
        WHERE id = ? AND transition_key = ? AND version = ? AND status = ?`,
     )
     .bind(
-      newId("ordh"),
+      auditId,
       order.status,
       target,
       params.source === "WEBHOOK" ? "PAYMENT_WEBHOOK" : "PAYMENT_CALLBACK",
@@ -675,6 +720,23 @@ async function applyVerifiedPaymentObservation(params: {
       "Order payment transition lost a concurrent modification.",
       "CONCURRENT_MODIFICATION",
     );
+  }
+  if (updated.status === "PAID") {
+    await recordOrderBusinessEvent({
+      eventName: "payment_confirmed",
+      historyId: auditId,
+      order: updated,
+      occurredAt: params.now,
+      source: params.source.toLowerCase(),
+    });
+  } else if (updated.status === "FAILED") {
+    await recordOrderBusinessEvent({
+      eventName: "payment_failed",
+      historyId: auditId,
+      order: updated,
+      occurredAt: params.now,
+      source: params.source.toLowerCase(),
+    });
   }
   return updated;
 }
@@ -834,6 +896,7 @@ async function recordManualPaymentAsActor(
   const nowSec = toUnixSeconds(parsed.now);
   const transition = `ordtr_${crypto.randomUUID()}`;
   const targetVersion = order.version + 1;
+  const auditId = newId("ordh");
   const effectId = `fx_order_${order.id}_fulfill`;
 
   await d1.batch([
@@ -861,7 +924,7 @@ async function recordManualPaymentAsActor(
          WHERE id=? AND transition_key=? AND version=? AND status='PAID'`,
       )
       .bind(
-        newId("ordh"),
+        auditId,
         order.status,
         actorId,
         detail({ note: parsed.note ?? null }),
@@ -916,6 +979,13 @@ async function recordManualPaymentAsActor(
       "CONCURRENT_MODIFICATION",
     );
   }
+  await recordOrderBusinessEvent({
+    eventName: "payment_confirmed",
+    historyId: auditId,
+    order: updated,
+    occurredAt: parsed.now,
+    source: "admin_manual",
+  });
   return updated;
 }
 
