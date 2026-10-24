@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { getServerSession } from "@/lib/auth";
 import { getAccessibleEnrollments } from "@/features/enrollments/service";
 import { getBatchedEnrollmentProgress } from "@/features/progress/service";
@@ -10,7 +11,10 @@ export const metadata = {
 
 export default async function LearnHomePage() {
   const session = await getServerSession();
-  const userId = session!.user.id;
+  // The layout redirects anonymous visitors too, but layout and page render
+  // concurrently, so the page must not assume a session exists.
+  if (!session?.user) redirect("/login?redirect=/learn");
+  const userId = session.user.id;
 
   // QUERY SHAPE (batched dashboard): 1 enrollments read + the domain-owned
   // batched progress path (course metadata, published curriculum, progress
@@ -36,7 +40,7 @@ export default async function LearnHomePage() {
   return (
     <main className="sec-app" id="main" style={{ padding: "clamp(24px,4vw,48px) 0" }}>
       <div className="wrap" style={{ maxWidth: 880 }}>
-        <p className="a-micro" style={{ marginBottom: 6 }}>WELCOME BACK, {(session!.user.name || "LEARNER").toUpperCase()}</p>
+        <p className="a-micro" style={{ marginBottom: 6 }}>WELCOME BACK, {(session.user.name || "LEARNER").toUpperCase()}</p>
         <h1 className="a-h1" style={{ marginBottom: 28 }}>Continue learning</h1>
 
         {cards.length === 0 && (
