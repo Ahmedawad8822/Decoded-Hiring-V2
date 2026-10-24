@@ -38,7 +38,7 @@ export const createGuideSchema = z.object({
   title: z.string().min(3, "Title must be at least 3 characters").max(200),
   slug: slugSchema,
   excerpt: z.string().max(500).optional(),
-  author: z.string().min(2).max(100).optional().default("Ahmed Awad"),
+  author: z.string().min(2).max(100).optional().default("Decoded Editorial"),
   category: z.string().max(50).optional(),
   tags: z.string().max(200).optional(),
   coverImage: coverImageSchema,

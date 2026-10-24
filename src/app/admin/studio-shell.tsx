@@ -44,13 +44,47 @@ export function AdminStudioShell({ children }: { children: React.ReactNode }) {
         >
           ◈ Courses
         </Link>
+
+        <div className="sr-section">Editorial AI</div>
+        <Link
+          className="sr-link"
+          href="/admin/editorial"
+          aria-current={pathname.startsWith("/admin/editorial") && !pathname.startsWith("/admin/editorial/memory") ? "page" : undefined}
+        >
+          ✦ Drafts
+        </Link>
+        <Link
+          className="sr-link"
+          href="/admin/knowledge"
+          aria-current={pathname.startsWith("/admin/knowledge") ? "page" : undefined}
+        >
+          ◫ Knowledge
+        </Link>
+        <Link
+          className="sr-link"
+          href="/admin/editorial/memory"
+          aria-current={pathname.startsWith("/admin/editorial/memory") ? "page" : undefined}
+        >
+          ◉ Memory
+        </Link>
       </aside>
 
       {/* Studio Main Content Area */}
       <div className="studio-main">
         <header className="studio-topbar">
           <span className="st-crumb">
-            Studio · <b>Content</b>
+            Studio ·{" "}
+            <b>
+              {pathname.startsWith("/admin/knowledge")
+                ? "Knowledge"
+                : pathname.startsWith("/admin/editorial/memory")
+                  ? "Editorial Memory"
+                  : pathname.startsWith("/admin/editorial")
+                    ? "Editorial"
+                    : pathname.startsWith("/admin/courses")
+                      ? "Courses"
+                      : "Content"}
+            </b>
           </span>
           <span className="st-spacer"></span>
 

@@ -11,11 +11,12 @@ export default defineConfig({
   expect: {
     timeout: 5_000,
   },
-  fullyParallel: true,
+  fullyParallel: false,
+  workers: 1,
   // Remediation F: the certification run must report 0 retries required. A
   // cold-server race is handled deterministically in the spec (single
   // re-submission), so local runs retry nothing; CI keeps its 2-retry safety.
-  retries: process.env.CI ? 2 : 0,
+  retries: 0,
   reporter: "list",
   use: {
     baseURL: `http://localhost:${port}`,
@@ -33,5 +34,9 @@ export default defineConfig({
     url: `http://localhost:${port}`,
     reuseExistingServer: !process.env.CI,
     timeout: 120_000,
+    // EXPLICIT TEST-ONLY: enable FakeProvider injection in generateDraftAction
+    // so the E2E suite runs without real LLM API credentials. This env gate
+    // is opt-in and documented — production code never sets it.
+    env: { EDITORIAL_FORCE_FAKE_PROVIDER: "1" },
   },
 });
