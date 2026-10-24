@@ -37,6 +37,12 @@ import {
   assertGuideTransition,
 } from "../src/features/publishing/lifecycle";
 import { buildSitemapEntries } from "../src/lib/sitemap-entries";
+import { migrateLocalDb } from "../src/lib/db/migrate";
+
+test.before(async () => {
+  // Each suite runs against its own empty throwaway D1 (tests/helpers/env.ts).
+  await migrateLocalDb();
+});
 
 test.after(async () => {
   // Same convention as every other D1-backed suite: releasing the Wrangler
