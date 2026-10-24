@@ -16,7 +16,7 @@ Last updated: **2026-10-24**
 
 | | |
 |---|---|
-| `main` | **Missions 01–08 + CI (verify + Playwright E2E) + security fixes + hardening batch + deploy-path prep** (#24, 2026-10-24). Unit tests: 24 suites, each on its own throwaway D1/R2. |
+| `main` | `2d15662`: **Missions 01–08, CI (verify, Playwright E2E, Worker size budget), security fixes, hardening batches 1–3, deploy-path prep, Next 16.4.2 / adapter 1.20.12.** Unit tests: 28 suites, each on its own throwaway D1/R2. |
 | Open PRs to `main` | None |
 | Production | **Not deployed.** The OpenNext adapter and config are prepared and verified locally (`Docs/Engineering/DEPLOYMENT.md`). No real Cloudflare resources exist yet; `wrangler.jsonc → env.production` holds placeholders. |
 | Providers | All dormant by design: no payment, calendar, mailbox, meeting or analytics provider is active. |
@@ -28,8 +28,16 @@ Last updated: **2026-10-24**
 
 | Branch | Base | State | What it is |
 |---|---|---|---|
-| `main` | — | current | Missions 01–08 + CI + security fixes + hardening batch + deploy-path prep |
+| `main` | — | current | Missions 01–08, CI, security fixes, hardening batches 1–3, deploy-path prep, Next 16.4.2 |
 | `hardening/*` (5) | — | merged (#18–#22) | Playwright CI, images, isolated test DB, progress maths, auth cache/admin gate |
+| `docs/context-and-dod` | — | merged ([#25](https://github.com/Ahmedawad8822/Decoded-Hiring-V2/pull/25)) | `Docs/CONTEXT.md` (41 terms, 12 ⚠ conflicts) and `Docs/DEFINITION-OF-DONE.md` |
+| `ci/worker-size-budget` | — | merged ([#26](https://github.com/Ahmedawad8822/Decoded-Hiring-V2/pull/26)) | CI job `worker-size`: fails above 2950 KiB gzip (`npm run cf:size`) |
+| `hardening/migration-tracking` | — | merged ([#27](https://github.com/Ahmedawad8822/Decoded-Hiring-V2/pull/27)) | `migrateLocalDb` records `d1_migrations` like wrangler; atomic per file; one-time legacy baseline |
+| `hardening/auth-rate-limit` | — | merged ([#28](https://github.com/Ahmedawad8822/Decoded-Hiring-V2/pull/28)) | Better Auth limits on D1: sign-in/up and password flows 5/min/IP, default 120, `/get-session` exempt |
+| `deploy/admin-seed-script` | — | merged ([#29](https://github.com/Ahmedawad8822/Decoded-Hiring-V2/pull/29)) | `npm run admin:create` (`--local` or `--remote --env`); Better Auth hash; idempotent |
+| `hardening/progress-write-paths` | — | merged ([#30](https://github.com/Ahmedawad8822/Decoded-Hiring-V2/pull/30)) | Learner reads no longer write; `reconcileCourseEnrollments()` on curriculum writes; archived lessons can't be published |
+| `upgrade/next-16.4-opennext` | — | merged ([#31](https://github.com/Ahmedawad8822/Decoded-Hiring-V2/pull/31)) | Next 16.4.2, adapter 1.20.12, wrangler 4.151.1; Worker 2.82 MiB gzip |
+| `docs/status-batch-3` | — | merged (#32) | Status doc |
 | `chore/status-hardening-batch` | — | merged (#23) | Status doc; git/eslint ignore `.claude/` |
 | `deploy/opennext-cloudflare` | — | merged ([#24](https://github.com/Ahmedawad8822/Decoded-Hiring-V2/pull/24)) | `@opennextjs/cloudflare@1.20.9`, `getCloudflareContext()` bindings with local fallback, `wrangler.jsonc` local + `env.production` placeholders, R2 incremental cache, deploy scripts, `DEPLOYMENT.md` |
 | `docs/project-status` | — | merged (#16) | This file + `AGENTS.md` pointer |
@@ -82,40 +90,44 @@ notification is sent while mailbox providers stay dormant.
 
 Take the top unblocked item. Move items, don't delete them silently.
 
-1. **[DECISION: Ahmed] First deploy.** The deploy path is on `main`. Follow the checklist in
+1. **[DECISION: Ahmed] First deploy.** The deploy path, `npm run admin:create` and Next 16.4 are on `main`. Follow the checklist in
    `Docs/Engineering/DEPLOYMENT.md`, which needs **Ahmed's decisions**:
    Cloudflare account and plan, D1/R2 names, domain, staging. Open technical items:
    - Workers Free limits: 2.78 MiB of 3 MiB gzipped; 10 ms CPU, which SSR likely exceeds.
    - `/guides` and `/field-notes` are prerendered from the *build machine's* D1. Choose
      `revalidate`, dynamic rendering or `populateCache`.
-   - A remote-safe admin seed script.
-   - Upgrade to Next ≥ 16.4.1 with adapter 1.20.13+ and wrangler ≥ 4.148.
+   - ~~Remote-safe admin seed script~~: done (#29).
+   - ~~Upgrade to Next ≥ 16.4.1 and the current adapter~~: done (#31).
+   - Size headroom is about 6% (2.82 MiB of 3 MiB); CI enforces a 2950 KiB budget (#26).
 2. **Phase 7 hardening backlog** (from the 2026-10-24 audit; check whether Mission 08 already covers an item before starting it):
    - ~~Tests share the local dev D1~~: done (#20).
    - ~~Duplicated progress maths, 0-required case~~: done (#21).
-   - Learner page renders write to D1 (completion reconcile on read). Move reconcile to write paths.
+   - ~~Learner page renders write to D1~~: done (#30).
    - ~~Admin gate repeated per page; `getAuth()` per call~~: done (#22). A layout/`proxy.ts` gate was rejected because `/admin/login` lives under the admin layout.
-   - The migration runner re-executes every file. Rely on wrangler's tracked migrations.
+   - ~~The migration runner re-executes every file~~: done (#27).
    - Enrollment cancellation: no flow sets `cancelled`, and `enrollFree` reactivates it. Decide the policy first.
-   - Lifecycle gaps: archived lessons can be republished; slug changes break URLs with no redirects; Trash/restore/permanent delete (blueprint §5) is missing.
-   - Rate limiting/Turnstile: Mission 08 added a D1 fixed-window limiter for public booking, leads and telemetry. Better Auth sign-in/sign-up still need limits, and Turnstile is not wired anywhere.
+   - Lifecycle gaps: ~~archived lessons can be republished~~ (done, #30). Still open: slug changes break URLs with no redirects; Trash/restore/permanent delete (blueprint §5) is missing.
+   - Rate limiting/Turnstile: ~~Better Auth limits~~ (done, #28). Turnstile still isn't wired; it needs Cloudflare site keys. `public_rate_limits` rows are never pruned.
+   - Security headers: no Content-Security-Policy yet (found by #25).
+   - CI runs 3 of 5 Playwright specs; mission-06 and mission-07 aren't in `test:e2e:ci` (found by #25).
+   - 22 npm audit advisories reported during #31; triage them.
    - Performance budget: ~~hero PNGs → WebP~~ (done, #19). Still to do: a `next/image` loader for Cloudflare, and Lighthouse/bundle checks in CI.
    - Hygiene: ticket-reference comments ("review correction H"), 9.4k lines of global CSS, `prototypes/` and the `.docx` in git, ~10 GB of local `.worktrees/`. Subagent worktrees under `.claude/worktrees/` can be removed with `git worktree remove` once their PRs merge.
 3. **Phase 7 growth (blueprint §16–17):** analytics provider activation (PostHog via
    Zaraz, consent first), Command Center, crawler policy, IndexNow, reliability
    automation. Each needs a spec before implementation.
-4. **Phase 0 debt:** write the missing foundation documents (§6) as features touch them. Start with `CONTEXT.md` (glossary) and `DEFINITION-OF-DONE.md`.
+4. **Phase 0 debt:** write the missing foundation documents (§6) as features touch them. `CONTEXT.md` and `DEFINITION-OF-DONE.md` are done (#25); resolve CONTEXT.md's 12 ⚠ conflicts with Ahmed.
 5. **Phase 8 launch:** acceptance run, selective V1 content import, staging review, DNS cutover, rollback plan.
 
 ---
 
 ## 6. Gaps against the blueprint
 
-- **Foundation documents missing** (blueprint §18.6): `CONTEXT.md`, `PRODUCT-SPEC.md`,
+- **Foundation documents missing** (blueprint §18.6): `PRODUCT-SPEC.md`,
   `UX-RULES.md`, `PAGE-TYPE-SPECS.md`, `SYSTEM-DESIGN.md`, `ARCHITECTURE.md`,
   `ENGINEERING-STANDARDS.md`, `SECURITY-THREAT-MODEL.md`, `PERFORMANCE-BUDGET.md`,
   `CONTENT-MODEL.md`, `ANALYTICS-EVENTS.md`, `COMMAND-CENTER-SPEC.md`, `AGENT-SKILLS.md`,
-  `RELIABILITY-AUTOMATION.md`, `DEFINITION-OF-DONE.md`, `docs/adr/`.
+  `RELIABILITY-AUTOMATION.md`, `docs/adr/`. (`CONTEXT.md` and `DEFINITION-OF-DONE.md` exist since #25.)
   Only `COMMERCE-SCHEDULING-SPEC.md` exists (Mission 08).
 - **Not built:** standard Pages, Landing Pages, course sales pages, Trash lifecycle,
   Command Center, Scheduling & Communications Agent, Cloudflare Workflows-based reminders,
@@ -151,13 +163,29 @@ Take the top unblocked item. Move items, don't delete them silently.
   (git- and lint-ignored). They commit to `hardening/*`-style branches, and the
   coordinator reviews, pushes and opens PRs. Mission merges need Ahmed's explicit GO. Never deploy or touch production
   resources without approval.
-- **Docs:** each mission keeps its own `Docs/Engineering/MISSION-XX-*.md`. This file is the cross-mission index and queue.
+- **Docs:** each mission keeps its own `Docs/Engineering/MISSION-XX-*.md`. This file is the cross-mission index and queue. Vocabulary: `Docs/CONTEXT.md`. Quality gates: `Docs/DEFINITION-OF-DONE.md`. Deploy: `Docs/Engineering/DEPLOYMENT.md`.
 
 ---
 
 ## 9. Session log
 
 Newest first. One entry per task: date, what changed, branch/PR, what's next.
+
+- **2026-10-24.** Merged batch 3 in order: #25 (`5729969`), #27 (`390c7c9`), #30 (`28e4cb7`),
+  #28 (`f79bc68`), #29 (`d70350d`), #26 (`18cc695`), #31 (`2d15662`), then this doc (#32).
+  Each was updated from `main` and green on GitHub before merging; #31 also passed the new
+  size-budget job. `package.json` conflicts were resolved by a key-wise three-way merge
+  (the `test` line is the union, 28 suites), and #31's `DEPLOYMENT.md` conflict kept both
+  the new size and the budget note. Subagent worktrees removed. No open PRs.
+  Next: Ahmed's first-deploy decisions (§7); agents can take the remaining §5 backlog.
+
+- **2026-10-24.** Batch 3: 7 parallel subagents (Sonnet). Reviewed and opened PRs #25–#31,
+  all green on CI. Coordinator changes made during review:
+  - #27: strict migrations are recorded atomically in one D1 batch.
+  - #28: `/get-session` is exempt from the rate limiter, since it would cost a D1 write per read.
+  - #31: adapter pinned to 1.20.12 (at least 7 days old) instead of 1.20.13.
+
+  Next: merge in the §2 order, then Ahmed's first-deploy decisions.
 
 - **2026-10-24.** Merged PR #24 (deploy-path prep) into `main` after green CI (verify +
   Playwright on `b58e34c`). No open PRs. Next: Ahmed's provisioning decisions for the first
