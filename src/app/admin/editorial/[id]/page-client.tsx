@@ -13,6 +13,7 @@ import {
 } from "@/features/editorial-ai/drafts/actions";
 import type { EditorialDraftWithSources, UpdateDraftInput } from "@/features/editorial-ai/drafts/types";
 import type { LlmBlock } from "@/features/editorial-ai/skills/types";
+import { unwrapActionResult, type ActionResult } from "@/lib/action-result";
 
 interface DraftDetailClientProps {
   draft: EditorialDraftWithSources;
@@ -32,13 +33,13 @@ export function DraftDetailClient({ draft }: DraftDetailClientProps) {
     PUBLISHED: "#8b5cf6",
   };
 
-  async function runAction(fn: (id: string, input?: { note?: string }) => Promise<unknown>, label: string, input?: { note?: string }) {
+  async function runAction(fn: (id: string, input?: { note?: string }) => Promise<ActionResult<unknown>>, label: string, input?: { note?: string }) {
     startTransition(() => {
       setActionError(null);
       setActionSuccess(null);
     });
     try {
-      await fn(draft.id, input);
+      unwrapActionResult(await fn(draft.id, input));
       startTransition(() => {
         setActionSuccess(`${label} completed`);
       });
@@ -56,7 +57,7 @@ export function DraftDetailClient({ draft }: DraftDetailClientProps) {
       setActionSuccess(null);
     });
     try {
-      const result = await publishDraftAction(draft.id);
+      const result = unwrapActionResult(await publishDraftAction(draft.id));
       startTransition(() => {
         setActionSuccess(`Published as ${result.entityType} (${result.entityId})`);
       });
@@ -82,7 +83,7 @@ export function DraftDetailClient({ draft }: DraftDetailClientProps) {
       metaDescription: (formData.get("metaDescription") as string) || undefined,
     };
     try {
-      await updateDraftAction(draft.id, input);
+      unwrapActionResult(await updateDraftAction(draft.id, input));
       startTransition(() => {
         setActionSuccess("Draft updated");
         setIsEditing(false);

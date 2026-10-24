@@ -46,7 +46,15 @@ import {
   getBatchedEnrollmentProgress,
   reconcileEnrollmentCompletion,
 } from "../src/features/progress/service";
+import { toActionResult, unwrapActionResult } from "../src/lib/action-result";
+import { approveAction } from "../src/features/editorial-ai/drafts/actions";
+import { deleteKnowledgeAction } from "../src/features/editorial-ai/knowledge/actions";
+import { archiveMemoryAction } from "../src/features/editorial-ai/memory/actions";
+import { approve } from "../src/features/editorial-ai/drafts/service";
+import { ingestKnowledgeSource } from "../src/features/editorial-ai/knowledge/service";
+import { POST as knowledgeUploadPOST } from "../src/app/api/editorial-ai/knowledge/upload/route";
 import { eq } from "drizzle-orm";
+import { z } from "zod";
 import type { D1Database } from "@cloudflare/workers-types";
 
 test.before(async () => {
@@ -116,6 +124,59 @@ test("ERRORS: server actions still surface AppError text", async () => {
   const res = await createCourseAction({ title: "Anon attempt" });
   assert.equal(res.ok, false);
   assert.match(res.error ?? "", /Unauthorized/);
+});
+
+test("ERRORS: toActionResult keeps AppError/Zod messages and masks the rest", async (t) => {
+  t.mock.method(console, "error", () => {});
+  assert.deepEqual(await toActionResult(async () => 42, "Fallback"), { ok: true, data: 42 });
+  assert.deepEqual(
+    await toActionResult(async () => {
+      throw new AppError("conflict", "Draft changed. Retry.");
+    }, "Fallback"),
+    { ok: false, error: "Draft changed. Retry." }
+  );
+  assert.deepEqual(
+    await toActionResult(async () => z.object({ title: z.string().min(3, "Title too short") }).parse({ title: "x" }), "Fallback"),
+    { ok: false, error: "Title too short" }
+  );
+  assert.deepEqual(
+    await toActionResult(async () => {
+      throw new Error("LLM request failed: 500. Body: {\"secret\":\"sk-...\"}");
+    }, "Failed to generate draft"),
+    { ok: false, error: "Failed to generate draft" }
+  );
+  assert.throws(() => unwrapActionResult({ ok: false, error: "Nope" }), /^Error: Nope$/);
+  assert.equal(unwrapActionResult({ ok: true, data: "x" }), "x");
+});
+
+test("ERRORS: editorial-AI actions return results instead of throwing", async () => {
+  const results = await Promise.all([
+    approveAction("missing"),
+    deleteKnowledgeAction("missing"),
+    archiveMemoryAction("missing"),
+  ]);
+  for (const res of results) {
+    assert.equal(res.ok, false);
+    assert.match(res.ok ? "" : res.error, /Unauthorized/);
+  }
+});
+
+test("ERRORS: editorial-AI services throw typed AppErrors for user-facing failures", async () => {
+  await assert.rejects(() => approve("draft_missing", "actor"), (err: unknown) => isAppError(err) && err.kind === "not_found");
+  await assert.rejects(
+    () => ingestKnowledgeSource("source_missing", "actor"),
+    (err: unknown) => isAppError(err) && err.kind === "not_found"
+  );
+});
+
+test("ERRORS: anonymous knowledge upload is 401 with a safe message", async () => {
+  const form = new FormData();
+  form.append("file", new Blob(["hello"], { type: "text/plain" }), "note.txt");
+  const res = await knowledgeUploadPOST(
+    new Request("http://localhost/api/editorial-ai/knowledge/upload", { method: "POST", body: form })
+  );
+  assert.equal(res.status, 401);
+  assert.match((await res.json()).error, /Unauthorized/);
 });
 
 // ---------------------------------------------------------------- race
