@@ -1,5 +1,4 @@
-import { redirect } from "next/navigation";
-import { getServerSession } from "@/lib/auth";
+import { requireAdminPage } from "@/lib/auth";
 import { getAllAdminGuides } from "@/features/guides/service";
 import { getAllAdminFieldNotes } from "@/features/field-notes/service";
 import { ContentWorkspaceClient } from "./content-workspace-client";
@@ -10,17 +9,7 @@ export const metadata = {
 };
 
 export default async function AdminContentPage() {
-  const session = await getServerSession();
-
-  // Server-side authorization gate per Domain 1
-  if (!session?.user) {
-    redirect("/admin/login");
-  }
-
-  const role = (session.user as { role?: string }).role;
-  if (role !== "admin") {
-    redirect("/admin/login?error=forbidden");
-  }
+  const session = await requireAdminPage();
 
   const [guides, fieldNotes] = await Promise.all([
     getAllAdminGuides(),

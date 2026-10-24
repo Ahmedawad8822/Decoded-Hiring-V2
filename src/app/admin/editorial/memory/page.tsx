@@ -1,5 +1,4 @@
-import { redirect } from "next/navigation";
-import { getServerSession } from "@/lib/auth";
+import { requireAdminPage } from "@/lib/auth";
 import { getAllMemory } from "@/features/editorial-ai/memory/service";
 import { MemoryPageClient } from "./page-client";
 
@@ -12,11 +11,7 @@ export const metadata = {
 };
 
 export default async function MemoryPage() {
-  const session = await getServerSession();
-  if (!session?.user) redirect("/admin/login");
-  const role = (session.user as { role?: string }).role;
-  if (role !== "admin") redirect("/admin/login?error=forbidden");
-
+  await requireAdminPage();
   const memory = await getAllMemory();
   return <MemoryPageClient initialMemory={memory} />;
 }

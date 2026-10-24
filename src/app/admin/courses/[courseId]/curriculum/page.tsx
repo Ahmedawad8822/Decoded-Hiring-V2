@@ -1,5 +1,5 @@
-import { redirect, notFound } from "next/navigation";
-import { getServerSession } from "@/lib/auth";
+import { notFound } from "next/navigation";
+import { requireAdminPage } from "@/lib/auth";
 import {
   getAdminCourseById,
   getCourseCurriculum,
@@ -20,11 +20,7 @@ export const metadata = {
 export default async function AdminCurriculumPage(props: {
   params: Promise<{ courseId: string }>;
 }) {
-  const session = await getServerSession();
-  if (!session?.user) redirect("/admin/login");
-  const role = (session.user as { role?: string }).role;
-  if (role !== "admin") redirect("/admin/login?error=forbidden");
-
+  await requireAdminPage();
   const { courseId } = await props.params;
   const course = await getAdminCourseById(courseId);
   if (!course) notFound();
