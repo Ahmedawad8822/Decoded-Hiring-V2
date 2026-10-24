@@ -16,8 +16,8 @@ Last updated: **2026-10-24**
 
 | | |
 |---|---|
-| `main` | `f4ce20b`: **Missions 01–08 merged plus CI** (PR #15). Every PR and push to `main` now runs `.github/workflows/ci.yml`: lint, typecheck, unit tests, local migrations, build. |
-| Open PRs to `main` | #14 security fixes (up to date with `main`, CI running), #16 this status doc |
+| `main` | **Missions 01–08 + CI + security fixes** (PRs #15, #14 merged 2026-10-24). Every PR and push to `main` runs `.github/workflows/ci.yml`. |
+| Open PRs to `main` | Hardening PRs from the 2026-10-24 batch (see §2) |
 | Production | **Not deployed.** Local-only (Miniflare D1/R2). No deploy adapter, no real Cloudflare resources. |
 | Providers | All dormant by design: no payment, calendar, mailbox, meeting or analytics provider is active. |
 | Blueprint phase | Phases 1–6 built and on `main`. **Phase 7 (Hardening & Growth) is in progress** (CI merged; #14 open), then Phase 8 (Launch). |
@@ -28,11 +28,11 @@ Last updated: **2026-10-24**
 
 | Branch | Base | State | What it is |
 |---|---|---|---|
-| `main` | — | current | Missions 01–08 + CI (`f4ce20b`) |
-| `fix/security-quick-fixes` | `main@f4ce20b` | PR [#14](https://github.com/Ahmedawad8822/Decoded-Hiring-V2/pull/14) open, mergeable | Open-redirect fix, race-safe enrollment reconcile, typed public errors (`AppError`, `ActionResult`) incl. Mission 07. Merged with `main` at `192f4df`; first GitHub CI run is on that commit. Local gates were 411/411 before this merge. |
-| `docs/project-status` | `main@f4ce20b` | PR [#16](https://github.com/Ahmedawad8822/Decoded-Hiring-V2/pull/16) open | This file + `AGENTS.md` pointer |
+| `main` | — | current | Missions 01–08 + CI + security fixes |
+| `docs/project-status` | — | merged (#16) | This file + `AGENTS.md` pointer |
 | `mission-08-commerce-scheduling` | — | merged (#17) | Mission 08 integration branch; sub-PRs #7–#13 |
 | `ci/github-actions` | — | merged (#15) | CI workflow |
+| `fix/security-quick-fixes` | — | merged (#14) | Security fixes, `AppError`/`ActionResult` |
 | `decoded-hiring-v2/t_*-mission-08.1-*` (2) | — | stale | Early Mission 08.1 worktree branches, superseded. Safe to delete. |
 | `mission-04*` … `mission-08*` | — | merged | Historical mission branches |
 
@@ -53,7 +53,7 @@ Source of truth: `Docs/Reference/Decoded_Hiring_V2_Master_Blueprint_FINAL_v2.1.d
 | 4 Learning platform | Courses, sections/lessons/resources, player, progress, free enrollment | **Done** | Mission 06 |
 | 5 Commerce & scheduling | Access modes, dormant checkout, booking types, holds, adapters, Studio control plane | **Done** (providers dormant). Not built: real provider adapters, Scheduling Agent, Workflows-based reminders, Command Center. | Mission 08 |
 | 6 Website Editorial AI | Knowledge ingestion/retrieval, skills, memory, draft → review → publish | **Done** (FakeProvider in tests; OpenAI adapter needs credentials) | Mission 07 |
-| 7 Hardening & growth | Security review, performance, crawler policy, analytics, Command Center, reliability automation | **In progress.** CI merged (#15); security fixes open (#14). | §5 below |
+| 7 Hardening & growth | Security review, performance, crawler policy, analytics, Command Center, reliability automation | **In progress.** CI (#15) and security fixes (#14) merged; hardening batch in flight. | §5 below |
 | 8 Launch | Acceptance, V1 content import, staging, DNS cutover, rollback | Not started | — |
 
 ---
@@ -78,23 +78,16 @@ notification is sent while mailbox providers stay dormant.
 
 Take the top unblocked item. Move items, don't delete them silently.
 
-1. **Merge PR #14 (security fixes)** once its GitHub CI run on `192f4df` passes. It's up
-   to date with `main` and has no conflicts. Mission 08's actions already return safe
-   results through their own domain errors; their `"Unauthorized:"`/`"Forbidden:"`
-   prefix checks stay compatible because `AppError` keeps the same messages. Optional
-   later step: unify `CommerceDomainError` / `SchedulingDomainError` / `LeadDomainError`
-   with `AppError`.
-2. **Add Playwright to CI** as a second job running Mission 08's `npm run test:e2e:ci`.
+1. **Add Playwright to CI** as a second job running Mission 08's `npm run test:e2e:ci`.
    It needs the admin seed env vars from `.env.example` (fake values are fine in CI)
    and `npx playwright install --with-deps chromium`.
-3. **Merge PR #16 (this doc)** so `AGENTS.md` points every agent here.
-4. **Phase 8 prerequisite: production deploy path.** Add `@opennextjs/cloudflare`.
+2. **Phase 8 prerequisite: production deploy path.** Add `@opennextjs/cloudflare`.
    Switch `src/lib/cloudflare/bindings.ts` to `getCloudflareContext()`; the current
    `globalThis.__env__` path does not exist on OpenNext. Configure real D1/R2 IDs in
    `wrangler.jsonc`, set secrets, apply migrations with `wrangler d1 migrations apply`,
    and configure the OpenNext incremental cache so `revalidatePath` works.
    Needs Ahmed's choices: Cloudflare account, domain, preview/staging setup.
-5. **Phase 7 hardening backlog** (from the 2026-10-24 audit; check whether Mission 08 already covers an item before starting it):
+3. **Phase 7 hardening backlog** (from the 2026-10-24 audit; check whether Mission 08 already covers an item before starting it):
    - Tests share the local dev D1 (`.wrangler/state/v3`). Give each test run an isolated, throwaway database.
    - Progress maths is duplicated in `getEnrollmentProgress` and `getBatchedEnrollmentProgress`. Extract one pure function, and fix the 0-required-lessons case (100% but not completed).
    - Learner page renders write to D1 (completion reconcile on read). Move reconcile to write paths.
@@ -106,11 +99,11 @@ Take the top unblocked item. Move items, don't delete them silently.
    - Rate limiting/Turnstile: Mission 08 added a D1 fixed-window limiter for public booking, leads and telemetry. Better Auth sign-in/sign-up still need limits, and Turnstile is not wired anywhere.
    - Performance budget: 2 MB hero PNGs to AVIF/WebP; set up a `next/image` loader for Cloudflare; Lighthouse/bundle checks in CI.
    - Hygiene: ticket-reference comments ("review correction H"), 9.4k lines of global CSS, `prototypes/` and the `.docx` in git, ~10 GB of local `.worktrees/`.
-6. **Phase 7 growth (blueprint §16–17):** analytics provider activation (PostHog via
+4. **Phase 7 growth (blueprint §16–17):** analytics provider activation (PostHog via
    Zaraz, consent first), Command Center, crawler policy, IndexNow, reliability
    automation. Each needs a spec before implementation.
-7. **Phase 0 debt:** write the missing foundation documents (§6) as features touch them. Start with `CONTEXT.md` (glossary) and `DEFINITION-OF-DONE.md`.
-8. **Phase 8 launch:** acceptance run, selective V1 content import, staging review, DNS cutover, rollback plan.
+5. **Phase 0 debt:** write the missing foundation documents (§6) as features touch them. Start with `CONTEXT.md` (glossary) and `DEFINITION-OF-DONE.md`.
+6. **Phase 8 launch:** acceptance run, selective V1 content import, staging review, DNS cutover, rollback plan.
 
 ---
 
@@ -150,7 +143,7 @@ Take the top unblocked item. Move items, don't delete them silently.
 - **Next.js 16 differs from older docs.** Read `node_modules/next/dist/docs/` before writing framework code (`AGENTS.md`).
 - **Errors:** user-facing failures throw `AppError` (`src/lib/errors.ts`). Server actions
   return `ActionResult` via `toActionResult()` (`src/lib/action-result.ts`) and never leak
-  raw messages. *(Lands with PR #14.)*
+  raw messages. Mission 08 domains use their own `*DomainError` classes with safe fallbacks.
 - **Branches/PRs:** one branch per task, PR to `main` (or to the mission integration
   branch). Mission merges need Ahmed's explicit GO. Never deploy or touch production
   resources without approval.
@@ -161,6 +154,10 @@ Take the top unblocked item. Move items, don't delete them silently.
 ## 9. Session log
 
 Newest first. One entry per task: date, what changed, branch/PR, what's next.
+
+- **2026-10-24.** Merged PR #14 (security fixes; CI green on `192f4df`) and PR #16 (this doc)
+  into `main`. Next: hardening batch (Playwright in CI, progress maths, auth caching and admin
+  gate, isolated test DB, image budget), run as parallel subagent branches.
 
 - **2026-10-24.** **Merged PR #15 (CI) into `main`** (`f4ce20b`). Brought #14 up to date
   (`192f4df`: `package.json` scripts resolved to keep `next typegen` typecheck,
