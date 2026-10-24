@@ -1,0 +1,1 @@
+CREATE INDEX `public_rate_limits_window_start_idx` ON `public_rate_limits` (`window_start`);
