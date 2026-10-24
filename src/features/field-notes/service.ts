@@ -12,6 +12,10 @@ import {
 import { isUniqueConstraintError } from "@/lib/db/sqlite-errors";
 import type { FieldNoteRevisionTrigger } from "@/lib/db";
 import { AppError } from "@/lib/errors";
+import {
+  buildReleaseSlugStatement,
+  buildSlugChangeStatements,
+} from "@/features/slug-redirects/service";
 
 // ============================================================================
 // FIELD NOTE SERVICE (Mission 05)
@@ -110,7 +114,10 @@ export async function createFieldNote(input: CreateFieldNoteInput): Promise<Fiel
   const id = `fn_${crypto.randomUUID().slice(0, 12)}`;
 
   try {
-    await db.insert(fieldNotes).values({
+    // A new live field note wins over any redirect that used this slug.
+    await db.batch([
+      buildReleaseSlugStatement(db, { entityType: "field_note", scope: "", slug: input.slug }),
+      db.insert(fieldNotes).values({
       id,
       title: input.title,
       slug: input.slug,
@@ -124,7 +131,8 @@ export async function createFieldNote(input: CreateFieldNoteInput): Promise<Fiel
       createdAt: now,
       updatedAt: now,
       publishedAt: null,
-    });
+      }),
+    ]);
   } catch (error: unknown) {
     // The field_notes.slug UNIQUE index is the authoritative concurrency
     // backstop: the pre-check above cannot see a parallel insert. Only that
@@ -183,7 +191,18 @@ export async function updateFieldNote(
   if (typeof input.metaDescription !== "undefined") updateData.metaDescription = input.metaDescription;
 
   try {
-    await db.update(fieldNotes).set(updateData).where(eq(fieldNotes.id, id));
+    // Same batch (one D1 transaction): the UPDATE plus the old-slug redirect.
+    await db.batch([
+      db.update(fieldNotes).set(updateData).where(eq(fieldNotes.id, id)),
+      ...buildSlugChangeStatements(db, {
+        entityType: "field_note",
+        entityId: id,
+        oldSlug: current.slug,
+        newSlug: updateData.slug ?? current.slug,
+        everPublished: current.publishedAt !== null,
+        now,
+      }),
+    ]);
   } catch (error: unknown) {
     // Same race rule as create: only a lost slug-unique race converts to the
     // friendly domain error; unrelated DB errors propagate untouched.

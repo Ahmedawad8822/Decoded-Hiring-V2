@@ -15,14 +15,14 @@
     "deploy": "opennextjs-cloudflare build --env production && opennextjs-cloudflare deploy --env production",
     "lint": "eslint . --max-warnings=0",
     "typecheck": "next typegen && tsc --noEmit",
-    "test": "tsx tests/mission-04-publishing.test.ts && tsx tests/mission-05-field-notes.test.ts && tsx tests/mission-06-learning-platform.test.ts && tsx tests/mission-06-security-hardening.test.ts && tsx tests/foundation-remediation.test.ts && tsx tests/editorial-ai/chunker.test.ts && tsx tests/editorial-ai/generation.test.ts && tsx tests/editorial-ai/publishing.test.ts && tsx tests/editorial-ai/retrieval.test.ts && tsx tests/editorial-ai/checksum-lifecycle.test.ts && tsx tests/editorial-ai/identity-regression.test.ts && tsx tests/editorial-ai/providers.test.ts && tsx tests/mission-08-scheduling-core.test.ts && tsx tests/mission-08-booking-lifecycle.test.ts && tsx tests/mission-08-offer-access.test.ts && tsx tests/mission-08-provider-adapters.test.ts && tsx tests/mission-08-order-orchestration.test.ts && tsx tests/mission-08-public-scheduling.test.ts && tsx tests/mission-08-lead-fallback.test.ts && tsx tests/mission-08-studio-commerce.test.ts && tsx tests/mission-08-observability.test.ts && tsx tests/security-quick-fixes.test.ts && tsx tests/progress-maths.test.ts && tsx tests/auth-gates.test.ts && tsx tests/migrations-tracking.test.ts && tsx tests/progress-write-paths.test.ts && tsx tests/auth-rate-limit.test.ts && tsx tests/create-admin.test.ts",
+    "test": "tsx tests/mission-04-publishing.test.ts && tsx tests/mission-05-field-notes.test.ts && tsx tests/mission-06-learning-platform.test.ts && tsx tests/mission-06-security-hardening.test.ts && tsx tests/foundation-remediation.test.ts && tsx tests/editorial-ai/chunker.test.ts && tsx tests/editorial-ai/generation.test.ts && tsx tests/editorial-ai/publishing.test.ts && tsx tests/editorial-ai/retrieval.test.ts && tsx tests/editorial-ai/checksum-lifecycle.test.ts && tsx tests/editorial-ai/identity-regression.test.ts && tsx tests/editorial-ai/providers.test.ts && tsx tests/mission-08-scheduling-core.test.ts && tsx tests/mission-08-booking-lifecycle.test.ts && tsx tests/mission-08-offer-access.test.ts && tsx tests/mission-08-provider-adapters.test.ts && tsx tests/mission-08-order-orchestration.test.ts && tsx tests/mission-08-public-scheduling.test.ts && tsx tests/mission-08-lead-fallback.test.ts && tsx tests/mission-08-studio-commerce.test.ts && tsx tests/mission-08-observability.test.ts && tsx tests/security-quick-fixes.test.ts && tsx tests/progress-maths.test.ts && tsx tests/auth-gates.test.ts && tsx tests/migrations-tracking.test.ts && tsx tests/progress-write-paths.test.ts && tsx tests/auth-rate-limit.test.ts && tsx tests/create-admin.test.ts && tsx tests/rate-limit-pruning.test.ts && tsx tests/slug-redirects.test.ts",
     "test:e2e": "tsx scripts/e2e-bootstrap.ts && playwright test",
     "test:e2e:headed": "tsx scripts/e2e-bootstrap.ts && playwright test --headed",
     "db:generate": "drizzle-kit generate",
     "db:migrate:local": "tsx scripts/migrate-local.ts",
     "db:migrate:remote": "wrangler d1 migrations apply DB --env production --remote",
     "db:seed": "tsx scripts/seed.ts",
-    "test:e2e:ci": "tsx scripts/e2e-bootstrap.ts && bash -lc 'status=0; playwright test e2e/mission-08-final-certification.spec.ts || status=1; playwright test e2e/field-notes.spec.ts || status=1; playwright test e2e/smoke.spec.ts || status=1; exit $status'",
+    "test:e2e:ci": "tsx scripts/e2e-bootstrap.ts && bash -lc 'status=0; playwright test e2e/mission-08-final-certification.spec.ts || status=1; playwright test e2e/field-notes.spec.ts || status=1; playwright test e2e/smoke.spec.ts || status=1; playwright test e2e/mission-06-learning-platform.spec.ts || status=1; playwright test e2e/mission-07-editorial-ai.spec.ts || status=1; playwright test e2e/csp.spec.ts || status=1; exit $status'",
     "admin:create": "tsx scripts/create-admin.ts"
   },
   "dependencies": {
@@ -35,10 +35,9 @@
     "react": "19.2.8",
     "react-dom": "19.2.8",
     "tailwind-merge": "3.6.0",
-    "zod": "4.4.3"
+    "zod": "4.6.7"
   },
   "devDependencies": {
-    "@better-auth/cli": "^1.4.22",
     "@cloudflare/workers-types": "^5.20260915.1",
     "@opennextjs/cloudflare": "1.20.12",
     "@playwright/test": "^1.63.0",
@@ -53,5 +52,11 @@
     "tailwindcss": "4.3.3",
     "typescript": "6.0.3",
     "wrangler": "^4.151.1"
+  },
+  "overrides": {
+    "undici@7.29.1": "7.30.1",
+    "@node-minify/core": {
+      "glob": "10.5.0"
+    }
   }
 }
