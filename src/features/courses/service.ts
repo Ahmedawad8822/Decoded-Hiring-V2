@@ -31,6 +31,7 @@ import type {
 import { hasLearnerAccess } from "@/features/enrollments/access";
 import { isUniqueConstraintError } from "@/lib/db/sqlite-errors";
 import { AppError } from "@/lib/errors";
+import { reconcileCourseEnrollments } from "@/features/progress/reconcile";
 import { getOfferForCourse } from "@/features/offers/service";
 
 // ============================================================================
@@ -430,6 +431,12 @@ export async function updateLesson(id: string, input: UpdateLessonInput): Promis
     if (!conflict) throw error;
     throw new AppError("conflict", `A lesson with the slug "${patch.slug ?? input.slug ?? current.slug}" already exists in this course.`);
   }
+  // COMPLETION: toggling `required` changes the required-published set, which
+  // can close or reopen enrollments. Other edits (title/body/slug/video) cannot.
+  // Reconciled at write time — learner page reads never write.
+  if (typeof input.required !== "undefined" && input.required !== current.required) {
+    await reconcileCourseEnrollments(current.courseId);
+  }
   return (await getAdminLessonById(id))!;
 }
 
@@ -437,8 +444,16 @@ export async function publishLesson(id: string): Promise<Lesson> {
   const db = await getDb();
   const current = await getAdminLessonById(id);
   if (!current) throw new AppError("not_found", `Lesson with id "${id}" not found`);
+  // Archived is terminal (mirrors publishCourse): it cannot be published back.
+  if (current.status === "archived") {
+    throw new AppError("invalid", "Cannot publish an archived lesson. Archived lessons are terminal.");
+  }
   if (current.status === "published") throw new AppError("invalid", `Cannot publish a lesson with status "published".`);
   await db.update(lessons).set(buildPublishUpdate(current)).where(eq(lessons.id, id));
+  // COMPLETION: a newly published required lesson can reopen completed
+  // enrollments. The reconcile is idempotent, so optional lessons need no
+  // special-casing.
+  await reconcileCourseEnrollments(current.courseId);
   return (await getAdminLessonById(id))!;
 }
 
@@ -450,6 +465,9 @@ export async function unpublishLesson(id: string): Promise<Lesson> {
     throw new AppError("invalid", `Cannot unpublish a lesson with status "${current.status}".`);
   }
   await db.update(lessons).set(buildUnpublishUpdate()).where(eq(lessons.id, id));
+  // COMPLETION: removing the last incomplete required lesson can close
+  // enrollments; removing the only required lesson reopens them.
+  await reconcileCourseEnrollments(current.courseId);
   return (await getAdminLessonById(id))!;
 }
 
