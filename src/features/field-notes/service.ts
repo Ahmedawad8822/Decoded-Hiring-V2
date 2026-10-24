@@ -11,6 +11,7 @@ import {
 } from "@/features/publishing/lifecycle";
 import { isUniqueConstraintError } from "@/lib/db/sqlite-errors";
 import type { FieldNoteRevisionTrigger } from "@/lib/db";
+import { AppError } from "@/lib/errors";
 
 // ============================================================================
 // FIELD NOTE SERVICE (Mission 05)
@@ -102,7 +103,7 @@ export async function createFieldNote(input: CreateFieldNoteInput): Promise<Fiel
   // Enforce slug uniqueness at domain level
   const existing = await db.select().from(fieldNotes).where(eq(fieldNotes.slug, input.slug)).get();
   if (existing) {
-    throw new Error(`A field note with the slug "${input.slug}" already exists. Please choose a unique slug.`);
+    throw new AppError("conflict", `A field note with the slug "${input.slug}" already exists. Please choose a unique slug.`);
   }
 
   const now = new Date();
@@ -134,7 +135,7 @@ export async function createFieldNote(input: CreateFieldNoteInput): Promise<Fiel
     // this slug) before converting; otherwise rethrow the original.
     const conflict = await db.select().from(fieldNotes).where(eq(fieldNotes.slug, input.slug)).get();
     if (!conflict) throw error;
-    throw new Error(`A field note with the slug "${input.slug}" already exists. Please choose a unique slug.`);
+    throw new AppError("conflict", `A field note with the slug "${input.slug}" already exists. Please choose a unique slug.`);
   }
 
   const created = await getAdminFieldNoteById(id);
@@ -152,7 +153,7 @@ export async function updateFieldNote(
   const db = await getDb();
   const current = await getAdminFieldNoteById(id);
   if (!current) {
-    throw new Error(`Field note with id "${id}" not found`);
+    throw new AppError("not_found", `Field note with id "${id}" not found`);
   }
 
   // Check slug uniqueness if slug is being modified
@@ -163,7 +164,7 @@ export async function updateFieldNote(
       .where(and(eq(fieldNotes.slug, input.slug), ne(fieldNotes.id, id)))
       .get();
     if (existing) {
-      throw new Error(`A field note with the slug "${input.slug}" already exists.`);
+      throw new AppError("conflict", `A field note with the slug "${input.slug}" already exists.`);
     }
   }
 
@@ -195,7 +196,7 @@ export async function updateFieldNote(
       .where(and(eq(fieldNotes.slug, updateData.slug ?? input.slug ?? current.slug), ne(fieldNotes.id, id)))
       .get();
     if (!conflict) throw error;
-    throw new Error(`A field note with the slug "${input.slug}" already exists.`);
+    throw new AppError("conflict", `A field note with the slug "${input.slug}" already exists.`);
   }
 
   const updated = await getAdminFieldNoteById(id);
@@ -218,7 +219,7 @@ export async function publishFieldNote(
   const db = await getDb();
   const current = await getAdminFieldNoteById(id);
   if (!current) {
-    throw new Error(`Field note with id "${id}" not found`);
+    throw new AppError("not_found", `Field note with id "${id}" not found`);
   }
 
   assertFieldNoteTransition(current.status, "publish");
@@ -241,7 +242,7 @@ export async function unpublishFieldNote(
   const db = await getDb();
   const current = await getAdminFieldNoteById(id);
   if (!current) {
-    throw new Error(`Field note with id "${id}" not found`);
+    throw new AppError("not_found", `Field note with id "${id}" not found`);
   }
 
   assertFieldNoteTransition(current.status, "unpublish");
@@ -264,7 +265,7 @@ export async function archiveFieldNote(
   const db = await getDb();
   const current = await getAdminFieldNoteById(id);
   if (!current) {
-    throw new Error(`Field note with id "${id}" not found`);
+    throw new AppError("not_found", `Field note with id "${id}" not found`);
   }
 
   assertFieldNoteTransition(current.status, "archive");

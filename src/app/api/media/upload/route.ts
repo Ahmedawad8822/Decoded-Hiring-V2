@@ -1,4 +1,5 @@
 import { requireAdmin } from "@/lib/auth";
+import { httpStatusFor, publicErrorMessage } from "@/lib/errors";
 import { MAX_MEDIA_FILE_SIZE, uploadMedia } from "@/lib/media/service";
 import { isRequestBodyOverLimit } from "@/lib/upload-limits";
 import { NextResponse } from "next/server";
@@ -61,13 +62,9 @@ export async function POST(request: Request) {
 
     return NextResponse.json(result, { status: 201 });
   } catch (error: unknown) {
-    const err = error as Error;
-    if (err.message?.includes("Unauthorized") || err.message?.includes("Forbidden")) {
-      return NextResponse.json({ error: err.message }, { status: 403 });
-    }
     return NextResponse.json(
-      { error: err.message || "Upload failed" },
-      { status: 400 }
+      { error: publicErrorMessage(error, "Upload failed") },
+      { status: httpStatusFor(error) }
     );
   }
 }

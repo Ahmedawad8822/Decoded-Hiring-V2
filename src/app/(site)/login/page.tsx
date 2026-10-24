@@ -4,6 +4,7 @@ import React, { Suspense, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { authClient } from "@/lib/auth/client";
+import { safeRedirectPath } from "@/lib/safe-redirect";
 
 function LoginForm() {
   const router = useRouter();
@@ -31,8 +32,7 @@ function LoginForm() {
       if (res.error) {
         setError(res.error.message || "Invalid credentials. Please try again.");
       } else {
-        const safe = redirect.startsWith("/") && !redirect.startsWith("//") ? redirect : "/learn";
-        router.push(safe);
+        router.push(safeRedirectPath(redirect));
         router.refresh();
       }
     } catch (err: unknown) {

@@ -1,5 +1,6 @@
 "use server";
 
+import { publicErrorMessage } from "@/lib/errors";
 import { requireAdmin } from "@/lib/auth";
 import { revalidatePath } from "next/cache";
 import * as fieldNoteService from "./service";
@@ -43,7 +44,7 @@ export async function createFieldNoteAction(
   } catch (err: unknown) {
     return {
       ok: false,
-      error: (err as Error).message || "Failed to create field note",
+      error: publicErrorMessage(err, "Failed to create field note"),
     };
   }
 }
@@ -75,7 +76,7 @@ export async function updateFieldNoteAction(
   } catch (err: unknown) {
     return {
       ok: false,
-      error: (err as Error).message || "Failed to update field note",
+      error: publicErrorMessage(err, "Failed to update field note"),
     };
   }
 }
@@ -97,7 +98,7 @@ export async function publishFieldNoteAction(id: string): Promise<ActionState<{ 
   } catch (err: unknown) {
     return {
       ok: false,
-      error: (err as Error).message || "Failed to publish field note",
+      error: publicErrorMessage(err, "Failed to publish field note"),
     };
   }
 }
@@ -119,7 +120,7 @@ export async function unpublishFieldNoteAction(id: string): Promise<ActionState<
   } catch (err: unknown) {
     return {
       ok: false,
-      error: (err as Error).message || "Failed to unpublish field note",
+      error: publicErrorMessage(err, "Failed to unpublish field note"),
     };
   }
 }
@@ -141,7 +142,7 @@ export async function archiveFieldNoteAction(id: string): Promise<ActionState<{ 
   } catch (err: unknown) {
     return {
       ok: false,
-      error: (err as Error).message || "Failed to archive field note",
+      error: publicErrorMessage(err, "Failed to archive field note"),
     };
   }
 }
@@ -156,7 +157,7 @@ export async function getFieldNoteRevisionsAction(
   } catch (err: unknown) {
     return {
       ok: false,
-      error: (err as Error).message || "Failed to load revision history",
+      error: publicErrorMessage(err, "Failed to load revision history"),
     };
   }
 }

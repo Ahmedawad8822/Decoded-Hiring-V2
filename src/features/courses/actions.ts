@@ -1,5 +1,6 @@
 "use server";
 
+import { publicErrorMessage } from "@/lib/errors";
 import { requireAdmin } from "@/lib/auth";
 import { revalidatePath } from "next/cache";
 import * as courseService from "./service";
@@ -19,7 +20,7 @@ export type ActionState<T = unknown> = {
 };
 
 function fail(error: unknown, fallback: string): ActionState<never> {
-  return { ok: false, error: (error as Error).message || fallback };
+  return { ok: false, error: publicErrorMessage(error, fallback) };
 }
 
 export async function createCourseAction(
