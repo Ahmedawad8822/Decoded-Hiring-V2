@@ -1,11 +1,46 @@
-import { eq, sql } from "drizzle-orm";
+import { eq, inArray, lt, sql } from "drizzle-orm";
 
 import { getDb, publicRateLimits } from "@/lib/db";
 
 const MINUTE_MS = 60_000;
 
+/**
+ * Pruning retention. A fixed-window row whose window started longer ago than
+ * this is dead: the next consume for that scope sees `windowStart + windowMs
+ * <= now` and starts a fresh window exactly as if the row were absent, and a
+ * rejection (the only path that reads windowStart back) needs an active window.
+ * This is safe as long as every windowMs passed to consumeFixedWindowMs is
+ * <= RATE_LIMIT_RETENTION_MS. The largest windows in use are the public intake
+ * clamp (60 minutes, consumePublicFixedWindowLimit) and Better Auth (60 s,
+ * src/lib/auth/rate-limit.ts), so 24 hours leaves a 24x margin.
+ * If a longer window is ever introduced, raise this constant first.
+ */
+export const RATE_LIMIT_RETENTION_MS = 24 * 60 * MINUTE_MS;
+
+/** Upper bound on rows deleted by one pruning call (bounded D1 write work). */
+export const RATE_LIMIT_PRUNE_BATCH = 500;
+
+/** Chance that a consume call also runs one bounded pruning pass. */
+export const RATE_LIMIT_PRUNE_PROBABILITY = 0.01;
+
 function clampInteger(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, Math.trunc(value)));
+}
+
+function randomUnitInterval(): number {
+  const buffer = new Uint32Array(1);
+  crypto.getRandomValues(buffer);
+  return buffer[0] / 2 ** 32;
+}
+
+// TEST-ONLY seam: lets the regression suite force (or suppress) the
+// opportunistic pruning pass deterministically. Production never sets it.
+let pruneSampler: () => number = randomUnitInterval;
+
+export function setRateLimitPruneSamplerForTest(
+  sampler: (() => number) | null,
+): void {
+  pruneSampler = sampler ?? randomUnitInterval;
 }
 
 export async function anonymousRateLimitFingerprint(
@@ -54,6 +89,75 @@ export async function consumePublicFixedWindowLimit(params: {
  * (informational only; the admit/deny decision is the atomic write).
  */
 export async function consumeFixedWindowMs(params: {
+  scopeKey: string;
+  now: Date;
+  windowMs: number;
+  maxCount: number;
+}): Promise<{ allowed: boolean; retryAfterMs: number }> {
+  // Pruning assumes no window outlives the retention; fail loudly instead of
+  // silently resetting a longer window's counter early.
+  if (params.windowMs > RATE_LIMIT_RETENTION_MS) {
+    throw new Error(
+      `Rate-limit window ${params.windowMs}ms exceeds RATE_LIMIT_RETENTION_MS (${RATE_LIMIT_RETENTION_MS}ms); raise the retention first.`
+    );
+  }
+  const result = await consumeFixedWindowDecision(params);
+  if (pruneSampler() < RATE_LIMIT_PRUNE_PROBABILITY) {
+    await pruneAfterConsume(params.now);
+  }
+  return result;
+}
+
+/**
+ * Best-effort opportunistic pruning. Awaited so it is deterministic under
+ * test, but a failure is logged and never reaches the admit/deny result.
+ */
+async function pruneAfterConsume(now: Date): Promise<void> {
+  try {
+    await pruneExpiredRateLimits(now);
+  } catch (error) {
+    console.error(
+      "[rate-limit] expired-row pruning failed; decision unaffected:",
+      (error as Error)?.message ?? String(error),
+    );
+  }
+}
+
+/**
+ * Deletes up to `limit` fixed-window rows whose window started more than
+ * `retentionMs` before `now`. Each call is one statement touching at most
+ * `limit` rows, so the write cost per call is bounded. Expired rows that
+ * exceed one batch are removed by later calls. Returns the rows deleted.
+ *
+ * Uses the window_start index (migration 0019), so the subquery is an ordered
+ * range scan. The DELETE is keyed by scope_key (the primary key) through
+ * IN (subquery), because SQLite's DELETE ... LIMIT needs a compile flag that
+ * D1 does not enable.
+ */
+export async function pruneExpiredRateLimits(
+  now: Date,
+  opts?: { limit?: number; retentionMs?: number },
+): Promise<number> {
+  const limit = clampInteger(opts?.limit ?? RATE_LIMIT_PRUNE_BATCH, 1, 1000);
+  const retentionMs = Math.max(1, Math.trunc(opts?.retentionMs ?? RATE_LIMIT_RETENTION_MS));
+  const cutoffMs = now.getTime() - retentionMs;
+  const db = await getDb();
+
+  const expired = db
+    .select({ scopeKey: publicRateLimits.scopeKey })
+    .from(publicRateLimits)
+    .where(lt(publicRateLimits.windowStart, cutoffMs))
+    .orderBy(publicRateLimits.windowStart)
+    .limit(limit);
+
+  const result = await db
+    .delete(publicRateLimits)
+    .where(inArray(publicRateLimits.scopeKey, expired))
+    .run();
+  return result.meta.changes ?? 0;
+}
+
+async function consumeFixedWindowDecision(params: {
   scopeKey: string;
   now: Date;
   windowMs: number;

@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { notFound } from "next/navigation";
+import { notFound, permanentRedirect } from "next/navigation";
+import { resolveGuideRedirect } from "@/features/slug-redirects/service";
 import { getPublicGuideBySlug } from "@/features/guides/service";
 import { GuideBlock } from "@/features/guides/types";
 import { GuideBlockRenderer } from "@/app/guides/guide-renderer";
@@ -49,6 +50,8 @@ export default async function PublicGuideDetailPage(props: PageProps) {
   });
 
   if (!guide) {
+    const target = await resolveGuideRedirect(slug);
+    if (target) permanentRedirect(target);
     notFound();
   }
 

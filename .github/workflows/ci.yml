@@ -53,7 +53,7 @@ jobs:
     name: Playwright E2E
     needs: verify
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 40
     env:
       # Clearly fake, CI-only values (the admin pair is the .env.example local
       # dev seed, not a secret). Everything runs against local Miniflare D1/R2

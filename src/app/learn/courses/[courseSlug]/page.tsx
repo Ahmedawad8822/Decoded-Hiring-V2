@@ -1,5 +1,6 @@
 import Link from "next/link";
-import { notFound } from "next/navigation";
+import { notFound, permanentRedirect } from "next/navigation";
+import { resolveCourseRedirect } from "@/features/slug-redirects/service";
 import { getServerSession } from "@/lib/auth";
 import {
   getCourseCurriculum,
@@ -53,7 +54,11 @@ export default async function CourseOverviewPage(props: {
   // Archived courses stay visible to already-entitled learners (correction D).
   const session = await getServerSession();
   const course = await getLearnerCourseBySlug(courseSlug, session?.user?.id);
-  if (!course) notFound();
+  if (!course) {
+    const target = await resolveCourseRedirect(courseSlug);
+    if (target) permanentRedirect(target);
+    notFound();
+  }
 
   const enrollment = session?.user ? await getEnrollment(session.user.id, course.id) : null;
   const access = await getEffectiveCourseAccessPolicy(course);

@@ -1,5 +1,6 @@
 import Link from "next/link";
-import { notFound } from "next/navigation";
+import { notFound, permanentRedirect } from "next/navigation";
+import { resolveLessonRedirect } from "@/features/slug-redirects/service";
 import { getServerSession } from "@/lib/auth";
 import {
   getCourseCurriculum,
@@ -36,9 +37,13 @@ export default async function LessonPlayerPage(props: {
   // everyone else 404s here exactly as before.
   const session = await getServerSession();
   const course = await getLearnerCourseBySlug(courseSlug, session?.user?.id);
-  if (!course) notFound();
-  const lesson = await getPublishedLessonBySlug(course.id, lessonSlug);
-  if (!lesson) notFound();
+  // Stale course and/or lesson slug: one permanent redirect to the current URL.
+  const lesson = course ? await getPublishedLessonBySlug(course.id, lessonSlug) : null;
+  if (!course || !lesson) {
+    const target = await resolveLessonRedirect(courseSlug, lessonSlug);
+    if (target) permanentRedirect(target);
+    notFound();
+  }
 
   // Server-side enrollment gate: no (or cancelled) enrollment → denied panel
   // (never the body). Cancelled learners re-enroll from the course page.
