@@ -14,6 +14,7 @@
 // ============================================================================
 
 import { requireAdmin } from "@/lib/auth";
+import { httpStatusFor, publicErrorMessage } from "@/lib/errors";
 import { uploadKnowledgeSource } from "@/features/editorial-ai/knowledge/storage";
 import { isRequestBodyOverLimit } from "@/lib/upload-limits";
 import { MAX_KNOWLEDGE_FILE_SIZE, isSupportedMimeType } from "@/features/editorial-ai/knowledge/types";
@@ -94,13 +95,9 @@ export async function POST(request: Request) {
       { status: 201 }
     );
   } catch (error: unknown) {
-    const err = error as Error;
-    if (err.message?.includes("Unauthorized") || err.message?.includes("Forbidden")) {
-      return NextResponse.json({ error: err.message }, { status: 403 });
-    }
-    if (err.message?.includes("already exists") || err.message?.includes("duplicate")) {
-      return NextResponse.json({ error: err.message }, { status: 409 });
-    }
-    return NextResponse.json({ error: err.message || "Upload failed" }, { status: 400 });
+    return NextResponse.json(
+      { error: publicErrorMessage(error, "Upload failed") },
+      { status: httpStatusFor(error) }
+    );
   }
 }

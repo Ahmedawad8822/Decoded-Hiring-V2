@@ -30,6 +30,7 @@ import type {
 } from "./types";
 import { hasLearnerAccess } from "@/features/enrollments/access";
 import { isUniqueConstraintError } from "@/lib/db/sqlite-errors";
+import { AppError } from "@/lib/errors";
 import { getOfferForCourse } from "@/features/offers/service";
 
 // ============================================================================
@@ -96,7 +97,7 @@ export async function createCourse(input: CreateCourseInput): Promise<Course> {
 
   const existing = await db.select().from(courses).where(eq(courses.slug, slug)).get();
   if (existing) {
-    throw new Error(`A course with the slug "${slug}" already exists. Please choose a unique slug.`);
+    throw new AppError("conflict", `A course with the slug "${slug}" already exists. Please choose a unique slug.`);
   }
 
   const now = new Date();
@@ -126,7 +127,7 @@ export async function createCourse(input: CreateCourseInput): Promise<Course> {
     // the original DB error.
     const conflict = await db.select().from(courses).where(eq(courses.slug, slug)).get();
     if (!conflict) throw error;
-    throw new Error(`A course with the slug "${slug}" already exists. Please choose a unique slug.`);
+    throw new AppError("conflict", `A course with the slug "${slug}" already exists. Please choose a unique slug.`);
   }
 
   const created = await getAdminCourseById(id);
@@ -137,7 +138,7 @@ export async function createCourse(input: CreateCourseInput): Promise<Course> {
 export async function updateCourse(id: string, input: UpdateCourseInput): Promise<Course> {
   const db = await getDb();
   const current = await getAdminCourseById(id);
-  if (!current) throw new Error(`Course with id "${id}" not found`);
+  if (!current) throw new AppError("not_found", `Course with id "${id}" not found`);
 
   if (input.slug && input.slug !== current.slug) {
     const clash = await db
@@ -145,13 +146,14 @@ export async function updateCourse(id: string, input: UpdateCourseInput): Promis
       .from(courses)
       .where(and(eq(courses.slug, input.slug), ne(courses.id, id)))
       .get();
-    if (clash) throw new Error(`A course with the slug "${input.slug}" already exists.`);
+    if (clash) throw new AppError("conflict", `A course with the slug "${input.slug}" already exists.`);
   }
 
   if (typeof input.accessMode !== "undefined" && input.accessMode !== current.accessMode) {
     const linkedOffer = await getOfferForCourse(id);
     if (linkedOffer) {
-      throw new Error(
+      throw new AppError(
+        "conflict",
         `Course access is owned by linked Offer "${linkedOffer.slug}". Update the Offer instead of the legacy course fallback.`,
       );
     }
@@ -179,7 +181,7 @@ export async function updateCourse(id: string, input: UpdateCourseInput): Promis
       .where(and(eq(courses.slug, patch.slug ?? input.slug ?? current.slug), ne(courses.id, id)))
       .get();
     if (!conflict) throw error;
-    throw new Error(`A course with the slug "${patch.slug ?? input.slug ?? current.slug}" already exists.`);
+    throw new AppError("conflict", `A course with the slug "${patch.slug ?? input.slug ?? current.slug}" already exists.`);
   }
   const updated = await getAdminCourseById(id);
   if (!updated) throw new Error("Failed to retrieve updated course");
@@ -189,12 +191,12 @@ export async function updateCourse(id: string, input: UpdateCourseInput): Promis
 export async function publishCourse(id: string): Promise<Course> {
   const db = await getDb();
   const current = await getAdminCourseById(id);
-  if (!current) throw new Error(`Course with id "${id}" not found`);
+  if (!current) throw new AppError("not_found", `Course with id "${id}" not found`);
   if (current.status === "archived") {
-    throw new Error("Cannot publish an archived course. Archived courses are terminal.");
+    throw new AppError("invalid", "Cannot publish an archived course. Archived courses are terminal.");
   }
   if (current.status === "published") {
-    throw new Error(`Cannot publish a course with status "published".`);
+    throw new AppError("invalid", `Cannot publish a course with status "published".`);
   }
   await db.update(courses).set(buildPublishUpdate(current)).where(eq(courses.id, id));
   return (await getAdminCourseById(id))!;
@@ -203,9 +205,9 @@ export async function publishCourse(id: string): Promise<Course> {
 export async function unpublishCourse(id: string): Promise<Course> {
   const db = await getDb();
   const current = await getAdminCourseById(id);
-  if (!current) throw new Error(`Course with id "${id}" not found`);
+  if (!current) throw new AppError("not_found", `Course with id "${id}" not found`);
   if (current.status !== "published") {
-    throw new Error(`Cannot unpublish a course with status "${current.status}".`);
+    throw new AppError("invalid", `Cannot unpublish a course with status "${current.status}".`);
   }
   await db.update(courses).set(buildUnpublishUpdate()).where(eq(courses.id, id));
   return (await getAdminCourseById(id))!;
@@ -214,9 +216,9 @@ export async function unpublishCourse(id: string): Promise<Course> {
 export async function archiveCourse(id: string): Promise<Course> {
   const db = await getDb();
   const current = await getAdminCourseById(id);
-  if (!current) throw new Error(`Course with id "${id}" not found`);
+  if (!current) throw new AppError("not_found", `Course with id "${id}" not found`);
   if (current.status === "archived") {
-    throw new Error(`Cannot archive a course with status "archived".`);
+    throw new AppError("invalid", `Cannot archive a course with status "archived".`);
   }
   await db.update(courses).set(buildArchiveUpdate()).where(eq(courses.id, id));
   return (await getAdminCourseById(id))!;
@@ -228,7 +230,7 @@ export async function assertCourseDeletable(id: string): Promise<void> {
   const db = await getDb();
   const deps = await db.select().from(enrollments).where(eq(enrollments.courseId, id)).get();
   if (deps) {
-    throw new Error("Cannot delete a course with active enrollments. Archive it instead.");
+    throw new AppError("conflict", "Cannot delete a course with active enrollments. Archive it instead.");
   }
 }
 
@@ -246,7 +248,7 @@ export async function getCourseSections(courseId: string): Promise<CourseSection
 export async function createSection(input: CreateSectionInput): Promise<CourseSection> {
   const db = await getDb();
   const course = await getAdminCourseById(input.courseId);
-  if (!course) throw new Error(`Course with id "${input.courseId}" not found`);
+  if (!course) throw new AppError("not_found", `Course with id "${input.courseId}" not found`);
 
   const siblings = await getCourseSections(input.courseId);
   const position = siblings.length > 0 ? Math.max(...siblings.map((s) => s.position)) + 1 : 0;
@@ -268,7 +270,7 @@ export async function createSection(input: CreateSectionInput): Promise<CourseSe
 export async function renameSection(id: string, title: string): Promise<CourseSection> {
   const db = await getDb();
   const current = await db.select().from(courseSections).where(eq(courseSections.id, id)).get();
-  if (!current) throw new Error(`Section with id "${id}" not found`);
+  if (!current) throw new AppError("not_found", `Section with id "${id}" not found`);
   await db
     .update(courseSections)
     .set({ title, updatedAt: new Date() })
@@ -279,7 +281,7 @@ export async function renameSection(id: string, title: string): Promise<CourseSe
 export async function moveSection(id: string, direction: "up" | "down"): Promise<CourseSection[]> {
   const db = await getDb();
   const current = await db.select().from(courseSections).where(eq(courseSections.id, id)).get();
-  if (!current) throw new Error(`Section with id "${id}" not found`);
+  if (!current) throw new AppError("not_found", `Section with id "${id}" not found`);
   const siblings = await getCourseSections(current.courseId);
   const idx = siblings.findIndex((s) => s.id === id);
   const swapIdx = direction === "up" ? idx - 1 : idx + 1;
@@ -324,7 +326,7 @@ export async function getAdminLessonById(id: string): Promise<Lesson | null> {
 function normalizeVideoUrl(raw?: string | null): string | null {
   if (!raw || !raw.trim()) return null;
   if (!extractYouTubeVideoId(raw)) {
-    throw new Error("Video URL must be a valid YouTube watch, youtu.be, embed, shorts, or live URL — or a bare video ID.");
+    throw new AppError("invalid", "Video URL must be a valid YouTube watch, youtu.be, embed, shorts, or live URL — or a bare video ID.");
   }
   return raw.trim();
 }
@@ -332,10 +334,10 @@ function normalizeVideoUrl(raw?: string | null): string | null {
 export async function createLesson(input: CreateLessonInput): Promise<Lesson> {
   const db = await getDb();
   const course = await getAdminCourseById(input.courseId);
-  if (!course) throw new Error(`Course with id "${input.courseId}" not found`);
+  if (!course) throw new AppError("not_found", `Course with id "${input.courseId}" not found`);
   const section = await db.select().from(courseSections).where(eq(courseSections.id, input.sectionId)).get();
   if (!section || section.courseId !== input.courseId) {
-    throw new Error("Section does not belong to this course.");
+    throw new AppError("invalid", "Section does not belong to this course.");
   }
 
   const slug = input.slug || slugifyTitle(input.title);
@@ -345,7 +347,7 @@ export async function createLesson(input: CreateLessonInput): Promise<Lesson> {
     .where(and(eq(lessons.courseId, input.courseId), eq(lessons.slug, slug)))
     .get();
   if (clash) {
-    throw new Error(`A lesson with the slug "${slug}" already exists in this course.`);
+    throw new AppError("conflict", `A lesson with the slug "${slug}" already exists in this course.`);
   }
 
   const videoUrl = normalizeVideoUrl(input.videoUrl);
@@ -382,7 +384,7 @@ export async function createLesson(input: CreateLessonInput): Promise<Lesson> {
       .where(and(eq(lessons.courseId, input.courseId), eq(lessons.slug, slug)))
       .get();
     if (!conflict) throw error;
-    throw new Error(`A lesson with the slug "${slug}" already exists in this course.`);
+    throw new AppError("conflict", `A lesson with the slug "${slug}" already exists in this course.`);
   }
   const created = await getAdminLessonById(id);
   if (!created) throw new Error("Failed to retrieve created lesson");
@@ -392,7 +394,7 @@ export async function createLesson(input: CreateLessonInput): Promise<Lesson> {
 export async function updateLesson(id: string, input: UpdateLessonInput): Promise<Lesson> {
   const db = await getDb();
   const current = await getAdminLessonById(id);
-  if (!current) throw new Error(`Lesson with id "${id}" not found`);
+  if (!current) throw new AppError("not_found", `Lesson with id "${id}" not found`);
 
   if (input.slug && input.slug !== current.slug) {
     const clash = await db
@@ -400,7 +402,7 @@ export async function updateLesson(id: string, input: UpdateLessonInput): Promis
       .from(lessons)
       .where(and(eq(lessons.courseId, current.courseId), eq(lessons.slug, input.slug), ne(lessons.id, id)))
       .get();
-    if (clash) throw new Error(`A lesson with the slug "${input.slug}" already exists in this course.`);
+    if (clash) throw new AppError("conflict", `A lesson with the slug "${input.slug}" already exists in this course.`);
   }
 
   const now = new Date();
@@ -426,7 +428,7 @@ export async function updateLesson(id: string, input: UpdateLessonInput): Promis
       .where(and(eq(lessons.courseId, current.courseId), eq(lessons.slug, patch.slug ?? input.slug ?? current.slug), ne(lessons.id, id)))
       .get();
     if (!conflict) throw error;
-    throw new Error(`A lesson with the slug "${patch.slug ?? input.slug ?? current.slug}" already exists in this course.`);
+    throw new AppError("conflict", `A lesson with the slug "${patch.slug ?? input.slug ?? current.slug}" already exists in this course.`);
   }
   return (await getAdminLessonById(id))!;
 }
@@ -434,8 +436,8 @@ export async function updateLesson(id: string, input: UpdateLessonInput): Promis
 export async function publishLesson(id: string): Promise<Lesson> {
   const db = await getDb();
   const current = await getAdminLessonById(id);
-  if (!current) throw new Error(`Lesson with id "${id}" not found`);
-  if (current.status === "published") throw new Error(`Cannot publish a lesson with status "published".`);
+  if (!current) throw new AppError("not_found", `Lesson with id "${id}" not found`);
+  if (current.status === "published") throw new AppError("invalid", `Cannot publish a lesson with status "published".`);
   await db.update(lessons).set(buildPublishUpdate(current)).where(eq(lessons.id, id));
   return (await getAdminLessonById(id))!;
 }
@@ -443,9 +445,9 @@ export async function publishLesson(id: string): Promise<Lesson> {
 export async function unpublishLesson(id: string): Promise<Lesson> {
   const db = await getDb();
   const current = await getAdminLessonById(id);
-  if (!current) throw new Error(`Lesson with id "${id}" not found`);
+  if (!current) throw new AppError("not_found", `Lesson with id "${id}" not found`);
   if (current.status !== "published") {
-    throw new Error(`Cannot unpublish a lesson with status "${current.status}".`);
+    throw new AppError("invalid", `Cannot unpublish a lesson with status "${current.status}".`);
   }
   await db.update(lessons).set(buildUnpublishUpdate()).where(eq(lessons.id, id));
   return (await getAdminLessonById(id))!;
@@ -454,7 +456,7 @@ export async function unpublishLesson(id: string): Promise<Lesson> {
 export async function moveLesson(id: string, direction: "up" | "down"): Promise<Lesson[]> {
   const db = await getDb();
   const current = await getAdminLessonById(id);
-  if (!current) throw new Error(`Lesson with id "${id}" not found`);
+  if (!current) throw new AppError("not_found", `Lesson with id "${id}" not found`);
   const siblings = await getSectionLessons(current.sectionId);
   const idx = siblings.findIndex((l) => l.id === id);
   const swapIdx = direction === "up" ? idx - 1 : idx + 1;

@@ -1,5 +1,6 @@
 "use server";
 
+import { publicErrorMessage } from "@/lib/errors";
 import { requireUser } from "@/lib/auth";
 import { revalidatePath } from "next/cache";
 import { markLessonComplete } from "./service";
@@ -41,6 +42,6 @@ export async function markLessonCompleteAction(
       },
     };
   } catch (err: unknown) {
-    return { ok: false, error: (err as Error).message || "Could not mark lesson complete" };
+    return { ok: false, error: publicErrorMessage(err, "Could not mark lesson complete") };
   }
 }

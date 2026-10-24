@@ -1,4 +1,5 @@
 import type { ContentStatus } from "./types";
+import { AppError } from "@/lib/errors";
 
 // ============================================================================
 // SHARED PUBLISHING LIFECYCLE (Mission 05 extraction; remediation D)
@@ -76,11 +77,11 @@ function assertContentTransition(
   const allowed = ALLOWED_TRANSITIONS[from] ?? [];
   if (!allowed.includes(action)) {
     if (from === "archived") {
-      throw new Error(
+      throw new AppError("invalid",
         `Cannot ${action} an archived ${domain}. Archived content is terminal and cannot be republished, edited back to draft, or re-archived.`
       );
     }
-    throw new Error(`Cannot ${action} a ${domain} with status "${from}".`);
+    throw new AppError("invalid", `Cannot ${action} a ${domain} with status "${from}".`);
   }
 }
 

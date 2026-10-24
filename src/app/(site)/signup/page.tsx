@@ -4,6 +4,7 @@ import React, { Suspense, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { authClient } from "@/lib/auth/client";
+import { safeRedirectPath } from "@/lib/safe-redirect";
 
 function SignupForm() {
   const router = useRouter();
@@ -33,8 +34,7 @@ function SignupForm() {
       if (res.error) {
         setError(res.error.message || "Could not create your account. Please try again.");
       } else {
-        const safe = redirect.startsWith("/") && !redirect.startsWith("//") ? redirect : "/learn";
-        router.push(safe);
+        router.push(safeRedirectPath(redirect));
         router.refresh();
       }
     } catch (err: unknown) {

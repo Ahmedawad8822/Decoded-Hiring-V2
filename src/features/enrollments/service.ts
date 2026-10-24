@@ -4,6 +4,7 @@ import { and, eq } from "drizzle-orm";
 import { getAdminCourseById } from "@/features/courses/service";
 import { hasLearnerAccess } from "./access";
 import { isUniqueConstraintError } from "@/lib/db/sqlite-errors";
+import { AppError } from "@/lib/errors";
 import { getEffectiveCourseAccessPolicy } from "@/features/offers/service";
 
 // ============================================================================
@@ -45,30 +46,31 @@ export async function getAccessibleEnrollments(userId: string): Promise<Enrollme
 export async function enrollFree(userId: string, courseId: string): Promise<Enrollment> {
   const db = await getDb();
   const course = await getAdminCourseById(courseId);
-  if (!course) throw new Error("Course not found.");
+  if (!course) throw new AppError("not_found", "Course not found.");
   if (course.status === "archived") {
-    throw new Error("This course is archived and no longer accepts new enrollments.");
+    throw new AppError("invalid", "This course is archived and no longer accepts new enrollments.");
   }
   if (course.status !== "published") {
-    throw new Error("This course is not yet published and cannot be enrolled in.");
+    throw new AppError("invalid", "This course is not yet published and cannot be enrolled in.");
   }
   const access = await getEffectiveCourseAccessPolicy(course);
   if (!access.available) {
-    throw new Error("Enrollment is currently unavailable for this course.");
+    throw new AppError("invalid", "Enrollment is currently unavailable for this course.");
   }
   if (access.mode !== "FREE") {
     if (access.mode === "PAID_ONE_TIME") {
-      throw new Error(
+      throw new AppError(
+        "invalid",
         "This course requires a one-time payment. Online checkout is not available yet — please use the configured alternative access path.",
       );
     }
     if (access.mode === "MANUAL_INVOICE") {
-      throw new Error("This course is enrolled by manual invoice. Please use the configured access path.");
+      throw new AppError("invalid", "This course is enrolled by manual invoice. Please use the configured access path.");
     }
     if (access.mode === "COMING_SOON") {
-      throw new Error("Enrollment for this course is coming soon.");
+      throw new AppError("invalid", "Enrollment for this course is coming soon.");
     }
-    throw new Error("Enrollment is currently disabled for this course.");
+    throw new AppError("invalid", "Enrollment is currently disabled for this course.");
   }
 
   // Idempotent: existing enrollment wins (unique userId+courseId).
@@ -81,7 +83,7 @@ export async function enrollFree(userId: string, courseId: string): Promise<Enro
       await db
         .update(enrollments)
         .set({ status: "active", completedAt: null })
-        .where(eq(enrollments.id, existing.id));
+        .where(and(eq(enrollments.id, existing.id), eq(enrollments.status, "cancelled")));
       return (await getEnrollment(userId, courseId))!;
     }
     return existing;
@@ -120,7 +122,7 @@ export async function enrollFree(userId: string, courseId: string): Promise<Enro
 export async function requireEnrollment(userId: string, courseId: string): Promise<Enrollment> {
   const enrollment = await getEnrollment(userId, courseId);
   if (!hasLearnerAccess(enrollment)) {
-    throw new Error("Forbidden: You are not enrolled in this course.");
+    throw new AppError("forbidden", "Forbidden: You are not enrolled in this course.");
   }
   return enrollment;
 }

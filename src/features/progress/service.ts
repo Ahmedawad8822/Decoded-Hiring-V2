@@ -15,6 +15,7 @@ import {
 } from "@/features/courses/service";
 import { hasLearnerAccess } from "@/features/enrollments/access";
 import { isUniqueConstraintError } from "@/lib/db/sqlite-errors";
+import { AppError } from "@/lib/errors";
 
 // ============================================================================
 // PROGRESS SERVICE (Mission 06)
@@ -127,18 +128,20 @@ export async function reconcileEnrollmentCompletion(
     .get();
   if (!current) return;
   if (current.status === "cancelled") return;
+  // Each write is conditional on the status it replaces, so a cancellation
+  // that lands between the read above and this write is never overwritten.
   if (completed && current.status === "active") {
     await db
       .update(enrollments)
       .set({ completedAt: new Date(), status: "completed" })
-      .where(eq(enrollments.id, enrollment.id));
+      .where(and(eq(enrollments.id, enrollment.id), eq(enrollments.status, "active")));
   } else if (!completed && current.status === "completed") {
     // Curriculum grew (or a lesson unpublished): reopen the enrollment so
     // progress bars, resume logic, and status agree again.
     await db
       .update(enrollments)
       .set({ completedAt: null, status: "active" })
-      .where(eq(enrollments.id, enrollment.id));
+      .where(and(eq(enrollments.id, enrollment.id), eq(enrollments.status, "completed")));
   }
 }
 
@@ -159,22 +162,22 @@ export async function markLessonComplete(
     .from(enrollments)
     .where(eq(enrollments.id, enrollmentId))
     .get();
-  if (!enrollment) throw new Error("Enrollment not found.");
+  if (!enrollment) throw new AppError("not_found", "Enrollment not found.");
   if (enrollment.userId !== userId) {
-    throw new Error("Forbidden: This enrollment belongs to another learner.");
+    throw new AppError("forbidden", "Forbidden: This enrollment belongs to another learner.");
   }
   // SECURITY (review correction C): cancelled enrollments write nothing.
   if (!hasLearnerAccess(enrollment)) {
-    throw new Error("Forbidden: This enrollment is no longer active.");
+    throw new AppError("forbidden", "Forbidden: This enrollment is no longer active.");
   }
 
   const lesson = await getAdminLessonById(lessonId);
-  if (!lesson) throw new Error("Lesson not found.");
+  if (!lesson) throw new AppError("not_found", "Lesson not found.");
   if (lesson.courseId !== enrollment.courseId) {
-    throw new Error("Forbidden: This lesson does not belong to the enrolled course.");
+    throw new AppError("forbidden", "Forbidden: This lesson does not belong to the enrolled course.");
   }
   if (lesson.status !== "published") {
-    throw new Error("This lesson is not published and cannot be completed.");
+    throw new AppError("invalid", "This lesson is not published and cannot be completed.");
   }
 
   const existing = await db
@@ -394,7 +397,8 @@ export async function getBatchedEnrollmentProgress(
   }
 
   // 6. Batch reconciliation writes (active ↔ completed only; cancelled is terminal)
-  // Group by target status to minimize writes
+  // Group by target status to minimize writes. Status is re-checked in the
+  // WHERE so a concurrent cancellation is never overwritten.
   const toComplete: string[] = [];
   const toReopen: string[] = [];
   for (const { enrollmentId, completed } of reconciliations) {
@@ -410,13 +414,13 @@ export async function getBatchedEnrollmentProgress(
     await db
       .update(enrollments)
       .set({ completedAt: now, status: "completed" })
-      .where(inArray(enrollments.id, toComplete));
+      .where(and(inArray(enrollments.id, toComplete), eq(enrollments.status, "active")));
   }
   if (toReopen.length > 0) {
     await db
       .update(enrollments)
       .set({ completedAt: null, status: "active" })
-      .where(inArray(enrollments.id, toReopen));
+      .where(and(inArray(enrollments.id, toReopen), eq(enrollments.status, "completed")));
   }
 
   return summaries;

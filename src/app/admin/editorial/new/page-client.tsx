@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { generateDraftAction } from "@/features/editorial-ai/drafts/actions";
 import type { GenerateDraftInput } from "@/features/editorial-ai/drafts/types";
 import type { KnowledgeSource } from "@/lib/db";
+import { unwrapActionResult } from "@/lib/action-result";
 
 interface NewDraftClientProps {
   user: { id: string; name?: string | null; email?: string | null; role?: string | null };
@@ -40,7 +41,7 @@ export function NewDraftClient({ sources }: NewDraftClientProps) {
     };
 
     try {
-      const draft = await generateDraftAction(input);
+      const draft = unwrapActionResult(await generateDraftAction(input));
       router.push(`/admin/editorial/${draft.id}`);
     } catch (err) {
       setError((err as Error).message);

@@ -1,5 +1,6 @@
 import { getR2Bucket } from "../cloudflare/bindings";
 import { getDb, media } from "../db";
+import { AppError } from "@/lib/errors";
 
 const ALLOWED_MIME_TYPES: Record<string, string> = {
   "image/jpeg": "jpg",
@@ -92,7 +93,7 @@ export async function uploadMedia(
   const normalizedType = contentType.toLowerCase().trim();
   const ext = ALLOWED_MIME_TYPES[normalizedType];
   if (!ext) {
-    throw new Error(
+    throw new AppError("invalid",
       `Unsupported media type "${contentType}". Supported types: ${Object.keys(ALLOWED_MIME_TYPES).join(", ")}`
     );
   }
@@ -100,7 +101,7 @@ export async function uploadMedia(
   // 2. Validate file size (defense in depth — routes already gate pre-buffer)
   const size = buffer.byteLength;
   if (size > MAX_MEDIA_FILE_SIZE) {
-    throw new Error(`File size (${(size / 1024 / 1024).toFixed(2)} MB) exceeds maximum limit of 5 MB.`);
+    throw new AppError("invalid", `File size (${(size / 1024 / 1024).toFixed(2)} MB) exceeds maximum limit of 5 MB.`);
   }
 
   // 3. Generate safe canonical storage key (Never trust client filename as storage path)

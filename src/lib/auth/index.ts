@@ -2,6 +2,7 @@ import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { admin } from "better-auth/plugins";
 import { getDb, users, sessions, accounts, verifications } from "../db";
+import { AppError } from "@/lib/errors";
 
 /**
  * Resolve the Better Auth secret from environment configuration ONLY.
@@ -79,11 +80,11 @@ export async function getServerSession() {
 export async function requireAdmin() {
   const session = await getServerSession();
   if (!session?.user) {
-    throw new Error("Unauthorized: You must be signed in");
+    throw new AppError("unauthorized", "Unauthorized: You must be signed in");
   }
   const userRole = (session.user as { role?: string }).role;
   if (userRole !== "admin") {
-    throw new Error("Forbidden: Admin access required");
+    throw new AppError("forbidden", "Forbidden: Admin access required");
   }
   return session;
 }
@@ -91,7 +92,7 @@ export async function requireAdmin() {
 export async function requireUser() {
   const session = await getServerSession();
   if (!session?.user) {
-    throw new Error("Unauthorized: You must be signed in");
+    throw new AppError("unauthorized", "Unauthorized: You must be signed in");
   }
   return session;
 }

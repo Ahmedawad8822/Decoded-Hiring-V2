@@ -67,6 +67,7 @@ import type {
   DraftSummary,
 } from "./types";
 import { generateDraftSchema, updateDraftSchema } from "./types";
+import { AppError } from "@/lib/errors";
 
 // ---------------------------------------------------------------------------
 // Generation
@@ -365,9 +366,9 @@ export async function updateDraft(
   const db = await getDb();
   const now = new Date();
   const draft = await getDraft(id);
-  if (!draft) throw new Error(`Draft with id "${id}" not found`);
+  if (!draft) throw new AppError("not_found", `Draft with id "${id}" not found`);
   if (draft.status !== "DRAFT") {
-    throw new Error(`Cannot edit draft in "${draft.status}" status. Only DRAFT content can be edited; return it to DRAFT before changing content.`);
+    throw new AppError("invalid", `Cannot edit draft in "${draft.status}" status. Only DRAFT content can be edited; return it to DRAFT before changing content.`);
   }
 
   const updates: Partial<typeof editorial_drafts.$inferInsert> = { updatedAt: now };
@@ -393,7 +394,7 @@ export async function updateDraft(
 
   if (!written) {
     const current = await getDraft(id);
-    throw new Error(
+    throw new AppError("conflict",
       `Cannot edit draft — status changed to "${current?.status ?? "unknown"}" while the edit was being saved. Return it to DRAFT and retry.`,
     );
   }
@@ -425,9 +426,9 @@ export async function sendBack(id: string, actor: string, note?: string): Promis
 
 export async function approve(id: string, actor: string): Promise<EditorialDraftWithSources> {
   const draft = await getDraft(id);
-  if (!draft) throw new Error(`Draft with id "${id}" not found`);
+  if (!draft) throw new AppError("not_found", `Draft with id "${id}" not found`);
   if (draft.status !== "IN_REVIEW") {
-    throw new Error(`Cannot approve draft in "${draft.status}" status. Not in IN_REVIEW status.`);
+    throw new AppError("invalid", `Cannot approve draft in "${draft.status}" status. Not in IN_REVIEW status.`);
   }
 
   const db = await getDb();
@@ -449,7 +450,7 @@ export async function approve(id: string, actor: string): Promise<EditorialDraft
 
   if (!approved) {
     const current = await getDraft(id);
-    throw new Error(`Cannot approve draft — status changed to "${current?.status ?? "unknown"}" during approval.`);
+    throw new AppError("conflict", `Cannot approve draft — status changed to "${current?.status ?? "unknown"}" during approval.`);
   }
 
   // Audit only a transition this caller actually won.
@@ -462,9 +463,9 @@ export async function approve(id: string, actor: string): Promise<EditorialDraft
 
 export async function rejectDraft(id: string, actor: string, reason?: string): Promise<EditorialDraftWithSources> {
   const draft = await getDraft(id);
-  if (!draft) throw new Error(`Draft with id "${id}" not found`);
+  if (!draft) throw new AppError("not_found", `Draft with id "${id}" not found`);
   if (draft.status !== "IN_REVIEW") {
-    throw new Error(`Cannot reject draft in "${draft.status}" status. Not in IN_REVIEW status.`);
+    throw new AppError("invalid", `Cannot reject draft in "${draft.status}" status. Not in IN_REVIEW status.`);
   }
 
   const db = await getDb();
@@ -484,7 +485,7 @@ export async function rejectDraft(id: string, actor: string, reason?: string): P
 
   if (!rejected) {
     const current = await getDraft(id);
-    throw new Error(`Cannot reject draft — status changed to "${current?.status ?? "unknown"}" during rejection.`);
+    throw new AppError("conflict", `Cannot reject draft — status changed to "${current?.status ?? "unknown"}" during rejection.`);
   }
 
   await logAudit({
@@ -544,7 +545,7 @@ export async function publishDraft(
 ): Promise<{ entityType: "guide" | "field_note"; entityId: string }> {
   const db = await getDb();
   const draft = await getDraft(id);
-  if (!draft) throw new Error(`Draft with id "${id}" not found`);
+  if (!draft) throw new AppError("not_found", `Draft with id "${id}" not found`);
 
   const entityType = entityTypeFor(draft.contentType);
   const now = new Date();
@@ -600,14 +601,14 @@ export async function publishDraft(
         // reservation observed above.
         const reclaimed = await deletePublicationReservation(db, current.id, draft.id, true);
         if (!reclaimed) {
-          throw new Error(`Publication reservation for draft ${draft.id} changed while stale recovery was attempted. Retry.`);
+          throw new AppError("conflict", `Publication reservation for draft ${draft.id} changed while stale recovery was attempted. Retry.`);
         }
       }
     }
   }
 
   if (draft.status !== "APPROVED") {
-    throw new Error(`Cannot publish draft in "${draft.status}" status. Not in APPROVED status.`);
+    throw new AppError("invalid", `Cannot publish draft in "${draft.status}" status. Not in APPROVED status.`);
   }
 
   // 2. Reserve a publication row. Its row id is the lease/ownership token.
@@ -849,7 +850,7 @@ async function waitForCompletedPublication(
     }
     await new Promise((resolve) => setTimeout(resolve, intervalMs));
   }
-  throw new Error(`Publication of draft ${draftId} is still in progress — please retry in a moment.`);
+  throw new AppError("conflict", `Publication of draft ${draftId} is still in progress — please retry in a moment.`);
 }
 
 /**
@@ -937,7 +938,7 @@ async function markDraftPublished(
     // The target was made public — roll it back so we fail closed.
     await abandonOwnedTarget(entityType, entityId);
     await deletePublicationReservation(db, reservationId, draft.id, false);
-    throw new Error(`Stale publish: draft "${draft.id}" was modified (status="${after?.status ?? "unknown"}") during publication. Re-approve and retry.`);
+    throw new AppError("conflict", `Stale publish: draft "${draft.id}" was modified (status="${after?.status ?? "unknown"}") during publication. Re-approve and retry.`);
   }
 
   await logAudit({
@@ -989,13 +990,13 @@ async function transitionDraft(
   clearFields?: (keyof typeof editorial_drafts.$inferInsert)[],
 ): Promise<EditorialDraftWithSources> {
   const draft = await getDraft(id);
-  if (!draft) throw new Error(`Draft with id "${id}" not found`);
+  if (!draft) throw new AppError("not_found", `Draft with id "${id}" not found`);
   // Terminal state guard — PUBLISHED drafts cannot transition further.
   if (draft.status === "PUBLISHED") {
-    throw new Error(`Cannot ${auditAction} draft — already PUBLISHED.`);
+    throw new AppError("invalid", `Cannot ${auditAction} draft — already PUBLISHED.`);
   }
   if (draft.status !== expectedStatus) {
-    throw new Error(
+    throw new AppError("invalid",
       `Cannot ${auditAction} draft in "${draft.status}" status. Not in ${expectedStatus} status.`
     );
   }
@@ -1034,7 +1035,7 @@ async function transitionDraft(
 
   if (!transitioned) {
     const current = await getDraft(id);
-    throw new Error(
+    throw new AppError("conflict",
       `Cannot ${auditAction} draft — status changed to "${current?.status ?? "unknown"}" during transition.`,
     );
   }
