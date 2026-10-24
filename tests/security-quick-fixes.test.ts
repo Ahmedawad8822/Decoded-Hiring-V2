@@ -43,7 +43,7 @@ import {
 } from "../src/features/courses/service";
 import { enrollFree, getEnrollment } from "../src/features/enrollments/service";
 import {
-  getBatchedEnrollmentProgress,
+  reconcileCourseEnrollments,
   reconcileEnrollmentCompletion,
 } from "../src/features/progress/service";
 import { toActionResult, unwrapActionResult } from "../src/lib/action-result";
@@ -285,16 +285,16 @@ test("RACE: reconcile never overwrites a concurrent cancellation", async () => {
   }
 });
 
-test("RACE: batched reconcile never overwrites a concurrent cancellation", async () => {
+test("RACE: course-wide reconcile never overwrites a concurrent cancellation", async () => {
   const { enrollment, userId, courseId, cleanup } = await makeCompletedButActiveEnrollment();
   const updateIntercepted = await installCancelBeforeUpdate(enrollment.id);
   try {
-    await getBatchedEnrollmentProgress([enrollment]);
+    await reconcileCourseEnrollments(courseId);
   } finally {
     clearD1DatabaseForTest();
   }
   try {
-    assert.equal(updateIntercepted(), true, "the batched reconcile UPDATE must have run");
+    assert.equal(updateIntercepted(), true, "the course-wide reconcile UPDATE must have run");
     const row = await getEnrollment(userId, courseId);
     assert.equal(row?.status, "cancelled");
     assert.equal(row?.completedAt, null);
