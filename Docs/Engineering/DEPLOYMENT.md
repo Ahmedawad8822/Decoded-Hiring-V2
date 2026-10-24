@@ -8,7 +8,7 @@ Cloudflare. Every production value in `wrangler.jsonc → env.production` is a
 
 | Piece | What it does |
 |---|---|
-| `@opennextjs/cloudflare` (pinned **1.20.9**) | Turns the `next build` output into a Worker (`.open-next/worker.js`) plus static assets (`.open-next/assets`). 1.20.9 is the newest release that supports Next 16.3.8 and wrangler 4.131. Newer adapter releases need Next ≥ 16.4.1 (see "Follow-ups"). |
+| `@opennextjs/cloudflare` (pinned **1.20.13**) | Turns the `next build` output into a Worker (`.open-next/worker.js`) plus static assets (`.open-next/assets`). 1.20.13 needs Next ≥ 16.4.1 and wrangler ^4.148; we run Next 16.4.2 and wrangler 4.151.1. |
 | `open-next.config.ts` | R2 incremental cache (`NEXT_INC_CACHE_R2_BUCKET`), so ISR pages and `revalidatePath()` from Studio publish actions work on Workers. |
 | `src/lib/cloudflare/bindings.ts` | On Workers, bindings come from `getCloudflareContext().env`. In local Node (`next dev`, `next build`, tests, scripts), it falls back to wrangler's `getPlatformProxy` with persist path `DH_LOCAL_STATE_DIR` or `.wrangler/state/v3`. wrangler is imported with a computed specifier, so it is never bundled. |
 | `wrangler.jsonc` | Top level = **local** config (dev, tests, `npm run preview`). `env.production` = real resources (placeholders). Bindings: `DB` (D1), `MEDIA_BUCKET` (R2), `NEXT_INC_CACHE_R2_BUCKET` (R2), `WORKER_SELF_REFERENCE` (service), `ASSETS`. |
@@ -25,7 +25,7 @@ Cloudflare. Every production value in `wrangler.jsonc → env.production` is a
 ## Verified locally (2026-10-24)
 
 - `npm run cf:build`: OpenNext build complete.
-- `wrangler deploy --dry-run`: total upload **12.3 MiB, 2.78 MiB gzipped**.
+- `wrangler deploy --dry-run`: total upload **12.57 MiB, 2.82 MiB gzipped** (Next 16.4.2, adapter 1.20.13).
 - `opennextjs-cloudflare preview` (built Worker in `wrangler dev`):
   - 200 on `/`, `/guides`, `/field-notes`, `/coaching`, `/workshop`, `/admin/login` and `/sitemap.xml` (dynamic, reads D1).
   - `/learn` redirects anonymous users to `/login`.
@@ -53,7 +53,7 @@ Cloudflare. Every production value in `wrangler.jsonc → env.production` is a
 
 ## Risks and open decisions
 
-- **Script size.** 2.78 MiB gzipped against the Workers **Free 3 MiB** limit, so about 7% headroom. Paid allows 10 MiB.
+- **Script size.** 2.82 MiB gzipped against the Workers **Free 3 MiB** limit, so about 6% headroom (it grew about 0.04 MiB with the Next 16.4 / adapter upgrade). Paid allows 10 MiB.
 - **CPU time.** Workers Free allows **10 ms CPU** per request. SSR of dynamic pages (learner, Studio, booking) is likely to exceed that. Expect to need Workers Paid, or measure before deciding.
 - **Build-time data.** `/guides` and `/field-notes` are statically prerendered from the build machine's local D1, so the first deploy ships whatever that DB contains (usually nothing). They refresh when a publish action calls `revalidatePath()`. Before launch, decide between:
   - `export const revalidate = <seconds>`
@@ -64,6 +64,5 @@ Cloudflare. Every production value in `wrangler.jsonc → env.production` is a
 
 ## Follow-ups
 
-- Upgrade Next to ≥ 16.4.1 together with `@opennextjs/cloudflare` 1.20.13+ and wrangler ≥ 4.148.
 - A remote-safe admin seed script.
 - A staging environment and a CI deploy job (preview deploys per PR) once an account exists.
