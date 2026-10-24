@@ -1,3 +1,5 @@
+import { cache } from "react";
+import { redirect } from "next/navigation";
 import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { admin } from "better-auth/plugins";
@@ -53,18 +55,25 @@ function createAuth(db: Parameters<typeof drizzleAdapter>[0]) {
   });
 }
 
-export async function getAuth() {
-  // NO cross-request singleton: auth is always created from the CURRENT
-  // runtime DB/environment context. Caching the first instance would pin
-  // the first request's resolved DB binding and secret for the process
-  // lifetime, which breaks per-request runtime resolution (local dev,
-  // tests, and any future runtime adapter each resolve independently).
-  // Fail-closed BETTER_AUTH_SECRET behavior is unchanged.
+/**
+ * Build the Better Auth instance once per REQUEST.
+ *
+ * NO cross-request singleton: React `cache()` memoizes per server request
+ * (server components, actions, route handlers) and is discarded when the
+ * request ends, so every request still resolves its DB binding and secret
+ * from its own runtime context. A process-lifetime singleton would pin the
+ * first request's DB binding and secret, which breaks per-request runtime
+ * resolution (local dev, tests, any future runtime adapter). Outside a React
+ * server request (e.g. plain `tsx` tests) `cache()` does not memoize.
+ * Fail-closed BETTER_AUTH_SECRET behavior is unchanged.
+ */
+export const getAuth = cache(async () => {
   const db = await getDb();
   return createAuth(db);
-}
+});
 
-export async function getServerSession() {
+/** Request-cached session lookup (null outside a request). */
+export const getServerSession = cache(async () => {
   const auth = await getAuth();
   try {
     const { headers } = await import("next/headers");
@@ -75,6 +84,19 @@ export async function getServerSession() {
   } catch {
     return null;
   }
+});
+
+/**
+ * Admin page gate for server components: anonymous -> /admin/login,
+ * non-admin -> /admin/login?error=forbidden, otherwise returns the session.
+ * Not placed in admin/layout.tsx because /admin/login lives under it.
+ */
+export async function requireAdminPage() {
+  const session = await getServerSession();
+  if (!session?.user) redirect("/admin/login");
+  const role = (session.user as { role?: string }).role;
+  if (role !== "admin") redirect("/admin/login?error=forbidden");
+  return session;
 }
 
 export async function requireAdmin() {
