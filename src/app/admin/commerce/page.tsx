@@ -1,7 +1,5 @@
-import { redirect } from "next/navigation";
-
 import { CommerceAdminClient } from "./commerce-client";
-import { getServerSession } from "@/lib/auth";
+import { requireAdminPage } from "@/lib/auth";
 import { getCommerceAdminDashboard } from "@/features/commerce/admin";
 import type {
   CommerceAdminPageKey,
@@ -26,11 +24,7 @@ export default async function AdminCommercePage({
 }: {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
-  const session = await getServerSession();
-  if (!session?.user) redirect("/admin/login");
-  const role = (session.user as { role?: string }).role;
-  if (role !== "admin") redirect("/admin/login?error=forbidden");
-
+  await requireAdminPage();
   const params = await searchParams;
   const keys: CommerceAdminPageKey[] = [
     "offers",

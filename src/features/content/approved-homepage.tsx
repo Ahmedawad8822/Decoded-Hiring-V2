@@ -78,7 +78,7 @@ function HomeBlock({
             </div>
             <div className="hg-portrait-wrap">
               <Image
-                src={section.imageSrc || "/images/ahmed-awad-studio-source.png"}
+                src={section.imageSrc || "/images/ahmed-awad-studio-source.webp"}
                 alt="Studio portrait of Ahmed Awad"
                 fill
                 priority

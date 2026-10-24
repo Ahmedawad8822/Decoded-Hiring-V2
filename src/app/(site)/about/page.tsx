@@ -49,7 +49,7 @@ export default function AboutPage() {
           name: "Ahmed Awad",
           url: "https://decodedhiring.com/about",
           image:
-            "https://decodedhiring.com/images/ahmed-about-window-portrait.png",
+            "https://decodedhiring.com/images/ahmed-about-window-portrait.webp",
           jobTitle: "Talent Acquisition and Staffing Professional",
           knowsAbout: [
             "Talent acquisition",
@@ -89,7 +89,7 @@ export default function AboutPage() {
         </div>
         <figure className="hg-authority-portrait hg-about-portrait">
           <Image
-            src="/images/ahmed-about-window-portrait.png"
+            src="/images/ahmed-about-window-portrait.webp"
             alt="Ahmed Awad reflecting beside a window"
             fill
             priority

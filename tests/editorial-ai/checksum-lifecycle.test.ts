@@ -22,6 +22,7 @@ import {
   getKnowledgeSource,
 } from "../../src/features/editorial-ai/knowledge/service";
 import type { KnowledgeSource } from "../../src/lib/db";
+import { migrateLocalDb } from "../../src/lib/db/migrate";
 
 // Helper: upload a source with given content.
 async function upload(content: string, title: string, overrides: { contentType?: string; filename?: string } = {}): Promise<KnowledgeSource> {
@@ -56,6 +57,11 @@ async function cleanupAllKnowledge() {
     await bucket.delete(key).catch(() => undefined);
   }
 }
+
+test.before(async () => {
+  // Each suite runs against its own empty throwaway D1 (tests/helpers/env.ts).
+  await migrateLocalDb();
+});
 
 test.after(async () => {
   await cleanupAllKnowledge();

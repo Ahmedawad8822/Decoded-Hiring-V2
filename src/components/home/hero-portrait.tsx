@@ -32,7 +32,7 @@ export function HeroPortrait({ alt, signal }: HeroPortraitProps) {
       />
       <div className="hero-portrait__frame">
         <Image
-          src="/images/ahmed-awad-studio-source.png"
+          src="/images/ahmed-awad-studio-source.webp"
           alt={alt}
           fill
           priority
