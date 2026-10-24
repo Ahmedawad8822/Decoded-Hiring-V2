@@ -17,13 +17,20 @@ import { hasLearnerAccess } from "@/features/enrollments/access";
 import { isUniqueConstraintError } from "@/lib/db/sqlite-errors";
 import { AppError } from "@/lib/errors";
 
+// Course-wide reconcile for admin curriculum edits lives in ./reconcile (no
+// import cycle with the courses service); re-exported for one progress API.
+export { reconcileCourseEnrollments } from "./reconcile";
+
 // ============================================================================
 // PROGRESS SERVICE (Mission 06)
 // Server-authoritative. Progress percentage counts REQUIRED PUBLISHED lessons
 // only; optional lessons never affect the denominator. Course completion =
 // all required published lessons complete -> enrollment.completedAt set.
-// Deterministic rule on curriculum change: completion is re-evaluated from
-// current required-published set every time progress is read or written.
+// Deterministic rule on curriculum change: the completion VERDICT is always
+// computed from the current required-published set. READS (page renders) are
+// pure and never write; the stored enrollment status is reconciled on WRITE
+// paths only: markLessonComplete (one enrollment) and admin curriculum
+// mutations (reconcileCourseEnrollments, see ./reconcile.ts).
 // ============================================================================
 
 export interface CourseProgress {
@@ -102,14 +109,10 @@ export async function getEnrollmentProgress(enrollment: Enrollment): Promise<Cou
     nextAfterLessonId[publishedAll[i].id] = publishedAll[i + 1] ?? null;
   }
 
-  // CONSISTENCY (review correction H): reconcile the enrollment row with the
-  // recomputed verdict. Curriculum edits (new required lesson, lesson
-  // unpublished) change the verdict after the fact — a stale
-  // status="completed" must reopen to active, and a newly-satisfied set must
-  // close to completed, on the next read OR write. Reads and writes share
-  // this one helper so the two paths can never disagree.
-  await reconcileEnrollmentCompletion(enrollment, completed);
-
+  // PURE READ: no enrollment write here. `completed` is the freshly computed
+  // verdict and is what the UI must show ("Course complete"); the stored
+  // enrollment.status is reconciled on write paths (markLessonComplete and
+  // admin curriculum edits), so it only lags the verdict during a race.
   return {
     totalRequired,
     completedRequired,
@@ -123,8 +126,10 @@ export async function getEnrollmentProgress(enrollment: Enrollment): Promise<Cou
 }
 
 /**
- * Bring enrollment.status/completedAt in line with the recomputed completion
- * verdict. No-op when already consistent. Exported for tests.
+ * Bring ONE enrollment's status/completedAt in line with the recomputed
+ * completion verdict. No-op when already consistent. WRITE PATHS ONLY (called
+ * from markLessonComplete); page reads must never call it. Exported for tests.
+ * Course-wide equivalent for curriculum edits: reconcileCourseEnrollments.
  *
  * SECURITY INVARIANT: cancelled is terminal for learner access. This helper
  * NEVER modifies a cancelled enrollment — only active ↔ completed
@@ -244,9 +249,10 @@ export async function markLessonComplete(
     }
   }
 
-  // getEnrollmentProgress reconciles completion (correction H) — no separate
-  // ad-hoc status write here, so read and write paths share one verdict.
+  // WRITE PATH: compute the verdict with the shared read, then reconcile this
+  // enrollment's stored status from it (reads themselves no longer write).
   const progress = await getEnrollmentProgress(enrollment);
+  await reconcileEnrollmentCompletion(enrollment, progress.completed);
 
   const updated = await db
     .select()
@@ -302,6 +308,8 @@ export interface BatchedProgressSummary {
 /**
  * Compute progress summaries for multiple enrollments in a bounded number of queries.
  * Returns a map keyed by enrollmentId for O(1) lookups by the caller.
+ * PURE READ: never writes. `completed` is the computed verdict (UI source of
+ * truth); `enrollmentStatus` is the stored row, reconciled on write paths.
  * Keeps the existing single-enrollment getEnrollmentProgress for detail/player routes.
  */
 export async function getBatchedEnrollmentProgress(
@@ -358,7 +366,7 @@ export async function getBatchedEnrollmentProgress(
     else progressByEnrollment.set(row.enrollmentId, [row]);
   }
 
-  // 4. Batch fetch CURRENT enrollment states for reconciliation in ONE query
+  // 4. Batch fetch CURRENT stored enrollment states (reported as-is) in ONE query
   const currentEnrollments = await db
     .select()
     .from(enrollments)
@@ -367,7 +375,6 @@ export async function getBatchedEnrollmentProgress(
 
   // 5. Compute summaries in memory
   const summaries = new Map<string, BatchedProgressSummary>();
-  const reconciliations: Array<{ enrollmentId: string; completed: boolean }> = [];
 
   for (const enrollment of enrollmentsList) {
     const course = courseMap.get(enrollment.courseId);
@@ -400,48 +407,6 @@ export async function getBatchedEnrollmentProgress(
       enrollmentCompletedAt: currentEnrollment?.completedAt ?? enrollment.completedAt,
     });
 
-    reconciliations.push({ enrollmentId: enrollment.id, completed });
-  }
-
-  // 6. Batch reconciliation writes (active ↔ completed only; cancelled is terminal)
-  // Group by target status to minimize writes. Status is re-checked in the
-  // WHERE so a concurrent cancellation is never overwritten.
-  const toComplete: string[] = [];
-  const toReopen: string[] = [];
-  for (const { enrollmentId, completed } of reconciliations) {
-    const current = currentEnrollmentMap.get(enrollmentId);
-    if (!current) continue;
-    if (current.status === "cancelled") continue;
-    if (completed && current.status === "active") toComplete.push(enrollmentId);
-    else if (!completed && current.status === "completed") toReopen.push(enrollmentId);
-  }
-
-  const now = new Date();
-  if (toComplete.length > 0) {
-    await db
-      .update(enrollments)
-      .set({ completedAt: now, status: "completed" })
-      .where(and(inArray(enrollments.id, toComplete), eq(enrollments.status, "active")));
-  }
-  if (toReopen.length > 0) {
-    await db
-      .update(enrollments)
-      .set({ completedAt: null, status: "active" })
-      .where(and(inArray(enrollments.id, toReopen), eq(enrollments.status, "completed")));
-  }
-
-  // 7. Report POST-reconcile state. The conditional UPDATEs may have lost a
-  // race (e.g. concurrent cancellation), so re-read just the touched rows in
-  // ONE query rather than assuming they won.
-  const touched = [...toComplete, ...toReopen];
-  if (touched.length > 0) {
-    const fresh = await db.select().from(enrollments).where(inArray(enrollments.id, touched));
-    for (const row of fresh) {
-      const summary = summaries.get(row.id);
-      if (!summary) continue;
-      summary.enrollmentStatus = row.status;
-      summary.enrollmentCompletedAt = row.completedAt;
-    }
   }
 
   return summaries;

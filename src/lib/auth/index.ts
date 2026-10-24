@@ -5,6 +5,7 @@ import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { admin } from "better-auth/plugins";
 import { getDb, users, sessions, accounts, verifications } from "../db";
 import { AppError } from "@/lib/errors";
+import { authAdvancedIpOptions, buildAuthRateLimitOptions } from "./rate-limit";
 
 /**
  * Resolve the Better Auth secret from environment configuration ONLY.
@@ -47,6 +48,9 @@ function createAuth(db: Parameters<typeof drizzleAdapter>[0]) {
         adminRole: "admin",
       }),
     ],
+    // Durable per-client throttling on D1 (see ./rate-limit).
+    rateLimit: buildAuthRateLimitOptions(),
+    advanced: { ipAddress: authAdvancedIpOptions() },
     secret: resolveAuthSecret(),
     baseURL:
       process.env.BETTER_AUTH_URL ||

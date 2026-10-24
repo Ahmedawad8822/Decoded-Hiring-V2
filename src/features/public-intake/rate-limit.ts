@@ -1,4 +1,4 @@
-import { sql } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 
 import { getDb, publicRateLimits } from "@/lib/db";
 
@@ -38,7 +38,29 @@ export async function consumePublicFixedWindowLimit(params: {
 }): Promise<boolean> {
   const windowMinutes = clampInteger(params.windowMinutes, 1, 60);
   const maxCount = clampInteger(params.maxCount, 1, 500);
-  const windowMs = windowMinutes * MINUTE_MS;
+  const result = await consumeFixedWindowMs({
+    scopeKey: params.scopeKey,
+    now: params.now,
+    windowMs: windowMinutes * MINUTE_MS,
+    maxCount,
+  });
+  return result.allowed;
+}
+
+/**
+ * Same atomic primitive with a millisecond window and no minute clamping.
+ * Shared with the Better Auth rate limiter (src/lib/auth/rate-limit.ts).
+ * On rejection `retryAfterMs` is read back from the stored window start
+ * (informational only; the admit/deny decision is the atomic write).
+ */
+export async function consumeFixedWindowMs(params: {
+  scopeKey: string;
+  now: Date;
+  windowMs: number;
+  maxCount: number;
+}): Promise<{ allowed: boolean; retryAfterMs: number }> {
+  const windowMs = Math.max(1, Math.trunc(params.windowMs));
+  const maxCount = Math.max(1, Math.trunc(params.maxCount));
   const nowMs = params.now.getTime();
   // Scope-anchored fixed window: the first admitted request owns the start.
   // This avoids the synchronized-boundary weakness of wall-clock windows
@@ -80,5 +102,15 @@ export async function consumePublicFixedWindowLimit(params: {
     })
     .get();
 
-  return Boolean(admitted);
+  if (admitted) return { allowed: true, retryAfterMs: 0 };
+
+  const current = await db
+    .select({ windowStart: publicRateLimits.windowStart })
+    .from(publicRateLimits)
+    .where(eq(publicRateLimits.scopeKey, params.scopeKey))
+    .get();
+  const retryAfterMs = current
+    ? Math.max(0, current.windowStart + windowMs - nowMs)
+    : windowMs;
+  return { allowed: false, retryAfterMs };
 }
