@@ -1,0 +1,50 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Lint, typecheck, test, build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      # Clearly fake, CI-only values. Auth fails closed without a secret, and
+      # everything below runs against local Miniflare D1/R2 — no real services.
+      BETTER_AUTH_SECRET: ci-only-not-a-real-secret-0123456789abcdef
+      NEXT_TELEMETRY_DISABLED: "1"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Unit tests
+        run: npm test
+
+      # next build prerenders /guides and /field-notes from the database.
+      - name: Apply local D1 migrations
+        run: npm run db:migrate:local
+
+      - name: Build
+        run: npm run build
