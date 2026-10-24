@@ -26,7 +26,7 @@ export function LeadForm({
   submitLabel,
   className,
 }: LeadFormProps) {
-  const action = submitLead.bind(null, kind);
+  const action = submitLead.bind(null, kind, sourceRoute, audiencePath);
   const [state, formAction, pending] = useActionState(action, undefined);
   const [idempotencyKey] = useState(() => crypto.randomUUID());
   const isAiOs = kind === "ai_os";
@@ -39,7 +39,7 @@ export function LeadForm({
         <h3>
           {isAiOs
             ? "You are on the research list."
-            : "Your context is safely with Ahmed."}
+            : "Your context has been saved."}
         </h3>
         <p>{state.message}</p>
       </div>
@@ -49,8 +49,6 @@ export function LeadForm({
   return (
     <form action={formAction} className={className ?? "hg-form-grid"}>
       <input type="hidden" name="idempotencyKey" value={idempotencyKey} />
-      <input type="hidden" name="sourceRoute" value={sourceRoute} />
-      <input type="hidden" name="audiencePath" value={audiencePath} />
       <label className="hg-honeypot" aria-hidden="true">
         Website
         <input name="website" tabIndex={-1} autoComplete="off" />
