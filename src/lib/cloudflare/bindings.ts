@@ -1,4 +1,5 @@
 import type { D1Database, R2Bucket } from "@cloudflare/workers-types";
+import { getCloudflareContext } from "@opennextjs/cloudflare";
 
 export interface CloudflareEnv {
   DB: D1Database;
@@ -22,7 +23,7 @@ function bindingGlobal(): BindingGlobal {
 // regression tests inject a fake D1 binding here instead of stubbing the
 // platform proxy. Production code never sets it; getCloudflareBindings()
 // returns it verbatim when present, so binding resolution semantics
-// (global __env__ → process.env → platform proxy) are unchanged.
+// (OpenNext worker context → local platform proxy) are unchanged.
 let testD1Override: D1Database | null = null;
 
 export function setD1DatabaseForTest(db: D1Database): void {
@@ -35,8 +36,9 @@ export function clearD1DatabaseForTest(): void {
 
 /**
  * Clean runtime boundary for Cloudflare bindings:
- * - In Worker/Production runtime: returns bindings from global context or process.env.
- * - In local Node.js development: uses Wrangler's getPlatformProxy with local Miniflare emulation.
+ * - On Cloudflare Workers (OpenNext): the request's `env` from getCloudflareContext().
+ * - In local Node.js (next dev/build, tests, scripts): Wrangler's getPlatformProxy
+ *   with local Miniflare emulation.
  */
 export async function getCloudflareBindings(): Promise<CloudflareEnv> {
   // 0. Test-only injected D1 (paired with the real R2/MEDIA_BUCKET binding).
@@ -49,22 +51,23 @@ export async function getCloudflareBindings(): Promise<CloudflareEnv> {
 }
 
 async function resolveCloudflareBindings(): Promise<CloudflareEnv> {
-  // 1. Production / Worker native context
-  const globalEnv = (globalThis as unknown as { __env__?: CloudflareEnv }).__env__;
-  if (globalEnv?.DB && globalEnv?.MEDIA_BUCKET) {
-    return globalEnv;
-  }
-
-  const procEnv = process.env as unknown as { DB?: D1Database; MEDIA_BUCKET?: R2Bucket };
-  if (procEnv.DB && procEnv.MEDIA_BUCKET && typeof procEnv.DB.prepare === "function") {
-    return procEnv as CloudflareEnv;
+  // 1. Cloudflare Workers via OpenNext: the worker entrypoint publishes the
+  // request context globally. Sync mode throws when no worker context exists
+  // (next dev/build, tests, scripts), which selects the local fallback below.
+  const workerEnv = getWorkerEnv();
+  if (workerEnv) {
+    return workerEnv;
   }
 
   // 2. Local Node development / test environment emulation via Wrangler
   const state = bindingGlobal();
   if (!state.__decodedHiringLocalProxyPromise) {
     state.__decodedHiringLocalProxyPromise = (async () => {
-      const { getPlatformProxy } = await import("wrangler");
+      // Computed specifier + webpackIgnore keep wrangler out of every bundle
+      // (same technique @opennextjs/cloudflare uses); it is a Node-only dev tool.
+      const { getPlatformProxy } = (await import(
+        /* webpackIgnore: true */ `${"__wrangler".replaceAll("_", "")}`
+      )) as typeof import("wrangler");
       const proxy = await getPlatformProxy<CloudflareEnv>({
         configPath: "wrangler.jsonc",
         // DH_LOCAL_STATE_DIR lets test processes use a throwaway state dir;
@@ -77,6 +80,16 @@ async function resolveCloudflareBindings(): Promise<CloudflareEnv> {
 
   const proxy = await state.__decodedHiringLocalProxyPromise;
   return proxy.env;
+}
+
+function getWorkerEnv(): CloudflareEnv | null {
+  try {
+    const { env } = getCloudflareContext();
+    const workerEnv = env as unknown as Partial<CloudflareEnv>;
+    return workerEnv.DB && workerEnv.MEDIA_BUCKET ? (workerEnv as CloudflareEnv) : null;
+  } catch {
+    return null;
+  }
 }
 
 export async function disposeCloudflareBindings(): Promise<void> {
