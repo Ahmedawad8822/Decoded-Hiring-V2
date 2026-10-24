@@ -98,7 +98,7 @@ test("PURE: completions of unpublished lessons are ignored", () => {
 
 // ---------------------------------------------------------------- batched
 
-test("BATCHED: the call that flips status returns the post-reconcile status", async () => {
+test("BATCHED: reads report the computed verdict and never write the enrollment row", async () => {
   const db = await getDb();
   const course = await createCourse({ title: "Maths Course", slug: `pm-${stamp()}`, accessMode: "FREE" });
   const section = await createSection({ courseId: course.id, title: "S1" });
@@ -126,7 +126,9 @@ test("BATCHED: the call that flips status returns the post-reconcile status", as
   const enrollment = await enrollFree(userId, course.id);
 
   try {
-    // Active but the required set is satisfied: this call must close it AND say so.
+    // Active but the required set is satisfied: the batched READ reports the
+    // computed verdict (completed) but must NOT write — the stored row stays
+    // active until a write path reconciles it. (Previously this read closed it.)
     await db.insert(lessonProgress).values({
       id: `prog_${stamp()}`,
       enrollmentId: enrollment.id,
@@ -135,17 +137,19 @@ test("BATCHED: the call that flips status returns the post-reconcile status", as
     });
     const closed = (await getBatchedEnrollmentProgress([enrollment])).get(enrollment.id)!;
     assert.equal(closed.completed, true);
-    assert.equal(closed.enrollmentStatus, "completed");
-    assert.ok(closed.enrollmentCompletedAt instanceof Date);
+    assert.equal(closed.enrollmentStatus, "active");
+    assert.equal(closed.enrollmentCompletedAt, null);
+    const stored = await db.select().from(enrollments).where(eq(enrollments.id, enrollment.id)).get();
+    assert.equal(stored?.status, "active");
 
-    // Completed row but the set is no longer satisfied: this call must reopen AND say so.
+    // Stored "completed" but the set is no longer satisfied: the read reports
+    // completed=false from the maths and still does not rewrite the row.
     await db.delete(lessonProgress).where(eq(lessonProgress.enrollmentId, enrollment.id));
-    const reopened = (await getBatchedEnrollmentProgress([{ ...enrollment, status: "completed" }])).get(
-      enrollment.id
-    )!;
+    await db.update(enrollments).set({ status: "completed", completedAt: now }).where(eq(enrollments.id, enrollment.id));
+    const fresh = await db.select().from(enrollments).where(eq(enrollments.id, enrollment.id)).get();
+    const reopened = (await getBatchedEnrollmentProgress([fresh!])).get(enrollment.id)!;
     assert.equal(reopened.completed, false);
-    assert.equal(reopened.enrollmentStatus, "active");
-    assert.equal(reopened.enrollmentCompletedAt, null);
+    assert.equal(reopened.enrollmentStatus, "completed");
   } finally {
     await db.delete(lessonProgress).where(eq(lessonProgress.enrollmentId, enrollment.id));
     await db.delete(enrollments).where(eq(enrollments.courseId, course.id));
