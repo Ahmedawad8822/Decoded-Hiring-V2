@@ -4,7 +4,7 @@ import * as path from "node:path";
 
 /**
  * SQL error codes/names that are GENUINELY IDEMPOTENT and safe to tolerate
- * on re-run against an already-migrated local/test database:
+ * when BASELINING a legacy local database (see migrateLocalDb):
  *  - "table X already exists"    (SQLite: table X already exists / #1)
  *  - "index X already exists"    (SQLite: index X already exists)
  *  - "duplicate column name"     (SQLite: duplicate column name: X)
@@ -25,12 +25,37 @@ function isExpectedIdempotentError(message: string | undefined): boolean {
 }
 
 /**
- * Apply drizzle/*.sql migrations to the local/test D1 (Miniflare) database.
+ * Tracking table. Name and shape deliberately match what
+ * `wrangler d1 migrations apply` creates (wrangler's DEFAULT_MIGRATION_TABLE
+ * and getCreateMigrationsTableQuery), with `name` = the .sql file name, so the
+ * local runner and wrangler (local or remote) agree on what is applied.
+ */
+const MIGRATIONS_TABLE = "d1_migrations";
+const CREATE_MIGRATIONS_TABLE = `CREATE TABLE IF NOT EXISTS "${MIGRATIONS_TABLE}"(
+		id         INTEGER PRIMARY KEY AUTOINCREMENT,
+		name       TEXT UNIQUE,
+		applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL
+);`;
+
+/**
+ * Apply drizzle/*.sql migrations to the local/test D1 (Miniflare) database,
+ * recording each applied file in `d1_migrations` exactly like wrangler does.
  *
- * Expected-idempotent errors are tolerated; ANY other error aborts the
- * remaining migrations and throws. There is deliberately no warn-and-continue
- * path: the caller's `test.before` hook (and `npm run db:*` scripts) must see
- * the failure instead of quietly running against a partially-migrated schema.
+ * Only files not yet recorded are applied, in sorted order, and each is
+ * recorded after it succeeds. Data migrations and DROP+CREATE sequences
+ * therefore never re-run.
+ *
+ * BASELINE for legacy local DBs (created by the old runner, which re-ran every
+ * file and kept no record): when the tracking table is empty but the database
+ * already has user tables, each unrecorded file is applied once with the
+ * tolerant "already exists"/"duplicate column" handling, then recorded. This
+ * also covers legacy DBs that are only partially migrated. A brand-new DB
+ * (no user tables) and every later run apply strictly.
+ *
+ * Any non-idempotent error aborts the remaining migrations and throws. There
+ * is deliberately no warn-and-continue path: the caller's `test.before` hook
+ * (and `npm run db:*` scripts) must see the failure instead of quietly running
+ * against a partially-migrated schema.
  */
 export async function migrateLocalDb() {
   const d1 = await getD1Database();
@@ -44,7 +69,26 @@ export async function migrateLocalDb() {
     .filter((file) => file.endsWith(".sql"))
     .sort();
 
+  await d1.prepare(CREATE_MIGRATIONS_TABLE).run();
+  const applied = new Set(
+    (await d1.prepare(`SELECT name FROM "${MIGRATIONS_TABLE}"`).all<{ name: string }>())
+      .results.map((r) => r.name),
+  );
+
+  let tolerant = false;
+  if (applied.size === 0) {
+    const existing = await d1
+      .prepare(
+        `SELECT COUNT(*) AS n FROM sqlite_master
+         WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND substr(name, 1, 4) != '_cf_' AND name != ?`,
+      )
+      .bind(MIGRATIONS_TABLE)
+      .first<{ n: number }>();
+    tolerant = (existing?.n ?? 0) > 0;
+  }
+
   for (const file of files) {
+    if (applied.has(file)) continue;
     const fullPath = path.join(migrationsDir, file);
     const sqlContent = fs.readFileSync(fullPath, "utf-8");
     // Split on statement-breakpoint. A pure-comment chunk (SQL comment lines
@@ -70,7 +114,7 @@ export async function migrateLocalDb() {
         await d1.prepare(statement).run();
       } catch (err: unknown) {
         const error = err as Error;
-        if (isExpectedIdempotentError(error.message)) {
+        if (tolerant && isExpectedIdempotentError(error.message)) {
           continue;
         }
         // FAIL LOUDLY — e.g. CREATE UNIQUE INDEX failures must never be
@@ -80,5 +124,6 @@ export async function migrateLocalDb() {
         );
       }
     }
+    await d1.prepare(`INSERT INTO "${MIGRATIONS_TABLE}" (name) VALUES (?)`).bind(file).run();
   }
 }
