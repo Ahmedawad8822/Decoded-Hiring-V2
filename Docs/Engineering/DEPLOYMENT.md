@@ -8,7 +8,7 @@ Cloudflare. Every production value in `wrangler.jsonc → env.production` is a
 
 | Piece | What it does |
 |---|---|
-| `@opennextjs/cloudflare` (pinned **1.20.13**) | Turns the `next build` output into a Worker (`.open-next/worker.js`) plus static assets (`.open-next/assets`). 1.20.13 needs Next ≥ 16.4.1 and wrangler ^4.148; we run Next 16.4.2 and wrangler 4.151.1. |
+| `@opennextjs/cloudflare` (pinned **1.20.12**) | Turns the `next build` output into a Worker (`.open-next/worker.js`) plus static assets (`.open-next/assets`). 1.20.12 needs Next ≥ 16.4.1 and wrangler ^4.148; we run Next 16.4.2 and wrangler 4.151.1. |
 | `open-next.config.ts` | R2 incremental cache (`NEXT_INC_CACHE_R2_BUCKET`), so ISR pages and `revalidatePath()` from Studio publish actions work on Workers. |
 | `src/lib/cloudflare/bindings.ts` | On Workers, bindings come from `getCloudflareContext().env`. In local Node (`next dev`, `next build`, tests, scripts), it falls back to wrangler's `getPlatformProxy` with persist path `DH_LOCAL_STATE_DIR` or `.wrangler/state/v3`. wrangler is imported with a computed specifier, so it is never bundled. |
 | `wrangler.jsonc` | Top level = **local** config (dev, tests, `npm run preview`). `env.production` = real resources (placeholders). Bindings: `DB` (D1), `MEDIA_BUCKET` (R2), `NEXT_INC_CACHE_R2_BUCKET` (R2), `WORKER_SELF_REFERENCE` (service), `ASSETS`. |
@@ -25,7 +25,7 @@ Cloudflare. Every production value in `wrangler.jsonc → env.production` is a
 ## Verified locally (2026-10-24)
 
 - `npm run cf:build`: OpenNext build complete.
-- `wrangler deploy --dry-run`: total upload **12.57 MiB, 2.82 MiB gzipped** (Next 16.4.2, adapter 1.20.13).
+- `wrangler deploy --dry-run`: total upload **12.57 MiB, 2.82 MiB gzipped** (Next 16.4.2, adapter 1.20.12).
 - `opennextjs-cloudflare preview` (built Worker in `wrangler dev`):
   - 200 on `/`, `/guides`, `/field-notes`, `/coaching`, `/workshop`, `/admin/login` and `/sitemap.xml` (dynamic, reads D1).
   - `/learn` redirects anonymous users to `/login`.
