@@ -18,6 +18,7 @@ Cloudflare. Every production value in `wrangler.jsonc → env.production` is a
 | Script | Use |
 |---|---|
 | `npm run cf:build` | OpenNext build (runs `next build` first). Needs `BETTER_AUTH_SECRET` set and a migrated local DB (`npm run db:migrate:local`), because `/guides` and `/field-notes` prerender from D1. |
+| `npm run cf:size` | Runs `wrangler deploy --dry-run` (no credentials), parses the gzip size and fails above `WORKER_GZIP_BUDGET_KIB` (default 2950; Free limit 3072). Run after `cf:build`. Runs in CI as the `worker-size` job. |
 | `npm run preview` | Build, then run the real Worker locally in `wrangler dev` against local D1/R2. Put local-only secrets in `.dev.vars` (git-ignored), e.g. `BETTER_AUTH_SECRET=...`. |
 | `npm run db:migrate:remote` | `wrangler d1 migrations apply DB --env production --remote` |
 | `npm run deploy` | Build and deploy with `--env production`. **Fails until the placeholders are filled.** |
@@ -60,7 +61,7 @@ Cloudflare. Every production value in `wrangler.jsonc → env.production` is a
 
 ## Risks and open decisions
 
-- **Script size.** 2.78 MiB gzipped against the Workers **Free 3 MiB** limit, so about 7% headroom. Paid allows 10 MiB.
+- **Script size.** 2.78 MiB gzipped against the Workers **Free 3 MiB** limit, so about 7% headroom. Paid allows 10 MiB. The `worker-size` CI job now enforces a 2950 KiB gzip budget (`npm run cf:size`, override with `WORKER_GZIP_BUDGET_KIB`), so a PR cannot silently cross the limit. It parses wrangler's `Total Upload` line, so a wrangler output format change fails the job loudly (exit 2) rather than passing.
 - **CPU time.** Workers Free allows **10 ms CPU** per request. SSR of dynamic pages (learner, Studio, booking) is likely to exceed that. Expect to need Workers Paid, or measure before deciding.
 - **Build-time data.** `/guides` and `/field-notes` are statically prerendered from the build machine's local D1, so the first deploy ships whatever that DB contains (usually nothing). They refresh when a publish action calls `revalidatePath()`. Before launch, decide between:
   - `export const revalidate = <seconds>`
