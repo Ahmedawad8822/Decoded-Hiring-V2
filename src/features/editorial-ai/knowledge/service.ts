@@ -19,6 +19,7 @@ import { chunkText } from "./chunker";
 import { getKnowledgeObject } from "./storage";
 import { logAudit } from "../audit/service";
 import type { KnowledgeStatus, RetrievedChunk } from "./types";
+import { AppError, isAppError } from "@/lib/errors";
 
 /** Decode a text/markdown R2 object to a UTF-8 string. */
 function decodeText(body: Uint8Array): string {
@@ -128,10 +129,10 @@ export async function ingestKnowledgeSource(
     .where(eq(knowledge_sources.id, sourceId))
     .get();
   if (!source) {
-    throw new Error(`Knowledge source with id "${sourceId}" not found`);
+    throw new AppError("not_found", `Knowledge source with id "${sourceId}" not found`);
   }
   if (source.status === "ARCHIVED") {
-    throw new Error("Cannot ingest an archived source. Unarchive first.");
+    throw new AppError("invalid", "Cannot ingest an archived source. Unarchive first.");
   }
 
   const nowMs = Date.now();
@@ -149,7 +150,7 @@ export async function ingestKnowledgeSource(
     source.status === "INGESTING" &&
     nowMs - source.updatedAt.getTime() < staleAfterMs
   ) {
-    throw new Error("Knowledge source is already being ingested. Retry after the current ingestion finishes.");
+    throw new AppError("conflict", "Knowledge source is already being ingested. Retry after the current ingestion finishes.");
   }
 
   const claimed = await db
@@ -166,7 +167,7 @@ export async function ingestKnowledgeSource(
     .get();
 
   if (!claimed) {
-    throw new Error("Knowledge source changed while ingestion was starting. Retry; another operation owns the source.");
+    throw new AppError("conflict", "Knowledge source changed while ingestion was starting. Retry; another operation owns the source.");
   }
 
   await opts?.onClaim?.();
@@ -184,7 +185,7 @@ export async function ingestKnowledgeSource(
     // 4. Chunk deterministically
     const { chunks } = chunkText(text);
     if (chunks.length === 0) {
-      throw new Error("Source content produced zero chunks — nothing to index.");
+      throw new AppError("invalid", "Source content produced zero chunks — nothing to index.");
     }
 
     // 5. Replace chunks with lease-conditional SQL. Every destructive write
@@ -279,8 +280,14 @@ export async function ingestKnowledgeSource(
       detail: { error: (err as Error).message },
     });
 
+    // Only a user-facing cause keeps its detail; internal causes stay
+    // internal (masked by the action boundary, logged server-side).
+    if (isAppError(err)) {
+      throw new AppError(err.kind, `Ingestion failed for source "${source.title}": ${err.message}`);
+    }
     throw new Error(
-      `Ingestion failed for source "${source.title}": ${(err as Error).message}`
+      `Ingestion failed for source "${source.title}": ${(err as Error).message}`,
+      { cause: err }
     );
   }
 }
@@ -299,15 +306,15 @@ export async function archiveKnowledgeSource(sourceId: string, actor: string): P
     .get();
 
   if (!source) {
-    throw new Error(`Knowledge source with id "${sourceId}" not found`);
+    throw new AppError("not_found", `Knowledge source with id "${sourceId}" not found`);
   }
 
   if (source.status === "ARCHIVED") {
-    throw new Error("Source is already archived");
+    throw new AppError("invalid", "Source is already archived");
   }
 
   if (source.status === "INGESTING") {
-    throw new Error("Cannot archive a source that is currently being ingested. Wait for ingestion to complete.");
+    throw new AppError("conflict", "Cannot archive a source that is currently being ingested. Wait for ingestion to complete.");
   }
 
   const now = new Date();
@@ -325,7 +332,7 @@ export async function archiveKnowledgeSource(sourceId: string, actor: string): P
     .get();
 
   if (!archived) {
-    throw new Error("Knowledge source changed while archiving. Retry after the current operation finishes.");
+    throw new AppError("conflict", "Knowledge source changed while archiving. Retry after the current operation finishes.");
   }
 
   await logAudit({
@@ -357,11 +364,11 @@ export async function restoreKnowledgeSource(sourceId: string, actor: string): P
     .get();
 
   if (!source) {
-    throw new Error(`Knowledge source with id "${sourceId}" not found`);
+    throw new AppError("not_found", `Knowledge source with id "${sourceId}" not found`);
   }
 
   if (source.status !== "ARCHIVED") {
-    throw new Error("Only archived sources can be restored");
+    throw new AppError("invalid", "Only archived sources can be restored");
   }
 
   const now = new Date();
@@ -379,7 +386,7 @@ export async function restoreKnowledgeSource(sourceId: string, actor: string): P
     .get();
 
   if (!restoredRow) {
-    throw new Error("Knowledge source changed while restoring. Retry.");
+    throw new AppError("conflict", "Knowledge source changed while restoring. Retry.");
   }
 
   await logAudit({

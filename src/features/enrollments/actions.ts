@@ -1,5 +1,6 @@
 "use server";
 
+import { publicErrorMessage } from "@/lib/errors";
 import { requireUser } from "@/lib/auth";
 import { revalidatePath } from "next/cache";
 import { enrollFree } from "./service";
@@ -29,6 +30,6 @@ export async function enrollFreeAction(
       data: { enrollmentId: enrollment.id, courseSlug: course?.slug ?? "" },
     };
   } catch (err: unknown) {
-    return { ok: false, error: (err as Error).message || "Enrollment failed" };
+    return { ok: false, error: publicErrorMessage(err, "Enrollment failed") };
   }
 }

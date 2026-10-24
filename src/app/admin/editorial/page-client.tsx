@@ -4,6 +4,7 @@ import { useTransition } from "react";
 import Link from "next/link";
 import { approveAction, rejectDraftAction, publishDraftAction } from "@/features/editorial-ai/drafts/actions";
 import type { DraftSummary } from "@/features/editorial-ai/drafts/types";
+import { unwrapActionResult } from "@/lib/action-result";
 
 interface EditorialListClientProps {
   initialDrafts: DraftSummary[];
@@ -22,7 +23,7 @@ export function EditorialListClient({ initialDrafts }: EditorialListClientProps)
 
   async function handleApprove(id: string) {
     try {
-      await approveAction(id);
+      unwrapActionResult(await approveAction(id));
       window.location.reload();
     } catch (e) {
       alert((e as Error).message);
@@ -31,7 +32,7 @@ export function EditorialListClient({ initialDrafts }: EditorialListClientProps)
 
   async function handlePublish(id: string) {
     try {
-      await publishDraftAction(id);
+      unwrapActionResult(await publishDraftAction(id));
       window.location.reload();
     } catch (e) {
       alert((e as Error).message);
@@ -42,7 +43,7 @@ export function EditorialListClient({ initialDrafts }: EditorialListClientProps)
     const reason = prompt("Rejection reason (optional):");
     if (reason === null) return;
     try {
-      await rejectDraftAction(id, { note: reason || undefined });
+      unwrapActionResult(await rejectDraftAction(id, { note: reason || undefined }));
       window.location.reload();
     } catch (e) {
       alert((e as Error).message);

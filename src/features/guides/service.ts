@@ -10,6 +10,7 @@ import {
   assertGuideTransition,
 } from "@/features/publishing/lifecycle";
 import { isUniqueConstraintError } from "@/lib/db/sqlite-errors";
+import { AppError } from "@/lib/errors";
 
 export async function getPublishedGuides(): Promise<Guide[]> {
   const db = await getDb();
@@ -62,7 +63,7 @@ export async function createGuide(input: CreateGuideInput): Promise<Guide> {
   // Enforce slug uniqueness at domain level
   const existing = await db.select().from(guides).where(eq(guides.slug, input.slug)).get();
   if (existing) {
-    throw new Error(`A guide with the slug "${input.slug}" already exists. Please choose a unique slug.`);
+    throw new AppError("conflict", `A guide with the slug "${input.slug}" already exists. Please choose a unique slug.`);
   }
 
   const now = new Date();
@@ -96,7 +97,7 @@ export async function createGuide(input: CreateGuideInput): Promise<Guide> {
     // slug) before converting; otherwise rethrow the original DB error.
     const conflict = await db.select().from(guides).where(eq(guides.slug, input.slug)).get();
     if (!conflict) throw error;
-    throw new Error(`A guide with the slug "${input.slug}" already exists. Please choose a unique slug.`);
+    throw new AppError("conflict", `A guide with the slug "${input.slug}" already exists. Please choose a unique slug.`);
   }
 
   const created = await getAdminGuideById(id);
@@ -110,7 +111,7 @@ export async function updateGuide(id: string, input: UpdateGuideInput): Promise<
   const db = await getDb();
   const current = await getAdminGuideById(id);
   if (!current) {
-    throw new Error(`Guide with id "${id}" not found`);
+    throw new AppError("not_found", `Guide with id "${id}" not found`);
   }
 
   // Check slug uniqueness if slug is being modified
@@ -121,7 +122,7 @@ export async function updateGuide(id: string, input: UpdateGuideInput): Promise<
       .where(and(eq(guides.slug, input.slug), ne(guides.id, id)))
       .get();
     if (existing) {
-      throw new Error(`A guide with the slug "${input.slug}" already exists.`);
+      throw new AppError("conflict", `A guide with the slug "${input.slug}" already exists.`);
     }
   }
 
@@ -155,7 +156,7 @@ export async function updateGuide(id: string, input: UpdateGuideInput): Promise<
       .where(and(eq(guides.slug, updateData.slug ?? input.slug ?? current.slug), ne(guides.id, id)))
       .get();
     if (!conflict) throw error;
-    throw new Error(`A guide with the slug "${input.slug}" already exists.`);
+    throw new AppError("conflict", `A guide with the slug "${input.slug}" already exists.`);
   }
 
   const updated = await getAdminGuideById(id);
@@ -169,7 +170,7 @@ export async function publishGuide(id: string): Promise<Guide> {
   const db = await getDb();
   const current = await getAdminGuideById(id);
   if (!current) {
-    throw new Error(`Guide with id "${id}" not found`);
+    throw new AppError("not_found", `Guide with id "${id}" not found`);
   }
 
   assertGuideTransition(current.status, "publish");
@@ -187,7 +188,7 @@ export async function unpublishGuide(id: string): Promise<Guide> {
   const db = await getDb();
   const current = await getAdminGuideById(id);
   if (!current) {
-    throw new Error(`Guide with id "${id}" not found`);
+    throw new AppError("not_found", `Guide with id "${id}" not found`);
   }
 
   assertGuideTransition(current.status, "unpublish");
@@ -220,7 +221,7 @@ export async function archiveGuide(id: string): Promise<Guide> {
   const db = await getDb();
   const current = await getAdminGuideById(id);
   if (!current) {
-    throw new Error(`Guide with id "${id}" not found`);
+    throw new AppError("not_found", `Guide with id "${id}" not found`);
   }
 
   assertGuideTransition(current.status, "archive");

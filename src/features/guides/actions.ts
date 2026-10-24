@@ -1,5 +1,6 @@
 "use server";
 
+import { publicErrorMessage } from "@/lib/errors";
 import { requireAdmin } from "@/lib/auth";
 import { revalidatePath } from "next/cache";
 import * as guideService from "./service";
@@ -38,7 +39,7 @@ export async function createGuideAction(
   } catch (err: unknown) {
     return {
       ok: false,
-      error: (err as Error).message || "Failed to create guide",
+      error: publicErrorMessage(err, "Failed to create guide"),
     };
   }
 }
@@ -70,7 +71,7 @@ export async function updateGuideAction(
   } catch (err: unknown) {
     return {
       ok: false,
-      error: (err as Error).message || "Failed to update guide",
+      error: publicErrorMessage(err, "Failed to update guide"),
     };
   }
 }
@@ -92,7 +93,7 @@ export async function publishGuideAction(id: string): Promise<ActionState<{ slug
   } catch (err: unknown) {
     return {
       ok: false,
-      error: (err as Error).message || "Failed to publish guide",
+      error: publicErrorMessage(err, "Failed to publish guide"),
     };
   }
 }
@@ -114,7 +115,7 @@ export async function unpublishGuideAction(id: string): Promise<ActionState<{ sl
   } catch (err: unknown) {
     return {
       ok: false,
-      error: (err as Error).message || "Failed to unpublish guide",
+      error: publicErrorMessage(err, "Failed to unpublish guide"),
     };
   }
 }
@@ -136,7 +137,7 @@ export async function archiveGuideAction(id: string): Promise<ActionState<{ slug
   } catch (err: unknown) {
     return {
       ok: false,
-      error: (err as Error).message || "Failed to archive guide",
+      error: publicErrorMessage(err, "Failed to archive guide"),
     };
   }
 }

@@ -3,6 +3,7 @@
 import { useState, useRef, useTransition } from "react";
 import { ingestKnowledgeAction, archiveKnowledgeAction, reingestKnowledgeAction, deleteKnowledgeAction } from "@/features/editorial-ai/knowledge/actions";
 import type { KnowledgeSource } from "@/lib/db";
+import { unwrapActionResult } from "@/lib/action-result";
 
 interface KnowledgePageClientProps {
   initialSources: KnowledgeSource[];
@@ -58,7 +59,7 @@ export function KnowledgePageClient({ initialSources }: KnowledgePageClientProps
       setActionError(null);
     });
     try {
-      await ingestKnowledgeAction(id);
+      unwrapActionResult(await ingestKnowledgeAction(id));
       window.location.reload();
     } catch (err) {
       startTransition(() => {
@@ -73,7 +74,7 @@ export function KnowledgePageClient({ initialSources }: KnowledgePageClientProps
       setActionError(null);
     });
     try {
-      await archiveKnowledgeAction(id);
+      unwrapActionResult(await archiveKnowledgeAction(id));
       window.location.reload();
     } catch (err) {
       startTransition(() => {
@@ -87,7 +88,7 @@ export function KnowledgePageClient({ initialSources }: KnowledgePageClientProps
       setActionError(null);
     });
     try {
-      await reingestKnowledgeAction(id);
+      unwrapActionResult(await reingestKnowledgeAction(id));
       window.location.reload();
     } catch (err) {
       startTransition(() => {
@@ -102,7 +103,7 @@ export function KnowledgePageClient({ initialSources }: KnowledgePageClientProps
       setActionError(null);
     });
     try {
-      await deleteKnowledgeAction(id);
+      unwrapActionResult(await deleteKnowledgeAction(id));
       window.location.reload();
     } catch (err) {
       startTransition(() => {

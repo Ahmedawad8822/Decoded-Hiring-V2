@@ -4,6 +4,7 @@ import { useState, useTransition } from "react";
 import { createMemoryAction, updateMemoryAction, archiveMemoryAction, unarchiveMemoryAction } from "@/features/editorial-ai/memory/actions";
 import type { EditorialMemory } from "@/lib/db";
 import { MEMORY_CATEGORIES, MEMORY_CATEGORY_LABELS, type MemoryCategory } from "@/features/editorial-ai/memory/types";
+import { unwrapActionResult } from "@/lib/action-result";
 
 interface MemoryPageClientProps {
   initialMemory: EditorialMemory[];
@@ -28,7 +29,7 @@ export function MemoryPageClient({ initialMemory }: MemoryPageClientProps) {
       setActionSuccess(null);
     });
     try {
-      await createMemoryAction({ category: createCategory, content: createContent });
+      unwrapActionResult(await createMemoryAction({ category: createCategory, content: createContent }));
       startTransition(() => {
         setActionSuccess("Memory item created");
         setShowCreate(false);
@@ -48,7 +49,7 @@ export function MemoryPageClient({ initialMemory }: MemoryPageClientProps) {
       setActionSuccess(null);
     });
     try {
-      await updateMemoryAction(id, { category: editCategory, content: editContent });
+      unwrapActionResult(await updateMemoryAction(id, { category: editCategory, content: editContent }));
       startTransition(() => {
         setActionSuccess("Memory item updated");
         setEditingId(null);
@@ -64,7 +65,7 @@ export function MemoryPageClient({ initialMemory }: MemoryPageClientProps) {
   const handleArchive = async (id: string) => {
     if (!confirm("Archive this memory item? It will no longer be injected into generation prompts.")) return;
     try {
-      await archiveMemoryAction(id);
+      unwrapActionResult(await archiveMemoryAction(id));
       window.location.reload();
     } catch (err) {
       startTransition(() => {
@@ -75,7 +76,7 @@ export function MemoryPageClient({ initialMemory }: MemoryPageClientProps) {
 
   const handleUnarchive = async (id: string) => {
     try {
-      await unarchiveMemoryAction(id);
+      unwrapActionResult(await unarchiveMemoryAction(id));
       window.location.reload();
     } catch (err) {
       startTransition(() => {

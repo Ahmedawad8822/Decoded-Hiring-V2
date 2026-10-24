@@ -5,6 +5,7 @@ import Link from "next/link";
 import { ingestKnowledgeAction, archiveKnowledgeAction, reingestKnowledgeAction, deleteKnowledgeAction } from "@/features/editorial-ai/knowledge/actions";
 import type { KnowledgeSource } from "@/lib/db";
 import type { ChunkView } from "@/features/editorial-ai/knowledge/retrieval";
+import { unwrapActionResult, type ActionResult } from "@/lib/action-result";
 
 interface KnowledgeDetailClientProps {
   source: KnowledgeSource;
@@ -24,13 +25,13 @@ export function KnowledgeDetailClient({ source, chunks }: KnowledgeDetailClientP
     ARCHIVED: "#6b7280",
   };
 
-  async function runAction(fn: (id: string) => Promise<unknown>, label: string) {
+  async function runAction(fn: (id: string) => Promise<ActionResult<unknown>>, label: string) {
     startTransition(() => {
       setActionError(null);
       setActionSuccess(null);
     });
     try {
-      await fn(source.id);
+      unwrapActionResult(await fn(source.id));
       startTransition(() => {
         setActionSuccess(`${label} completed`);
       });

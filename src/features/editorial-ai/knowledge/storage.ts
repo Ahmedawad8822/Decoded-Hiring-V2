@@ -21,6 +21,7 @@ import {
   type KnowledgeStatus,
   type SupportedMimeType,
 } from "./types";
+import { AppError } from "@/lib/errors";
 
 export interface KnowledgeUploadResult {
   id: string;
@@ -57,7 +58,7 @@ export async function uploadKnowledgeSource(params: {
   // 1. Validate MIME type
   const normalizedType = contentType.toLowerCase().trim();
   if (!isSupportedMimeType(normalizedType)) {
-    throw new Error(
+    throw new AppError("invalid",
       `Unsupported file type "${contentType}". Mission 07 supports text/plain and text/markdown only.`
     );
   }
@@ -65,10 +66,10 @@ export async function uploadKnowledgeSource(params: {
   // 2. Validate file size
   const byteSize = buffer.byteLength;
   if (byteSize === 0) {
-    throw new Error("Uploaded file is empty.");
+    throw new AppError("invalid", "Uploaded file is empty.");
   }
   if (byteSize > MAX_KNOWLEDGE_FILE_SIZE) {
-    throw new Error(
+    throw new AppError("invalid",
       `File size (${(byteSize / 1024 / 1024).toFixed(2)} MB) exceeds the 2 MB knowledge limit.`
     );
   }
@@ -90,7 +91,7 @@ export async function uploadKnowledgeSource(params: {
     .get();
 
   if (existing) {
-    throw new Error(
+    throw new AppError("conflict",
       `Identical source content already exists (ID: ${existing.id}, title: "${existing.title}"). ` +
         "Restore the existing source, or delete it first and re-upload."
     );
@@ -257,7 +258,7 @@ export async function deleteKnowledgeSource(
 ): Promise<void> {
   const source = await getKnowledgeSourceById(id);
   if (!source) {
-    throw new Error(`Knowledge source with id "${id}" not found`);
+    throw new AppError("not_found", `Knowledge source with id "${id}" not found`);
   }
 
   const deletable =
@@ -266,7 +267,7 @@ export async function deleteKnowledgeSource(
     (source.status === "ARCHIVED" && source.chunkCount === 0);
 
   if (!deletable) {
-    throw new Error(
+    throw new AppError("invalid",
       `Cannot delete a ${source.status} source. Only UPLOADED, FAILED, or chunk-free ARCHIVED sources can be permanently deleted.`,
     );
   }
@@ -287,7 +288,7 @@ export async function deleteKnowledgeSource(
     .get();
 
   if (!deleted) {
-    throw new Error("Knowledge source changed while deletion was starting. Retry after the current operation finishes.");
+    throw new AppError("conflict", "Knowledge source changed while deletion was starting. Retry after the current operation finishes.");
   }
 
   // Only after the authoritative metadata delete succeeds do we remove the

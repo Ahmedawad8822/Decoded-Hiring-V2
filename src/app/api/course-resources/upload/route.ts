@@ -1,4 +1,5 @@
 import { requireAdmin } from "@/lib/auth";
+import { httpStatusFor, publicErrorMessage } from "@/lib/errors";
 import { MAX_COURSE_RESOURCE_SIZE, uploadCourseResource } from "@/lib/course-resources/service";
 import { isRequestBodyOverLimit } from "@/lib/upload-limits";
 import { getAdminCourseById, getAdminLessonById } from "@/features/courses/service";
@@ -74,10 +75,9 @@ export async function POST(request: Request) {
     void session;
     return NextResponse.json(result, { status: 201 });
   } catch (error: unknown) {
-    const err = error as Error;
-    if (err.message?.includes("Unauthorized") || err.message?.includes("Forbidden")) {
-      return NextResponse.json({ error: err.message }, { status: 403 });
-    }
-    return NextResponse.json({ error: err.message || "Upload failed" }, { status: 400 });
+    return NextResponse.json(
+      { error: publicErrorMessage(error, "Upload failed") },
+      { status: httpStatusFor(error) }
+    );
   }
 }

@@ -1,6 +1,7 @@
 import { getR2Bucket } from "../cloudflare/bindings";
 import { getDb, lessonResources } from "../db";
 import { eq } from "drizzle-orm";
+import { AppError } from "@/lib/errors";
 
 // ============================================================================
 // PRIVATE COURSE RESOURCES (Mission 06 security boundary)
@@ -55,15 +56,15 @@ export async function uploadCourseResource(params: {
   const normalizedType = contentType.toLowerCase().trim();
   const ext = ALLOWED_COURSE_RESOURCE_TYPES[normalizedType];
   if (!ext) {
-    throw new Error(
+    throw new AppError("invalid",
       `Unsupported resource type "${contentType}". Mission 06 supports PDF only (application/pdf).`
     );
   }
 
   const size = buffer.byteLength;
-  if (size === 0) throw new Error("Uploaded file is empty.");
+  if (size === 0) throw new AppError("invalid", "Uploaded file is empty.");
   if (size > MAX_RESOURCE_SIZE) {
-    throw new Error(
+    throw new AppError("invalid",
       `File size (${(size / 1024 / 1024).toFixed(2)} MB) exceeds the 10 MB course-resource limit.`
     );
   }
@@ -71,7 +72,7 @@ export async function uploadCourseResource(params: {
   // verify the PDF magic bytes (%PDF-) so a renamed executable can't be
   // stored as a trusted "PDF" download.
   if (!hasPdfMagicBytes(buffer)) {
-    throw new Error("Uploaded file is not a valid PDF (missing %PDF- header).");
+    throw new AppError("invalid", "Uploaded file is not a valid PDF (missing %PDF- header).");
   }
 
   const safeCourseId = courseId.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 64);
