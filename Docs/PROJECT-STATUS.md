@@ -17,7 +17,7 @@ Last updated: **2026-10-24**
 | | |
 |---|---|
 | `main` | `b245c4e`: **Missions 01–08 + CI (verify + Playwright E2E) + security fixes + hardening batch** (#18–#22, merged 2026-10-24). Unit tests: 24 suites, each on its own throwaway D1/R2. |
-| Open PRs to `main` | Deploy-path prep (`deploy/opennext-cloudflare`, see §2) |
+| Open PRs to `main` | #24 deploy-path prep (see §2) |
 | Production | **Not deployed.** The OpenNext adapter and config are prepared and verified locally (`Docs/Engineering/DEPLOYMENT.md`). No real Cloudflare resources exist yet; `wrangler.jsonc → env.production` holds placeholders. |
 | Providers | All dormant by design: no payment, calendar, mailbox, meeting or analytics provider is active. |
 | Blueprint phase | Phases 1–6 built and on `main`. **Phase 7 (Hardening & Growth) is in progress** (CI merged; #14 open), then Phase 8 (Launch). |
@@ -31,7 +31,7 @@ Last updated: **2026-10-24**
 | `main` | — | current | Missions 01–08 + CI + security fixes + hardening batch |
 | `hardening/*` (5) | — | merged (#18–#22) | Playwright CI, images, isolated test DB, progress maths, auth cache/admin gate |
 | `chore/status-hardening-batch` | — | merged (#23) | Status doc; git/eslint ignore `.claude/` |
-| `deploy/opennext-cloudflare` | `main` | PR open | `@opennextjs/cloudflare@1.20.9`, `getCloudflareContext()` bindings with local fallback, `wrangler.jsonc` local + `env.production` placeholders, R2 incremental cache, deploy scripts, `DEPLOYMENT.md` |
+| `deploy/opennext-cloudflare` | `main` | PR [#24](https://github.com/Ahmedawad8822/Decoded-Hiring-V2/pull/24) open | `@opennextjs/cloudflare@1.20.9`, `getCloudflareContext()` bindings with local fallback, `wrangler.jsonc` local + `env.production` placeholders, R2 incremental cache, deploy scripts, `DEPLOYMENT.md` |
 | `docs/project-status` | — | merged (#16) | This file + `AGENTS.md` pointer |
 | `mission-08-commerce-scheduling` | — | merged (#17) | Mission 08 integration branch; sub-PRs #7–#13 |
 | `ci/github-actions` | — | merged (#15) | CI workflow |
@@ -82,7 +82,7 @@ notification is sent while mailbox providers stay dormant.
 
 Take the top unblocked item. Move items, don't delete them silently.
 
-1. **Merge the deploy-path PR** once CI is green. Then the first deploy follows the
+1. **Merge PR #24 (deploy-path prep)** once CI is green. Then the first deploy follows the
    checklist in `Docs/Engineering/DEPLOYMENT.md`, which needs **Ahmed's decisions**:
    Cloudflare account and plan, D1/R2 names, domain, staging. Open technical items:
    - Workers Free limits: 2.78 MiB of 3 MiB gzipped; 10 ms CPU, which SSR likely exceeds.
