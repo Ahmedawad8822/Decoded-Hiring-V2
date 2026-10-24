@@ -1,3 +1,7 @@
+# Project status — read first, update last
+
+Before starting any task, read `Docs/PROJECT-STATUS.md`. It has the current state, the branch/PR map, the ordered next-steps queue and the decisions waiting on Ahmed. When you finish a task that changes code, branches, PRs or plans, update that file: snapshot, branch/PR map, next steps and session log.
+
 <!-- BEGIN:nextjs-agent-rules -->
 
 # This is NOT the Next.js you know
