@@ -29,7 +29,7 @@ Last updated: **2026-10-24**
 | Branch | Base | State | What it is |
 |---|---|---|---|
 | `main` | — | current | Missions 01–08 (`b380609`) |
-| `ci/github-actions` | `main@b380609` | PR [#15](https://github.com/Ahmedawad8822/Decoded-Hiring-V2/pull/15) open, mergeable | `.github/workflows/ci.yml` (lint, typecheck, unit tests, local migrations, build), `npm run db:migrate:local`, `typecheck` runs `next typegen`. Merged with `main` at `a8a8ee5`; GitHub CI now runs all 21 suites including Mission 08. |
+| `ci/github-actions` | `main@b380609` | PR [#15](https://github.com/Ahmedawad8822/Decoded-Hiring-V2/pull/15) open, mergeable | `.github/workflows/ci.yml` (lint, typecheck, unit tests, local migrations, build), `npm run db:migrate:local`, `typecheck` runs `next typegen`. Merged with `main` at `a8a8ee5`; GitHub CI green on all 21 suites including Mission 08. |
 | `fix/security-quick-fixes` | `main@b380609` | PR [#14](https://github.com/Ahmedawad8822/Decoded-Hiring-V2/pull/14) open, mergeable | Open-redirect fix, race-safe enrollment reconcile, typed public errors (`AppError`, `ActionResult`) incl. Mission 07. Merged with `main` at `a27c27b`; local gates 411/411. |
 | `docs/project-status` | `main@b380609` | PR [#16](https://github.com/Ahmedawad8822/Decoded-Hiring-V2/pull/16) open | This file + `AGENTS.md` pointer |
 | `mission-08-commerce-scheduling` | — | merged (#17) | Mission 08 integration branch; sub-PRs #7–#13 |
@@ -80,8 +80,8 @@ notification is sent while mailbox providers stay dormant.
 
 Take the top unblocked item. Move items, don't delete them silently.
 
-1. **Merge PR #15 (CI).** It's up to date with `main`. Wait for its GitHub run on
-   `a8a8ee5` (all 21 suites) to pass, then merge. After that, every PR gets checks.
+1. **Merge PR #15 (CI).** It's up to date with `main`, and its GitHub run on `a8a8ee5`
+   **passed** (all 21 suites, including Mission 08). Ready to merge. After that, every PR gets checks.
    Follow-up: add Mission 08's `test:e2e:ci` (Playwright) as a second CI job; it needs
    the admin seed env vars from `.env.example` as CI secrets or fake values.
 2. **Merge PR #14 (security fixes)** after #15. Merge `main` in first: resolve the
@@ -169,7 +169,7 @@ Newest first. One entry per task: date, what changed, branch/PR, what's next.
   Brought #15 up to date (`a8a8ee5`: kept Mission 08 suites and `test:e2e:ci` plus #15's
   `typecheck`/`db:migrate:local`). Brought #14 up to date (`a27c27b`: kept Mission 08's
   Offer-based access logic and made its throws `AppError`; local gates 411/411 plus build).
-  Next: merge #15 once its CI passes, then #14, then #16.
+  #15 GitHub CI passed on `a8a8ee5`. Next: merge #15, then #14, then #16.
 
 - **2026-10-24.** Opened PR #17 (`mission-08-commerce-scheduling → main`, not merged).
   Removed the leftover `mission-08-6`/`mission-08-7` temp validation workflows (`e0e2ae6`).
