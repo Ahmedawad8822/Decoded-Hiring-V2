@@ -10,7 +10,13 @@ interface PlatformProxyResult {
   dispose: () => Promise<void>;
 }
 
-let localProxyPromise: Promise<PlatformProxyResult> | null = null;
+type BindingGlobal = typeof globalThis & {
+  __decodedHiringLocalProxyPromise?: Promise<PlatformProxyResult> | null;
+};
+
+function bindingGlobal(): BindingGlobal {
+  return globalThis as BindingGlobal;
+}
 
 // TEST-ONLY override seam (mirrors UploadMediaDeps in media/service.ts):
 // regression tests inject a fake D1 binding here instead of stubbing the
@@ -55,8 +61,9 @@ async function resolveCloudflareBindings(): Promise<CloudflareEnv> {
   }
 
   // 2. Local Node development / test environment emulation via Wrangler
-  if (!localProxyPromise) {
-    localProxyPromise = (async () => {
+  const state = bindingGlobal();
+  if (!state.__decodedHiringLocalProxyPromise) {
+    state.__decodedHiringLocalProxyPromise = (async () => {
       const { getPlatformProxy } = await import("wrangler");
       const proxy = await getPlatformProxy<CloudflareEnv>({
         configPath: "wrangler.jsonc",
@@ -66,14 +73,15 @@ async function resolveCloudflareBindings(): Promise<CloudflareEnv> {
     })();
   }
 
-  const proxy = await localProxyPromise;
+  const proxy = await state.__decodedHiringLocalProxyPromise;
   return proxy.env;
 }
 
 export async function disposeCloudflareBindings(): Promise<void> {
-  if (localProxyPromise) {
-    const proxy = await localProxyPromise;
-    localProxyPromise = null;
+  const state = bindingGlobal();
+  if (state.__decodedHiringLocalProxyPromise) {
+    const proxy = await state.__decodedHiringLocalProxyPromise;
+    state.__decodedHiringLocalProxyPromise = null;
     await proxy.dispose();
   }
 }

@@ -1,5 +1,9 @@
 import { index, integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 import type { ContentStatus } from "@/features/publishing/types";
+import type {
+  LeadSubmissionKind,
+  LeadSubmissionStatus,
+} from "@/features/leads/types";
 
 // ============================================================================
 // IDENTITY DOMAIN (Better Auth + Admin Plugin)
@@ -157,6 +161,78 @@ export type Guide = typeof guides.$inferSelect;
 export type FieldNote = typeof fieldNotes.$inferSelect;
 export type FieldNoteRevision = typeof fieldNoteRevisions.$inferSelect;
 export type Media = typeof media.$inferSelect;
+
+// ============================================================================
+// LEADS / ENQUIRIES DOMAIN (Mission 08.6 fallback remediation)
+// ----------------------------------------------------------------------------
+// Public product/contact forms persist durable business truth in D1. Delivery
+// providers and the future Studio lead inbox are separate concerns.
+// ============================================================================
+
+export const leadSubmissions = sqliteTable(
+  "lead_submissions",
+  {
+    id: text("id").primaryKey(),
+    idempotencyKey: text("idempotency_key").notNull().unique(),
+    kind: text("kind").$type<LeadSubmissionKind>().notNull(),
+    status: text("status").$type<LeadSubmissionStatus>().notNull().default("NEW"),
+    fullName: text("full_name").notNull(),
+    email: text("email").notNull(),
+    positionTitle: text("position_title"),
+    companyName: text("company_name"),
+    countryCode: text("country_code").notNull(),
+    phoneE164: text("phone_e164"),
+    problemSummary: text("problem_summary"),
+    desiredOutcome: text("desired_outcome"),
+    timing: text("timing"),
+    teamSize: integer("team_size"),
+    deliveryPreference: text("delivery_preference"),
+    aiUseLevel: text("ai_use_level"),
+    workflowToImprove: text("workflow_to_improve"),
+    sourceRoute: text("source_route").notNull(),
+    audiencePath: text("audience_path"),
+    privacyAcknowledged: integer("privacy_acknowledged", { mode: "boolean" })
+      .notNull(),
+    researchAccepted: integer("research_accepted", { mode: "boolean" })
+      .notNull()
+      .default(false),
+    emailMarketing: integer("email_marketing", { mode: "boolean" })
+      .notNull()
+      .default(false),
+    whatsapp: integer("whatsapp", { mode: "boolean" })
+      .notNull()
+      .default(false),
+    calls: integer("calls", { mode: "boolean" })
+      .notNull()
+      .default(false),
+    createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+    updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+  },
+  (table) => [
+    index("lead_submissions_kind_created_idx").on(table.kind, table.createdAt),
+    index("lead_submissions_email_created_idx").on(table.email, table.createdAt),
+    index("lead_submissions_status_idx").on(table.status),
+  ],
+);
+
+export type LeadSubmission = typeof leadSubmissions.$inferSelect;
+
+// ============================================================================
+// PUBLIC INTAKE RATE LIMITS (Mission 08.6 remediation)
+// ----------------------------------------------------------------------------
+// Fixed-window counters provide an atomic D1 admission boundary for anonymous
+// scheduling and lead-intake mutations. scopeKey contains only server-owned
+// identifiers or hashed identities; raw email addresses are not stored here.
+// ============================================================================
+
+export const publicRateLimits = sqliteTable("public_rate_limits", {
+  scopeKey: text("scope_key").primaryKey(),
+  windowStart: integer("window_start").notNull(),
+  count: integer("count").notNull().default(0),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+});
+
+export type PublicRateLimit = typeof publicRateLimits.$inferSelect;
 
 // ============================================================================
 // LEARNING PLATFORM DOMAIN (Mission 06 — vertical slice)
@@ -524,3 +600,472 @@ export type EditorialDraft = typeof editorial_drafts.$inferSelect;
 export type EditorialDraftSource = typeof editorial_draft_sources.$inferSelect;
 export type EditorialPublication = typeof editorial_publications.$inferSelect;
 export type EditorialAuditLog = typeof editorial_audit_log.$inferSelect;
+
+// ============================================================================
+// SCHEDULING DOMAIN (Mission 08.1 — Booking Types, Availability, Slot Holds)
+// ----------------------------------------------------------------------------
+// Booking types define a service's availability policy: duration, buffers,
+// notice/horizon windows, a presentation timezone, confirmation/access/meeting
+// policies, and weekly availability windows.
+//
+// Slots are canonical (deterministic identity). A short-lived "hold" lease
+// reserves one canonical slot for a single owning token at a time.
+// ============================================================================
+
+export type ConfirmationPolicy = "AUTO_CONFIRM" | "AHMED_APPROVAL" | "REQUEST_ONLY";
+export type BookingAccessMode = "FREE" | "PAID_SESSION" | "MANUAL_INVOICE" | "PAYMENT_DISABLED";
+export type MeetingMethod = "GOOGLE_MEET" | "EXTERNAL_LINK" | "PHONE" | "IN_PERSON" | "TO_BE_CONFIRMED";
+export type SlotHoldStatus = "HELD" | "CONSUMED" | "RELEASED";
+
+export const bookingTypes = sqliteTable(
+  "booking_types",
+  {
+    id: text("id").primaryKey(),
+    slug: text("slug").notNull().unique(),
+    title: text("title").notNull(),
+    description: text("description"),
+    durationMinutes: integer("duration_minutes").notNull(),
+    bufferBeforeMinutes: integer("buffer_before_minutes").notNull().default(0),
+    bufferAfterMinutes: integer("buffer_after_minutes").notNull().default(0),
+    minimumNoticeMinutes: integer("minimum_notice_minutes").notNull().default(0),
+    bookingHorizonDays: integer("booking_horizon_days").notNull(),
+    timezone: text("timezone").notNull(),
+    confirmationPolicy: text("confirmation_policy")
+      .$type<ConfirmationPolicy>()
+      .notNull()
+      .default("AUTO_CONFIRM"),
+    accessMode: text("access_mode")
+      .$type<BookingAccessMode>()
+      .notNull()
+      .default("FREE"),
+    meetingMethod: text("meeting_method")
+      .$type<MeetingMethod>()
+      .notNull()
+      .default("TO_BE_CONFIRMED"),
+    attendeeLimit: integer("attendee_limit").notNull().default(1),
+    active: integer("active", { mode: "boolean" }).notNull().default(true),
+    createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+    updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+  },
+  (table) => [index("idx_booking_types_active").on(table.active)]
+);
+
+export const bookingAvailabilityWindows = sqliteTable(
+  "booking_availability_windows",
+  {
+    id: text("id").primaryKey(),
+    bookingTypeId: text("booking_type_id")
+      .notNull()
+      .references(() => bookingTypes.id, { onDelete: "cascade" }),
+    weekday: integer("weekday").notNull(),
+    startMinute: integer("start_minute").notNull(),
+    endMinute: integer("end_minute").notNull(),
+    createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+  },
+  (table) => [
+    index("idx_booking_windows_type").on(table.bookingTypeId),
+    uniqueIndex("idx_booking_windows_unique").on(
+      table.bookingTypeId,
+      table.weekday,
+      table.startMinute,
+      table.endMinute,
+    ),
+  ]
+);
+
+export const slotHolds = sqliteTable(
+  "slot_holds",
+  {
+    id: text("id").primaryKey(),
+    bookingTypeId: text("booking_type_id")
+      .notNull()
+      .references(() => bookingTypes.id, { onDelete: "cascade" }),
+    slotKey: text("slot_key").notNull().unique(),
+    startAt: integer("start_at", { mode: "timestamp" }).notNull(),
+    endAt: integer("end_at", { mode: "timestamp" }).notNull(),
+    ownerToken: text("owner_token").notNull(),
+    /**
+     * Server-issued idempotency identity for the logical booking attempt that
+     * owns the lease. Nullable for backward compatibility with holds created
+     * before this column existed — those are treated as unique attempts.
+     */
+    acquisitionKey: text("acquisition_key"),
+    status: text("status").$type<SlotHoldStatus>().notNull().default("HELD"),
+    expiresAt: integer("expires_at", { mode: "timestamp" }).notNull(),
+    consumedAt: integer("consumed_at", { mode: "timestamp" }),
+    releasedAt: integer("released_at", { mode: "timestamp" }),
+    createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+    updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+  },
+  (table) => [
+    index("idx_slot_holds_booking_type").on(table.bookingTypeId),
+    index("idx_slot_holds_expires_at").on(table.expiresAt),
+    index("idx_slot_holds_owner").on(table.ownerToken),
+  ]
+);
+
+export type BookingType = typeof bookingTypes.$inferSelect;
+export type BookingAvailabilityWindow = typeof bookingAvailabilityWindows.$inferSelect;
+export type SlotHold = typeof slotHolds.$inferSelect;
+
+// ============================================================================
+// BOOKING LIFECYCLE DOMAIN (Mission 08.2)
+// ----------------------------------------------------------------------------
+// A booking is bound to one generation of a slot-hold lease via the pair
+// (holdId, holdAcquisitionKey). slot_holds rows are reclaimed in place, so
+// holdId alone is not a durable ownership identity.
+//
+// version is a CAS token for server-authoritative transitions. booking_history
+// is append-only business audit; reschedules preserve the previous slot in
+// history rather than silently erasing it.
+// ============================================================================
+
+export type BookingStatus =
+  | "REQUESTED"
+  | "PENDING_APPROVAL"
+  | "CONFIRMED"
+  | "COMPLETED"
+  | "CANCELLED"
+  | "DECLINED";
+
+export type BookingHistoryAction =
+  | "REQUESTED"
+  | "AUTO_CONFIRMED"
+  | "APPROVED"
+  | "CONFIRMED"
+  | "DECLINED"
+  | "CANCELLED"
+  | "COMPLETED"
+  | "RESCHEDULED";
+
+export const bookings = sqliteTable(
+  "bookings",
+  {
+    id: text("id").primaryKey(),
+    bookingTypeId: text("booking_type_id")
+      .notNull()
+      .references(() => bookingTypes.id),
+    holdId: text("hold_id")
+      .notNull()
+      .references(() => slotHolds.id),
+    holdAcquisitionKey: text("hold_acquisition_key").notNull(),
+    requestKey: text("request_key").notNull().unique(),
+    requesterName: text("requester_name").notNull(),
+    requesterEmail: text("requester_email").notNull(),
+    requesterPhone: text("requester_phone"),
+    notes: text("notes"),
+    slotKey: text("slot_key").notNull(),
+    startAt: integer("start_at", { mode: "timestamp" }).notNull(),
+    endAt: integer("end_at", { mode: "timestamp" }).notNull(),
+    timezone: text("timezone").notNull(),
+    status: text("status").$type<BookingStatus>().notNull().default("REQUESTED"),
+    version: integer("version").notNull().default(1),
+    transitionKey: text("transition_key"),
+    approvedBy: text("approved_by"),
+    approvedAt: integer("approved_at", { mode: "timestamp" }),
+    confirmedAt: integer("confirmed_at", { mode: "timestamp" }),
+    completedAt: integer("completed_at", { mode: "timestamp" }),
+    cancelledBy: text("cancelled_by"),
+    cancelledAt: integer("cancelled_at", { mode: "timestamp" }),
+    declinedBy: text("declined_by"),
+    declinedAt: integer("declined_at", { mode: "timestamp" }),
+    createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+    updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+  },
+  (table) => [
+    uniqueIndex("bookings_hold_generation_unique").on(
+      table.holdId,
+      table.holdAcquisitionKey,
+    ),
+    index("bookings_booking_type_idx").on(table.bookingTypeId),
+    index("bookings_status_idx").on(table.status),
+    index("bookings_start_at_idx").on(table.startAt),
+    index("bookings_requester_email_idx").on(table.requesterEmail),
+  ]
+);
+
+export const bookingHistory = sqliteTable(
+  "booking_history",
+  {
+    id: text("id").primaryKey(),
+    bookingId: text("booking_id")
+      .notNull()
+      .references(() => bookings.id),
+    action: text("action").$type<BookingHistoryAction>().notNull(),
+    fromStatus: text("from_status").$type<BookingStatus>(),
+    toStatus: text("to_status").$type<BookingStatus>().notNull(),
+    actorId: text("actor_id"),
+    detail: text("detail"),
+    createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+  },
+  (table) => [
+    index("booking_history_booking_idx").on(table.bookingId),
+    index("booking_history_created_at_idx").on(table.createdAt),
+  ]
+);
+
+export type Booking = typeof bookings.$inferSelect;
+export type BookingHistory = typeof bookingHistory.$inferSelect;
+
+// ============================================================================
+// OFFER / ACCESS DOMAIN (Mission 08.3)
+// ----------------------------------------------------------------------------
+// Offer is the commercial/public presentation layer. It may point to a course
+// or booking type, while learner entitlement and booking state remain owned by
+// their respective domains. Existing Mission 06 course.accessMode remains a
+// compatibility fallback until a course receives its first linked Offer.
+//
+// One course or booking type has at most one primary Offer in this slice.
+// SQLite allows multiple NULL values in these unique indexes, so standalone
+// PRODUCT offers remain unrestricted.
+// ============================================================================
+
+export type OfferKind = "COURSE" | "COACHING" | "WORKSHOP" | "PRODUCT";
+export type OfferAccessMode =
+  | "FREE"
+  | "PAID_ONE_TIME"
+  | "PAID_SESSION"
+  | "MANUAL_INVOICE"
+  | "PAYMENT_DISABLED"
+  | "COMING_SOON";
+
+export const offers = sqliteTable(
+  "offers",
+  {
+    id: text("id").primaryKey(),
+    kind: text("kind").$type<OfferKind>().notNull(),
+    courseId: text("course_id").references(() => courses.id),
+    bookingTypeId: text("booking_type_id").references(() => bookingTypes.id),
+    title: text("title").notNull(),
+    slug: text("slug").notNull().unique(),
+    accessMode: text("access_mode").$type<OfferAccessMode>().notNull(),
+    currency: text("currency"),
+    amountMinor: integer("amount_minor"),
+    alternativeCtaLabel: text("alternative_cta_label"),
+    alternativeCtaUrl: text("alternative_cta_url"),
+    active: integer("active", { mode: "boolean" }).notNull().default(true),
+    createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+    updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+  },
+  (table) => [
+    index("offers_kind_idx").on(table.kind),
+    index("offers_active_idx").on(table.active),
+    uniqueIndex("offers_course_unique").on(table.courseId),
+    uniqueIndex("offers_booking_type_unique").on(table.bookingTypeId),
+  ],
+);
+
+export type Offer = typeof offers.$inferSelect;
+
+// ============================================================================
+// ORDER / PAYMENT + DURABLE ORCHESTRATION DOMAIN (Mission 08.5)
+// ----------------------------------------------------------------------------
+// Orders are Decoded Hiring business truth. Provider ids are metadata only.
+// Payment providers may prove PAID/FAILED/etc., but FULFILLED is an internal
+// transition owned by Decoded Hiring after durable business effects succeed.
+//
+// orchestration_effects is a D1-backed outbox/lease queue. Every effect has one
+// stable idempotency key reused across retries. orchestration_history is
+// append-only audit of enqueue/claim/success/failure/recovery.
+// ============================================================================
+
+export type OrderStatus =
+  | "PENDING"
+  | "REQUIRES_ACTION"
+  | "PAID"
+  | "FULFILLED"
+  | "CANCELLED"
+  | "FAILED"
+  | "REFUNDED";
+
+export type PaymentState =
+  | "PENDING"
+  | "REQUIRES_ACTION"
+  | "PAID"
+  | "CANCELLED"
+  | "FAILED"
+  | "REFUNDED";
+
+export type OrderHistorySource = "SYSTEM" | "ADMIN" | "PAYMENT_CALLBACK" | "PAYMENT_WEBHOOK";
+
+export const orders = sqliteTable(
+  "orders",
+  {
+    id: text("id").primaryKey(),
+    offerId: text("offer_id")
+      .notNull()
+      .references(() => offers.id),
+    offerKind: text("offer_kind").$type<OfferKind>().notNull(),
+    accessMode: text("access_mode").$type<OfferAccessMode>().notNull(),
+    courseId: text("course_id").references(() => courses.id),
+    bookingTypeId: text("booking_type_id").references(() => bookingTypes.id),
+    bookingId: text("booking_id").references(() => bookings.id),
+    userId: text("user_id").references(() => users.id),
+    requestKey: text("request_key").notNull().unique(),
+    customerEmail: text("customer_email").notNull(),
+    quantity: integer("quantity").notNull().default(1),
+    amountMinor: integer("amount_minor"),
+    currency: text("currency"),
+    status: text("status").$type<OrderStatus>().notNull().default("PENDING"),
+    version: integer("version").notNull().default(1),
+    transitionKey: text("transition_key"),
+    providerCheckoutId: text("provider_checkout_id"),
+    providerPaymentId: text("provider_payment_id"),
+    paidAt: integer("paid_at", { mode: "timestamp" }),
+    fulfilledAt: integer("fulfilled_at", { mode: "timestamp" }),
+    cancelledAt: integer("cancelled_at", { mode: "timestamp" }),
+    failedAt: integer("failed_at", { mode: "timestamp" }),
+    refundedAt: integer("refunded_at", { mode: "timestamp" }),
+    createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+    updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+  },
+  (table) => [
+    index("orders_offer_idx").on(table.offerId),
+    index("orders_course_idx").on(table.courseId),
+    index("orders_booking_type_idx").on(table.bookingTypeId),
+    index("orders_booking_idx").on(table.bookingId),
+    index("orders_user_idx").on(table.userId),
+    index("orders_status_idx").on(table.status),
+    index("orders_customer_email_idx").on(table.customerEmail),
+  ],
+);
+
+export const orderHistory = sqliteTable(
+  "order_history",
+  {
+    id: text("id").primaryKey(),
+    orderId: text("order_id")
+      .notNull()
+      .references(() => orders.id),
+    fromStatus: text("from_status").$type<OrderStatus>(),
+    toStatus: text("to_status").$type<OrderStatus>().notNull(),
+    source: text("source").$type<OrderHistorySource>().notNull(),
+    actorId: text("actor_id"),
+    detail: text("detail"),
+    createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+  },
+  (table) => [
+    index("order_history_order_idx").on(table.orderId),
+    index("order_history_created_idx").on(table.createdAt),
+  ],
+);
+
+export const paymentEvents = sqliteTable(
+  "payment_events",
+  {
+    id: text("id").primaryKey(),
+    orderId: text("order_id")
+      .notNull()
+      .references(() => orders.id),
+    callbackKey: text("callback_key").notNull().unique(),
+    source: text("source").$type<"CALLBACK" | "WEBHOOK">().notNull(),
+    provider: text("provider"),
+    providerEventId: text("provider_event_id"),
+    providerCheckoutId: text("provider_checkout_id"),
+    providerPaymentId: text("provider_payment_id"),
+    state: text("state").$type<PaymentState>().notNull(),
+    amountMinor: integer("amount_minor"),
+    currency: text("currency"),
+    createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+  },
+  (table) => [
+    index("payment_events_order_idx").on(table.orderId),
+    uniqueIndex("payment_events_provider_event_unique").on(
+      table.provider,
+      table.providerEventId,
+    ),
+  ],
+);
+
+export type OrchestrationSubjectType = "ORDER" | "BOOKING";
+export type OrchestrationProviderKind =
+  | "internal"
+  | "payment"
+  | "calendar"
+  | "mailbox"
+  | "meeting";
+export type OrchestrationEffectType =
+  | "PAYMENT_CHECKOUT_CREATE"
+  | "ORDER_FULFILL"
+  | "ORDER_REFUND_RECONCILE"
+  | "CALENDAR_CREATE"
+  | "CALENDAR_UPDATE"
+  | "CALENDAR_CANCEL"
+  | "MAIL_CONFIRMATION"
+  | "MAIL_RESCHEDULE"
+  | "MAIL_CANCELLATION"
+  | "MAIL_REMINDER";
+export type OrchestrationEffectStatus =
+  | "PENDING"
+  | "PROCESSING"
+  | "SUCCEEDED"
+  | "RETRYABLE_FAILURE"
+  | "BLOCKED"
+  | "TERMINAL_FAILURE";
+export type OrchestrationHistoryAction =
+  | "ENQUEUED"
+  | "CLAIMED"
+  | "SUCCEEDED"
+  | "RETRYABLE_FAILURE"
+  | "BLOCKED"
+  | "TERMINAL_FAILURE"
+  | "LEASE_RECOVERED"
+  | "RESET";
+
+export const orchestrationEffects = sqliteTable(
+  "orchestration_effects",
+  {
+    id: text("id").primaryKey(),
+    subjectType: text("subject_type").$type<OrchestrationSubjectType>().notNull(),
+    subjectId: text("subject_id").notNull(),
+    effectType: text("effect_type").$type<OrchestrationEffectType>().notNull(),
+    providerKind: text("provider_kind").$type<OrchestrationProviderKind>().notNull(),
+    idempotencyKey: text("idempotency_key").notNull().unique(),
+    dependsOnEffectId: text("depends_on_effect_id"),
+    payload: text("payload").notNull(),
+    status: text("status").$type<OrchestrationEffectStatus>().notNull().default("PENDING"),
+    attemptCount: integer("attempt_count").notNull().default(0),
+    claimToken: text("claim_token"),
+    transitionKey: text("transition_key"),
+    leaseExpiresAt: integer("lease_expires_at", { mode: "timestamp" }),
+    nextAttemptAt: integer("next_attempt_at", { mode: "timestamp" }),
+    providerRef: text("provider_ref"),
+    lastErrorCode: text("last_error_code"),
+    lastErrorMessage: text("last_error_message"),
+    lastAttemptAt: integer("last_attempt_at", { mode: "timestamp" }),
+    succeededAt: integer("succeeded_at", { mode: "timestamp" }),
+    createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+    updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+  },
+  (table) => [
+    index("orchestration_effects_subject_idx").on(table.subjectType, table.subjectId),
+    index("orchestration_effects_status_idx").on(table.status),
+    index("orchestration_effects_dependency_idx").on(table.dependsOnEffectId),
+    index("orchestration_effects_next_attempt_idx").on(table.nextAttemptAt),
+  ],
+);
+
+export const orchestrationHistory = sqliteTable(
+  "orchestration_history",
+  {
+    id: text("id").primaryKey(),
+    effectId: text("effect_id")
+      .notNull()
+      .references(() => orchestrationEffects.id),
+    action: text("action").$type<OrchestrationHistoryAction>().notNull(),
+    fromStatus: text("from_status").$type<OrchestrationEffectStatus>(),
+    toStatus: text("to_status").$type<OrchestrationEffectStatus>().notNull(),
+    detail: text("detail"),
+    createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+  },
+  (table) => [
+    index("orchestration_history_effect_idx").on(table.effectId),
+    index("orchestration_history_created_idx").on(table.createdAt),
+  ],
+);
+
+export type Order = typeof orders.$inferSelect;
+export type OrderHistory = typeof orderHistory.$inferSelect;
+export type PaymentEvent = typeof paymentEvents.$inferSelect;
+export type OrchestrationEffect = typeof orchestrationEffects.$inferSelect;
+export type OrchestrationHistory = typeof orchestrationHistory.$inferSelect;

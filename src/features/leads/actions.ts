@@ -3,6 +3,7 @@
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 
+import { createLeadSubmission, LeadDomainError } from "./service";
 import type { LeadActionState, LeadSubmissionKind } from "./types";
 
 const optionalText = (maximum: number) =>
@@ -86,6 +87,40 @@ const leadSchema = z
         message: "Research consent is required for the waitlist.",
       });
     }
+    if (value.kind === "ai_os" && !value.aiUseLevel) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["aiUseLevel"],
+        message: "Please select how you are using AI today.",
+      });
+    }
+    if (
+      value.kind === "ai_os" &&
+      (!value.workflowToImprove || value.workflowToImprove.length < 3)
+    ) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["workflowToImprove"],
+        message: "Please name the workflow you would improve first.",
+      });
+    }
+    if (
+      value.kind !== "ai_os" &&
+      (!value.problemSummary || value.problemSummary.length < 20)
+    ) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["problemSummary"],
+        message: "Please share at least 20 characters of useful context.",
+      });
+    }
+    if ((value.whatsapp || value.calls) && !value.phoneE164) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["phoneE164"],
+        message: "Add a phone number before opting into WhatsApp or calls.",
+      });
+    }
   });
 
 function toBoolean(value: FormDataEntryValue | null) {
@@ -94,6 +129,8 @@ function toBoolean(value: FormDataEntryValue | null) {
 
 export async function submitLead(
   kind: LeadSubmissionKind,
+  sourceRoute: string,
+  audiencePath: string,
   _previous: LeadActionState,
   formData: FormData,
 ): Promise<LeadActionState> {
@@ -114,8 +151,10 @@ export async function submitLead(
     deliveryPreference: formData.get("deliveryPreference") ?? null,
     aiUseLevel: formData.get("aiUseLevel") ?? null,
     workflowToImprove: formData.get("workflowToImprove"),
-    sourceRoute: formData.get("sourceRoute"),
-    audiencePath: formData.get("audiencePath"),
+    // Provenance is bound by the server-rendered component/action closure,
+    // not trusted from hidden browser fields.
+    sourceRoute,
+    audiencePath,
     privacyAcknowledged: toBoolean(formData.get("privacyAcknowledged")),
     researchAccepted: toBoolean(formData.get("researchAccepted")),
     emailMarketing: toBoolean(formData.get("emailMarketing")),
@@ -133,10 +172,55 @@ export async function submitLead(
     };
   }
 
-  return {
-    ok: false,
-    message:
-      "This preview validates your details, but the V2 Leads backend is not connected yet — nothing was sent. Reference:",
-    requestId,
-  };
+  try {
+    await createLeadSubmission({
+      idempotencyKey: parsed.data.idempotencyKey,
+      kind: parsed.data.kind,
+      fullName: parsed.data.fullName,
+      email: parsed.data.email,
+      positionTitle: parsed.data.positionTitle,
+      companyName: parsed.data.companyName,
+      countryCode: parsed.data.countryCode,
+      phoneE164: parsed.data.phoneE164,
+      problemSummary: parsed.data.problemSummary,
+      desiredOutcome: parsed.data.desiredOutcome,
+      timing: parsed.data.timing,
+      teamSize: parsed.data.teamSize,
+      deliveryPreference: parsed.data.deliveryPreference,
+      aiUseLevel: parsed.data.aiUseLevel,
+      workflowToImprove: parsed.data.workflowToImprove,
+      sourceRoute: parsed.data.sourceRoute,
+      audiencePath: parsed.data.audiencePath,
+      privacyAcknowledged: parsed.data.privacyAcknowledged,
+      researchAccepted: parsed.data.researchAccepted,
+      emailMarketing: parsed.data.emailMarketing,
+      whatsapp: parsed.data.whatsapp,
+      calls: parsed.data.calls,
+      now: new Date(),
+    });
+
+    return {
+      ok: true,
+      message:
+        "Your request has been saved securely. Ahmed can review the context from the Decoded Hiring business inbox as that admin surface comes online.",
+    };
+  } catch (error: unknown) {
+    if (error instanceof LeadDomainError) {
+      return {
+        ok: false,
+        message:
+          error.code === "RATE_LIMITED"
+            ? "Too many enquiry submissions were created in a short window. Please try again later."
+            : "This submission identity is already bound to different enquiry details. Refresh the page before trying again.",
+        requestId,
+      };
+    }
+
+    return {
+      ok: false,
+      message:
+        "Your request could not be saved safely. Please try again later.",
+      requestId,
+    };
+  }
 }
