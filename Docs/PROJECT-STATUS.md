@@ -17,7 +17,7 @@ Last updated: **2026-10-24**
 | | |
 |---|---|
 | `main` | `2d15662`: **Missions 01–08, CI (verify, Playwright E2E, Worker size budget), security fixes, hardening batches 1–3, deploy-path prep, Next 16.4.2 / adapter 1.20.12.** Unit tests: 28 suites, each on its own throwaway D1/R2. |
-| Open PRs to `main` | None |
+| Open PRs to `main` | Batch 4: #33–#38 and this update (see §2) |
 | Production | **Not deployed.** The OpenNext adapter and config are prepared and verified locally (`Docs/Engineering/DEPLOYMENT.md`). No real Cloudflare resources exist yet; `wrangler.jsonc → env.production` holds placeholders. |
 | Providers | All dormant by design: no payment, calendar, mailbox, meeting or analytics provider is active. |
 | Blueprint phase | Phases 1–6 built and on `main`. **Phase 7 (Hardening & Growth) is in progress** (CI merged; #14 open), then Phase 8 (Launch). |
@@ -38,6 +38,13 @@ Last updated: **2026-10-24**
 | `hardening/progress-write-paths` | — | merged ([#30](https://github.com/Ahmedawad8822/Decoded-Hiring-V2/pull/30)) | Learner reads no longer write; `reconcileCourseEnrollments()` on curriculum writes; archived lessons can't be published |
 | `upgrade/next-16.4-opennext` | — | merged ([#31](https://github.com/Ahmedawad8822/Decoded-Hiring-V2/pull/31)) | Next 16.4.2, adapter 1.20.12, wrangler 4.151.1; Worker 2.82 MiB gzip |
 | `docs/status-batch-3` | — | merged (#32) | Status doc |
+| `docs/foundation-security-perf-arch` | `main` | PR [#33](https://github.com/Ahmedawad8822/Decoded-Hiring-V2/pull/33) | `SECURITY-THREAT-MODEL.md` (16 gaps), `PERFORMANCE-BUDGET.md`, `ARCHITECTURE.md` |
+| `hardening/rate-limit-pruning` | `main` | PR [#34](https://github.com/Ahmedawad8822/Decoded-Hiring-V2/pull/34) | Bounded pruning of `public_rate_limits` (24h retention, 500/call, ~1% of calls); index via **migration 0019** |
+| `feature/slug-redirects` | `main` | PR [#35](https://github.com/Ahmedawad8822/Decoded-Hiring-V2/pull/35) | `slug_redirects` table (**migration 0019**, renumber to 0020 at merge) + 308s for renamed guides/notes/courses/lessons |
+| `security/npm-audit` | `main` | PR [#36](https://github.com/Ahmedawad8822/Decoded-Hiring-V2/pull/36) | 22 → 4 advisories (moderate, dev-only); zod 4.6.7 (real runtime fix); drop unused `@better-auth/cli`; 2 overrides |
+| `ci/all-e2e-specs` | `main` | PR [#37](https://github.com/Ahmedawad8822/Decoded-Hiring-V2/pull/37) | All 5 Playwright specs in CI; e2e timeout 40 min |
+| `security/csp` | `main` | PR [#38](https://github.com/Ahmedawad8822/Decoded-Hiring-V2/pull/38) | Static CSP header + `e2e/csp.spec.ts`; fixes anonymous `/learn` null-session crash |
+| `docs/status-batch-4` | `main` | this update | Status doc |
 | `chore/status-hardening-batch` | — | merged (#23) | Status doc; git/eslint ignore `.claude/` |
 | `deploy/opennext-cloudflare` | — | merged ([#24](https://github.com/Ahmedawad8822/Decoded-Hiring-V2/pull/24)) | `@opennextjs/cloudflare@1.20.9`, `getCloudflareContext()` bindings with local fallback, `wrangler.jsonc` local + `env.production` placeholders, R2 incremental cache, deploy scripts, `DEPLOYMENT.md` |
 | `docs/project-status` | — | merged (#16) | This file + `AGENTS.md` pointer |
@@ -47,6 +54,8 @@ Last updated: **2026-10-24**
 | `decoded-hiring-v2/t_*-mission-08.1-*` (2) | — | stale | Early Mission 08.1 worktree branches, superseded. Safe to delete. |
 | `mission-04*` … `mission-08*` | — | merged | Historical mission branches |
 
+**Merge order for batch 4:** #33 → #36 → #34 → #35 (regenerate its migration as 0020) → #37 → #38 → this update.
+#37 and #38 both extend `test:e2e:ci`; keep every spec. Dependency PRs regenerate the lockfile after merging `main`.
 When adding a test suite, append it to the `package.json`
 `test` script. Concurrent PRs doing the same will conflict on that one line, so keep both entries.
 
@@ -90,7 +99,8 @@ notification is sent while mailbox providers stay dormant.
 
 Take the top unblocked item. Move items, don't delete them silently.
 
-1. **[DECISION: Ahmed] First deploy.** The deploy path, `npm run admin:create` and Next 16.4 are on `main`. Follow the checklist in
+1. **Merge batch 4** (#33–#38) in the order in §2, each after its CI is green and it's updated from `main`.
+2. **[DECISION: Ahmed] First deploy.** The deploy path, `npm run admin:create` and Next 16.4 are on `main`. Follow the checklist in
    `Docs/Engineering/DEPLOYMENT.md`, which needs **Ahmed's decisions**:
    Cloudflare account and plan, D1/R2 names, domain, staging. Open technical items:
    - Workers Free limits: 2.78 MiB of 3 MiB gzipped; 10 ms CPU, which SSR likely exceeds.
@@ -99,33 +109,44 @@ Take the top unblocked item. Move items, don't delete them silently.
    - ~~Remote-safe admin seed script~~: done (#29).
    - ~~Upgrade to Next ≥ 16.4.1 and the current adapter~~: done (#31).
    - Size headroom is about 6% (2.82 MiB of 3 MiB); CI enforces a 2950 KiB budget (#26).
-2. **Phase 7 hardening backlog** (from the 2026-10-24 audit; check whether Mission 08 already covers an item before starting it):
+3. **Phase 7 hardening backlog** (from the 2026-10-24 audit; check whether Mission 08 already covers an item before starting it):
    - ~~Tests share the local dev D1~~: done (#20).
    - ~~Duplicated progress maths, 0-required case~~: done (#21).
    - ~~Learner page renders write to D1~~: done (#30).
    - ~~Admin gate repeated per page; `getAuth()` per call~~: done (#22). A layout/`proxy.ts` gate was rejected because `/admin/login` lives under the admin layout.
    - ~~The migration runner re-executes every file~~: done (#27).
    - Enrollment cancellation: no flow sets `cancelled`, and `enrollFree` reactivates it. Decide the policy first.
-   - Lifecycle gaps: ~~archived lessons can be republished~~ (done, #30). Still open: slug changes break URLs with no redirects; Trash/restore/permanent delete (blueprint §5) is missing.
-   - Rate limiting/Turnstile: ~~Better Auth limits~~ (done, #28). Turnstile still isn't wired; it needs Cloudflare site keys. `public_rate_limits` rows are never pruned.
-   - Security headers: no Content-Security-Policy yet (found by #25).
-   - CI runs 3 of 5 Playwright specs; mission-06 and mission-07 aren't in `test:e2e:ci` (found by #25).
-   - 22 npm audit advisories reported during #31; triage them.
+   - Lifecycle gaps: ~~archived lessons can be republished~~ (done, #30). ~~slug changes break URLs~~ (#35). Still open: Trash/restore/permanent delete (blueprint §5).
+   - Rate limiting/Turnstile: ~~Better Auth limits~~ (done, #28). Turnstile still isn't wired; it needs Cloudflare site keys. ~~`public_rate_limits` rows are never pruned~~ (#34).
+   - ~~No Content-Security-Policy~~ (#38, with `'unsafe-inline'`; tighten later with hashes or Report-Only).
+   - ~~CI runs 3 of 5 Playwright specs~~ (#37).
+   - ~~22 npm audit advisories~~ (#36). 4 moderate dev-only remain; remove the 2 `overrides` when miniflare and `@node-minify/core` update (`Docs/Engineering/DEPENDENCY-AUDIT.md`).
+   - **From the threat model (#33), not yet scheduled:**
+     - Public intake limits aren't per-IP: email fingerprint plus a global counter, so an attacker can exhaust the lead or analytics budget for real visitors.
+     - Image uploads trust the client MIME type; add a magic-byte check like PDFs have.
+     - The admin audit trail is partial (Guide/Field Note/Course/Lesson/media/offer mutations).
+     - No 2FA or passkeys for admin; a single flat `admin` role.
+     - No Dependabot/CodeQL/`npm audit` in CI.
+     - Course PDFs stream with no signed URLs.
+   - **From the performance budget (#33):**
+     - `/guides/[slug]`, `/field-notes/[slug]` and `/contact` are dynamic because they read `searchParams`.
+     - `/coaching`, `/workshop`, `/ai-recruiter-os` and `/mission-01` are `force-dynamic`.
+     - No Lighthouse/CWV/geo-TTFB measurement yet.
    - Performance budget: ~~hero PNGs → WebP~~ (done, #19). Still to do: a `next/image` loader for Cloudflare, and Lighthouse/bundle checks in CI.
    - Hygiene: ticket-reference comments ("review correction H"), 9.4k lines of global CSS, `prototypes/` and the `.docx` in git, ~10 GB of local `.worktrees/`. Subagent worktrees under `.claude/worktrees/` can be removed with `git worktree remove` once their PRs merge.
-3. **Phase 7 growth (blueprint §16–17):** analytics provider activation (PostHog via
+4. **Phase 7 growth (blueprint §16–17):** analytics provider activation (PostHog via
    Zaraz, consent first), Command Center, crawler policy, IndexNow, reliability
    automation. Each needs a spec before implementation.
-4. **Phase 0 debt:** write the missing foundation documents (§6) as features touch them. `CONTEXT.md` and `DEFINITION-OF-DONE.md` are done (#25); resolve CONTEXT.md's 12 ⚠ conflicts with Ahmed.
-5. **Phase 8 launch:** acceptance run, selective V1 content import, staging review, DNS cutover, rollback plan.
+5. **Phase 0 debt:** write the missing foundation documents (§6) as features touch them. `CONTEXT.md` and `DEFINITION-OF-DONE.md` are done (#25); `SECURITY-THREAT-MODEL.md`, `PERFORMANCE-BUDGET.md` and `ARCHITECTURE.md` arrive in #33. Resolve CONTEXT.md's 12 ⚠ conflicts with Ahmed.
+6. **Phase 8 launch:** acceptance run, selective V1 content import, staging review, DNS cutover, rollback plan.
 
 ---
 
 ## 6. Gaps against the blueprint
 
 - **Foundation documents missing** (blueprint §18.6): `PRODUCT-SPEC.md`,
-  `UX-RULES.md`, `PAGE-TYPE-SPECS.md`, `SYSTEM-DESIGN.md`, `ARCHITECTURE.md`,
-  `ENGINEERING-STANDARDS.md`, `SECURITY-THREAT-MODEL.md`, `PERFORMANCE-BUDGET.md`,
+  `UX-RULES.md`, `PAGE-TYPE-SPECS.md`, `SYSTEM-DESIGN.md`,
+  `ENGINEERING-STANDARDS.md`,
   `CONTENT-MODEL.md`, `ANALYTICS-EVENTS.md`, `COMMAND-CENTER-SPEC.md`, `AGENT-SKILLS.md`,
   `RELIABILITY-AUTOMATION.md`, `docs/adr/`. (`CONTEXT.md` and `DEFINITION-OF-DONE.md` exist since #25.)
   Only `COMMERCE-SCHEDULING-SPEC.md` exists (Mission 08).
@@ -170,6 +191,17 @@ Take the top unblocked item. Move items, don't delete them silently.
 ## 9. Session log
 
 Newest first. One entry per task: date, what changed, branch/PR, what's next.
+
+- **2026-10-24.** Batch 4: 6 parallel subagents (5 Sonnet, 1 Haiku). Reviewed and opened PRs #33–#38.
+  - **npm audit:** the critical better-auth and high drizzle-orm advisories were only in copies under the
+    unused `@better-auth/cli`, not production. zod was real runtime exposure and is fixed.
+  - **Coordinator changes during review:**
+    - #34: windows longer than the pruning retention now throw.
+    - #38: fixed the anonymous `/learn` null-session crash.
+    - Merge tooling: the `package.json` resolver handles deletions and new sections, unions the `test` and
+      `test:e2e:ci` lines, and the lockfile is regenerated after merges.
+
+  Next: merge batch 4 in the §2 order.
 
 - **2026-10-24.** Merged batch 3 in order: #25 (`5729969`), #27 (`390c7c9`), #30 (`28e4cb7`),
   #28 (`f79bc68`), #29 (`d70350d`), #26 (`18cc695`), #31 (`2d15662`), then this doc (#32).
