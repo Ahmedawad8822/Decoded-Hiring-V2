@@ -225,12 +225,18 @@ export type LeadSubmission = typeof leadSubmissions.$inferSelect;
 // identifiers or hashed identities; raw email addresses are not stored here.
 // ============================================================================
 
-export const publicRateLimits = sqliteTable("public_rate_limits", {
-  scopeKey: text("scope_key").primaryKey(),
-  windowStart: integer("window_start").notNull(),
-  count: integer("count").notNull().default(0),
-  updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
-});
+export const publicRateLimits = sqliteTable(
+  "public_rate_limits",
+  {
+    scopeKey: text("scope_key").primaryKey(),
+    windowStart: integer("window_start").notNull(),
+    count: integer("count").notNull().default(0),
+    updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+  },
+  // Serves expired-row pruning (src/features/public-intake/rate-limit.ts):
+  // an ordered range scan on window_start instead of a full table scan.
+  (table) => [index("public_rate_limits_window_start_idx").on(table.windowStart)],
+);
 
 export type PublicRateLimit = typeof publicRateLimits.$inferSelect;
 
