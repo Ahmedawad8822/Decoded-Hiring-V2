@@ -16,11 +16,11 @@ Last updated: **2026-10-24**
 
 | | |
 |---|---|
-| `main` | `b380609`: **Missions 01–08 merged** (foundation, public site, Guides, Field Notes, Learning Platform, Website Editorial AI, Commerce & Scheduling). Mission 08 merged via PR #17 on Ahmed's GO, 2026-10-24. |
-| Open PRs to `main` | #15 CI workflow, #14 security fixes, #16 this status doc. All are up to date with `main` and mergeable. |
+| `main` | `f4ce20b`: **Missions 01–08 merged plus CI** (PR #15). Every PR and push to `main` now runs `.github/workflows/ci.yml`: lint, typecheck, unit tests, local migrations, build. |
+| Open PRs to `main` | #14 security fixes (up to date with `main`, CI running), #16 this status doc |
 | Production | **Not deployed.** Local-only (Miniflare D1/R2). No deploy adapter, no real Cloudflare resources. |
 | Providers | All dormant by design: no payment, calendar, mailbox, meeting or analytics provider is active. |
-| Blueprint phase | Phases 1–6 built and on `main`. **Phase 7 (Hardening & Growth) is in progress** (PRs #14, #15), then Phase 8 (Launch). |
+| Blueprint phase | Phases 1–6 built and on `main`. **Phase 7 (Hardening & Growth) is in progress** (CI merged; #14 open), then Phase 8 (Launch). |
 
 ---
 
@@ -28,17 +28,15 @@ Last updated: **2026-10-24**
 
 | Branch | Base | State | What it is |
 |---|---|---|---|
-| `main` | — | current | Missions 01–08 (`b380609`) |
-| `ci/github-actions` | `main@b380609` | PR [#15](https://github.com/Ahmedawad8822/Decoded-Hiring-V2/pull/15) open, mergeable | `.github/workflows/ci.yml` (lint, typecheck, unit tests, local migrations, build), `npm run db:migrate:local`, `typecheck` runs `next typegen`. Merged with `main` at `a8a8ee5`; GitHub CI green on all 21 suites including Mission 08. |
-| `fix/security-quick-fixes` | `main@b380609` | PR [#14](https://github.com/Ahmedawad8822/Decoded-Hiring-V2/pull/14) open, mergeable | Open-redirect fix, race-safe enrollment reconcile, typed public errors (`AppError`, `ActionResult`) incl. Mission 07. Merged with `main` at `a27c27b`; local gates 411/411. |
-| `docs/project-status` | `main@b380609` | PR [#16](https://github.com/Ahmedawad8822/Decoded-Hiring-V2/pull/16) open | This file + `AGENTS.md` pointer |
+| `main` | — | current | Missions 01–08 + CI (`f4ce20b`) |
+| `fix/security-quick-fixes` | `main@f4ce20b` | PR [#14](https://github.com/Ahmedawad8822/Decoded-Hiring-V2/pull/14) open, mergeable | Open-redirect fix, race-safe enrollment reconcile, typed public errors (`AppError`, `ActionResult`) incl. Mission 07. Merged with `main` at `192f4df`; first GitHub CI run is on that commit. Local gates were 411/411 before this merge. |
+| `docs/project-status` | `main@f4ce20b` | PR [#16](https://github.com/Ahmedawad8822/Decoded-Hiring-V2/pull/16) open | This file + `AGENTS.md` pointer |
 | `mission-08-commerce-scheduling` | — | merged (#17) | Mission 08 integration branch; sub-PRs #7–#13 |
+| `ci/github-actions` | — | merged (#15) | CI workflow |
 | `decoded-hiring-v2/t_*-mission-08.1-*` (2) | — | stale | Early Mission 08.1 worktree branches, superseded. Safe to delete. |
 | `mission-04*` … `mission-08*` | — | merged | Historical mission branches |
 
-**Merge conflict to expect:** #14 and #15 both edit the `package.json` scripts
-block. Whichever merges second needs a one-line resolution: keep #15's `typecheck`
-and `db:migrate:local`, and keep the `test` list with `security-quick-fixes` appended.
+No known merge conflicts between open PRs.
 
 ---
 
@@ -49,13 +47,13 @@ Source of truth: `Docs/Reference/Decoded_Hiring_V2_Master_Blueprint_FINAL_v2.1.d
 | Phase | Outcome | Status | Where |
 |---|---|---|---|
 | 0 Discovery & design | Foundation package (CONTEXT.md, PRODUCT-SPEC, UX-RULES, …) | **Partial.** Blueprint plus per-mission docs exist; most §18.6 foundation documents were never added to the repo (see §6). | `Docs/` |
-| 1 Foundation | Repo, CI, Next.js/Cloudflare, Better Auth, D1/R2, observability, adapter seams | **Mostly done.** CI arrives with PR #15. Provider adapters exist (Mission 08). Deploy path missing. | Missions 04, 08 |
+| 1 Foundation | Repo, CI, Next.js/Cloudflare, Better Auth, D1/R2, observability, adapter seams | **Mostly done.** CI on `main` (PR #15); provider adapters exist (Mission 08). Deploy path missing; Playwright not yet in CI. | Missions 04, 08 |
 | 2 Public website | Port public design + Website Analysis hierarchy | **Done** | Mission 04.5, `Docs/QA/` |
 | 3 Content & admin | Studio, editor, Pages, Guides, Field Notes, Landing Pages, media, lifecycle | **Partial.** Guides, Field Notes, media and block editor done. Pages, Landing Pages and Trash/permanent-delete lifecycle not built. | Missions 04–05 |
 | 4 Learning platform | Courses, sections/lessons/resources, player, progress, free enrollment | **Done** | Mission 06 |
 | 5 Commerce & scheduling | Access modes, dormant checkout, booking types, holds, adapters, Studio control plane | **Done** (providers dormant). Not built: real provider adapters, Scheduling Agent, Workflows-based reminders, Command Center. | Mission 08 |
 | 6 Website Editorial AI | Knowledge ingestion/retrieval, skills, memory, draft → review → publish | **Done** (FakeProvider in tests; OpenAI adapter needs credentials) | Mission 07 |
-| 7 Hardening & growth | Security review, performance, crawler policy, analytics, Command Center, reliability automation | **Next.** Started: PRs #14 and #15. | §5 below |
+| 7 Hardening & growth | Security review, performance, crawler policy, analytics, Command Center, reliability automation | **In progress.** CI merged (#15); security fixes open (#14). | §5 below |
 | 8 Launch | Acceptance, V1 content import, staging, DNS cutover, rollback | Not started | — |
 
 ---
@@ -80,16 +78,15 @@ notification is sent while mailbox providers stay dormant.
 
 Take the top unblocked item. Move items, don't delete them silently.
 
-1. **Merge PR #15 (CI).** It's up to date with `main`, and its GitHub run on `a8a8ee5`
-   **passed** (all 21 suites, including Mission 08). Ready to merge. After that, every PR gets checks.
-   Follow-up: add Mission 08's `test:e2e:ci` (Playwright) as a second CI job; it needs
-   the admin seed env vars from `.env.example` as CI secrets or fake values.
-2. **Merge PR #14 (security fixes)** after #15. Merge `main` in first: resolve the
-   `package.json` scripts conflict described in §2, then let CI run. Mission 08's actions
-   already return safe results through their own domain errors; their
-   `"Unauthorized:"`/`"Forbidden:"` prefix checks stay compatible because `AppError` keeps
-   the same messages. Optional later step: unify Mission 08's `CommerceDomainError` /
-   `SchedulingDomainError` / `LeadDomainError` with `AppError`.
+1. **Merge PR #14 (security fixes)** once its GitHub CI run on `192f4df` passes. It's up
+   to date with `main` and has no conflicts. Mission 08's actions already return safe
+   results through their own domain errors; their `"Unauthorized:"`/`"Forbidden:"`
+   prefix checks stay compatible because `AppError` keeps the same messages. Optional
+   later step: unify `CommerceDomainError` / `SchedulingDomainError` / `LeadDomainError`
+   with `AppError`.
+2. **Add Playwright to CI** as a second job running Mission 08's `npm run test:e2e:ci`.
+   It needs the admin seed env vars from `.env.example` (fake values are fine in CI)
+   and `npx playwright install --with-deps chromium`.
 3. **Merge PR #16 (this doc)** so `AGENTS.md` points every agent here.
 4. **Phase 8 prerequisite: production deploy path.** Add `@opennextjs/cloudflare`.
    Switch `src/lib/cloudflare/bindings.ts` to `getCloudflareContext()`; the current
@@ -164,6 +161,11 @@ Take the top unblocked item. Move items, don't delete them silently.
 ## 9. Session log
 
 Newest first. One entry per task: date, what changed, branch/PR, what's next.
+
+- **2026-10-24.** **Merged PR #15 (CI) into `main`** (`f4ce20b`). Brought #14 up to date
+  (`192f4df`: `package.json` scripts resolved to keep `next typegen` typecheck,
+  `db:migrate:local`, all Mission 08 suites plus `security-quick-fixes`), and CI now runs on it.
+  Next: merge #14 when CI is green, then #16, then add Playwright to CI.
 
 - **2026-10-24.** **Merged PR #17 (Mission 08) into `main`** on Ahmed's GO (`b380609`, merge commit).
   Brought #15 up to date (`a8a8ee5`: kept Mission 08 suites and `test:e2e:ci` plus #15's
