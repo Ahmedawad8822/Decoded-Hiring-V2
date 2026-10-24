@@ -141,6 +141,13 @@
       "when": 1792874068964,
       "tag": "0019_left_red_skull",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "6",
+      "when": 1792878746605,
+      "tag": "0020_slug_redirects",
+      "breakpoints": true
     }
   ]
 }
