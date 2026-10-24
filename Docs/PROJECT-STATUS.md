@@ -17,8 +17,8 @@ Last updated: **2026-10-24**
 | | |
 |---|---|
 | `main` | `e4e4a31`: Missions 01–07 merged (foundation, public site, Guides, Field Notes, Learning Platform, Website Editorial AI) |
-| Biggest pending item | **Mission 08 (Commerce & Scheduling)** is fully built and release-verified on `mission-08-commerce-scheduling` (454 commits ahead of `main`) but **not merged**: it awaits **Ahmed's explicit GO**. No PR to `main` exists yet. |
-| Open PRs to `main` | #14 security fixes, #15 CI workflow (CI green), #16 this status doc |
+| Biggest pending item | **Mission 08 (Commerce & Scheduling)** is fully built and release-verified on `mission-08-commerce-scheduling` (455 commits ahead of `main`) but **not merged**: PR [#17](https://github.com/Ahmedawad8822/Decoded-Hiring-V2/pull/17) is open and awaits **Ahmed's explicit GO**. |
+| Open PRs to `main` | #17 Mission 08 (awaiting GO), #14 security fixes, #15 CI workflow (CI green), #16 this status doc |
 | Production | **Not deployed.** Local-only (Miniflare D1/R2). No deploy adapter, no real Cloudflare resources. |
 | Providers | All dormant by design: no payment, calendar, mailbox, meeting or analytics provider is active. |
 | Blueprint phase | Phases 1–6 built (Phase 5 still on its branch). **Phase 7 (Hardening & Growth) is next**, then Phase 8 (Launch). |
@@ -30,7 +30,7 @@ Last updated: **2026-10-24**
 | Branch | Base | State | What it is |
 |---|---|---|---|
 | `main` | — | current | Missions 01–07 |
-| `mission-08-commerce-scheduling` | `main@e4e4a31` | **certified, awaiting GO** | Mission 08.1–08.8 integration branch (sub-PRs #7–#13 merged *into this branch*, not into `main`). See `Docs/Engineering/MISSION-08-COMMERCE-SCHEDULING.md` on that branch. |
+| `mission-08-commerce-scheduling` | `main@e4e4a31` | PR [#17](https://github.com/Ahmedawad8822/Decoded-Hiring-V2/pull/17) open, **awaiting GO, do not merge without it** | Mission 08.1–08.8 integration branch (sub-PRs #7–#13 merged *into this branch*, not into `main`). Fast-forwards onto `main`. Head `e0e2ae6` = certified boundary + removal of the two leftover temp validation workflows. See `Docs/Engineering/MISSION-08-COMMERCE-SCHEDULING.md` on that branch. |
 | `fix/security-quick-fixes` | `main` | PR [#14](https://github.com/Ahmedawad8822/Decoded-Hiring-V2/pull/14) open | Open-redirect fix, race-safe enrollment reconcile, typed public errors (`AppError`, `ActionResult`) across all actions incl. Mission 07 |
 | `ci/github-actions` | `main` | PR [#15](https://github.com/Ahmedawad8822/Decoded-Hiring-V2/pull/15) open, CI green | `.github/workflows/ci.yml` (lint, typecheck, unit tests, local migrations, build), `npm run db:migrate:local`, `typecheck` runs `next typegen` |
 | `docs/project-status` | `main` | PR [#16](https://github.com/Ahmedawad8822/Decoded-Hiring-V2/pull/16) open | This file + `AGENTS.md` pointer |
@@ -54,7 +54,7 @@ Source of truth: `Docs/Reference/Decoded_Hiring_V2_Master_Blueprint_FINAL_v2.1.d
 | 2 Public website | Port public design + Website Analysis hierarchy | **Done** | Mission 04.5, `Docs/QA/` |
 | 3 Content & admin | Studio, editor, Pages, Guides, Field Notes, Landing Pages, media, lifecycle | **Partial.** Guides, Field Notes, media and block editor done. Pages, Landing Pages and Trash/permanent-delete lifecycle not built. | Missions 04–05 |
 | 4 Learning platform | Courses, sections/lessons/resources, player, progress, free enrollment | **Done** | Mission 06 |
-| 5 Commerce & scheduling | Access modes, dormant checkout, booking types, holds, adapters, Studio control plane | **Built and certified on branch, not merged** | Mission 08 |
+| 5 Commerce & scheduling | Access modes, dormant checkout, booking types, holds, adapters, Studio control plane | **Built and certified; PR #17 awaiting GO** | Mission 08 |
 | 6 Website Editorial AI | Knowledge ingestion/retrieval, skills, memory, draft → review → publish | **Done** (FakeProvider in tests; OpenAI adapter needs credentials) | Mission 07 |
 | 7 Hardening & growth | Security review, performance, crawler policy, analytics, Command Center, reliability automation | **Next.** Started: PRs #14 and #15. | §5 below |
 | 8 Launch | Acceptance, V1 content import, staging, DNS cutover, rollback | Not started | — |
@@ -81,11 +81,10 @@ sent". Mission 08 makes them durable.
 
 Take the top unblocked item. Move items, don't delete them silently.
 
-1. **[DECISION: Ahmed] GO / NO-GO on Mission 08.** If GO: open a PR
-   `mission-08-commerce-scheduling → main`, re-run gates on the merge result, merge.
-   Before or with the merge, delete the leftover temporary workflows
-   `.github/workflows/mission-08-6-temp-validation.yml` and
-   `mission-08-7-temp-validation.yml`. They only trigger on their old branches.
+1. **[DECISION: Ahmed] GO / NO-GO on Mission 08 (PR #17).** The PR is open, the
+   temporary validation workflows are removed, and gates were re-run locally on the
+   PR head `e0e2ae6`: lint, typecheck, 399/399 tests and build all pass (posted on the PR). On GO: merge PR #17. Nothing else is needed
+   first, because it is a fast-forward of `main`. Agents must not merge it without that GO.
 2. **Land PR #15 (CI)** after Mission 08, merging `main` in first. Resolve the
    `package.json` test-script conflict by keeping Mission 08's suites, and
    consider adding Mission 08's `test:e2e:ci` as a second CI job.
@@ -138,7 +137,7 @@ Take the top unblocked item. Move items, don't delete them silently.
 
 | Decision | Blocks |
 |---|---|
-| Mission 08 merge GO | Next steps 1–3 |
+| Mission 08 merge GO (PR #17) | Next steps 1–3 |
 | Cloudflare account / domain / staging approach | Deploy path, launch |
 | Payment provider (none chosen by design) | Paid checkout activation |
 | Calendar/mailbox provider (Google Workspace likely) | Real scheduling, invites, reminders |
@@ -167,6 +166,10 @@ Take the top unblocked item. Move items, don't delete them silently.
 ## 9. Session log
 
 Newest first. One entry per task: date, what changed, branch/PR, what's next.
+
+- **2026-10-24.** Opened PR #17 (`mission-08-commerce-scheduling → main`, not merged).
+  Removed the leftover `mission-08-6`/`mission-08-7` temp validation workflows (`e0e2ae6`).
+  Local gates on the PR head: lint, typecheck, 399/399 tests, build all pass. Next: Ahmed's GO on #17, then #15, then #14.
 
 - **2026-10-24.** Full audit of `main`. Opened PR #14 (open-redirect, reconcile race,
   typed public errors including Mission 07 editorial AI) and PR #15 (CI; fixes
