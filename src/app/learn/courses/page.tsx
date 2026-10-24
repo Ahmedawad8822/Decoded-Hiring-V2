@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { getServerSession } from "@/lib/auth";
 import { getAccessibleEnrollments } from "@/features/enrollments/service";
 import { getBatchedEnrollmentProgress } from "@/features/progress/service";
@@ -14,7 +15,10 @@ export const metadata = {
 
 export default async function LearnCoursesPage() {
   const session = await getServerSession();
-  const userId = session!.user.id;
+  // The layout redirects anonymous visitors too, but layout and page render
+  // concurrently, so the page must not assume a session exists.
+  if (!session?.user) redirect("/login?redirect=/learn/courses");
+  const userId = session.user.id;
 
   // BATCHED PROGRESS (Item E): ONE query per table instead of per-enrollment fan-out.
   // Batches: enrollments, course metadata, published curriculum, progress rows,
