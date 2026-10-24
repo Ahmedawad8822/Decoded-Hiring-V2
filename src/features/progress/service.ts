@@ -39,40 +39,63 @@ export interface CourseProgress {
   nextAfterLessonId: Record<string, Lesson | null>;
 }
 
+/** Shape of the shared progress maths (everything derivable from the curriculum + completions). */
+export interface ComputedCourseProgress {
+  totalRequired: number;
+  completedRequired: number;
+  percent: number;
+  completed: boolean;
+  /** Completed ids restricted to currently-published lessons (required + optional). */
+  completedLessonIds: string[];
+  resumeLesson: Lesson | null;
+}
+
+/**
+ * THE one place progress maths lives; single and batched reads both call it
+ * so they can never drift. Pure: no I/O.
+ *
+ * `publishedLessons` must already be ordered section.position then
+ * lesson.position — resume selection is the first incomplete REQUIRED lesson
+ * in that order. Completions of unpublished/unknown lessons are ignored.
+ * A course with zero required published lessons has nothing to complete:
+ * percent 0, completed false.
+ */
+export function computeCourseProgress(
+  publishedLessons: Lesson[],
+  completedLessonIds: Iterable<string>
+): ComputedCourseProgress {
+  const publishedIds = new Set(publishedLessons.map((l) => l.id));
+  // completedLessonIds covers ALL completed published lessons (required +
+  // optional) so optional completion stays visibly complete; the verdict
+  // below uses ONLY required.
+  const completedIds = [...completedLessonIds].filter((id) => publishedIds.has(id));
+  const completedSet = new Set(completedIds);
+
+  const required = publishedLessons.filter((l) => l.required);
+  const totalRequired = required.length;
+  const completedRequired = required.filter((l) => completedSet.has(l.id)).length;
+  const percent =
+    totalRequired === 0 ? 0 : Math.round((completedRequired / totalRequired) * 100);
+  const completed = totalRequired > 0 && completedRequired >= totalRequired;
+  const resumeLesson = required.find((l) => !completedSet.has(l.id)) ?? null;
+
+  return { totalRequired, completedRequired, percent, completed, completedLessonIds: completedIds, resumeLesson };
+}
+
 export async function getEnrollmentProgress(enrollment: Enrollment): Promise<CourseProgress> {
   const db = await getDb();
   // PERFORMANCE (review correction F): ONE published-lessons fetch. The
   // previous code called getPublishedCourseLessons twice (required set +
   // next-map) — 2x the curriculum queries per progress read.
   const publishedAll = await getPublishedCourseLessons(enrollment.courseId);
-  const requiredPublishedAll = publishedAll.filter((l) => l.required);
 
   const rows = await db
     .select()
     .from(lessonProgress)
     .where(eq(lessonProgress.enrollmentId, enrollment.id));
 
-  // completedLessonIds must represent ALL completed currently-published lessons
-  // (required + optional) so optional completion remains visibly complete after
-  // refresh/navigation. Percentage/completion verdict uses ONLY required.
-  const publishedAllIds = new Set(publishedAll.map((l) => l.id));
-  const completedIds = rows
-    .map((r) => r.lessonId)
-    .filter((id) => publishedAllIds.has(id));
-
-  // Percentage and completion verdict: ONLY required published lessons.
-  const requiredIds = new Set(requiredPublishedAll.map((l) => l.id));
-  const completedRequiredIds = completedIds.filter((id) => requiredIds.has(id));
-  const completedRequiredSet = new Set(completedRequiredIds);
-
-  const totalRequired = requiredPublishedAll.length;
-  const completedRequired = completedRequiredSet.size;
-  const percent =
-    totalRequired === 0 ? 100 : Math.round((completedRequired / totalRequired) * 100);
-  const completed = totalRequired > 0 && completedRequired >= totalRequired;
-
-  const resumeLesson =
-    requiredPublishedAll.find((l) => !completedRequiredSet.has(l.id)) ?? null;
+  const { totalRequired, completedRequired, percent, completed, completedLessonIds, resumeLesson } =
+    computeCourseProgress(publishedAll, rows.map((r) => r.lessonId));
 
   const nextAfterLessonId: Record<string, Lesson | null> = {};
   for (let i = 0; i < publishedAll.length; i++) {
@@ -93,7 +116,7 @@ export async function getEnrollmentProgress(enrollment: Enrollment): Promise<Cou
     percent,
     completed,
     totalPublished: publishedAll.length,
-    completedLessonIds: completedIds,
+    completedLessonIds,
     resumeLesson,
     nextAfterLessonId,
   };
@@ -351,25 +374,9 @@ export async function getBatchedEnrollmentProgress(
     if (!course) continue; // Skip if course not found (should not happen)
 
     const publishedAll = lessonsByCourse.get(enrollment.courseId) ?? [];
-    const requiredPublishedAll = publishedAll.filter((l) => l.required);
     const enrollmentProgressRows = progressByEnrollment.get(enrollment.id) ?? [];
-
-    const publishedAllIds = new Set(publishedAll.map((l) => l.id));
-    const completedIds = enrollmentProgressRows
-      .map((r) => r.lessonId)
-      .filter((id) => publishedAllIds.has(id));
-
-    const requiredIds = new Set(requiredPublishedAll.map((l) => l.id));
-    const completedRequiredIds = completedIds.filter((id) => requiredIds.has(id));
-    const completedRequiredSet = new Set(completedRequiredIds);
-
-    const totalRequired = requiredPublishedAll.length;
-    const completedRequired = completedRequiredSet.size;
-    const percent = totalRequired === 0 ? 100 : Math.round((completedRequired / totalRequired) * 100);
-    const completed = totalRequired > 0 && completedRequired >= totalRequired;
-
-    const resumeLesson =
-      requiredPublishedAll.find((l) => !completedRequiredSet.has(l.id)) ?? null;
+    const { totalRequired, completedRequired, percent, completed, completedLessonIds, resumeLesson } =
+      computeCourseProgress(publishedAll, enrollmentProgressRows.map((r) => r.lessonId));
 
     const currentEnrollment = currentEnrollmentMap.get(enrollment.id);
 
@@ -385,7 +392,7 @@ export async function getBatchedEnrollmentProgress(
       percent,
       completed,
       totalPublished: publishedAll.length,
-      completedLessonIds: completedIds,
+      completedLessonIds,
       resumeLessonId: resumeLesson?.id ?? null,
       resumeLessonSlug: resumeLesson?.slug ?? null,
       resumeLessonTitle: resumeLesson?.title ?? null,
@@ -421,6 +428,20 @@ export async function getBatchedEnrollmentProgress(
       .update(enrollments)
       .set({ completedAt: null, status: "active" })
       .where(and(inArray(enrollments.id, toReopen), eq(enrollments.status, "completed")));
+  }
+
+  // 7. Report POST-reconcile state. The conditional UPDATEs may have lost a
+  // race (e.g. concurrent cancellation), so re-read just the touched rows in
+  // ONE query rather than assuming they won.
+  const touched = [...toComplete, ...toReopen];
+  if (touched.length > 0) {
+    const fresh = await db.select().from(enrollments).where(inArray(enrollments.id, touched));
+    for (const row of fresh) {
+      const summary = summaries.get(row.id);
+      if (!summary) continue;
+      summary.enrollmentStatus = row.status;
+      summary.enrollmentCompletedAt = row.completedAt;
+    }
   }
 
   return summaries;
