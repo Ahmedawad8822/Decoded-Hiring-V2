@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { getServerSession } from "@/lib/auth";
 import { getAllAdminCourses, getCourseEnrollmentCounts } from "@/features/courses/service";
 import { CoursesClient } from "./courses-client";
+import { getOffersForCourses } from "@/features/offers/service";
 
 // Session-gated Studio route: render per request.
 export const dynamic = "force-dynamic";
@@ -29,8 +30,21 @@ export default async function AdminCoursesPage(props: {
   const courseList = await getAllAdminCourses({ search: q, status });
   // PERFORMANCE (review correction G): ONE grouped COUNT query for the whole
   // list — the previous per-course Promise.all was N round-trips per page view.
-  const countsByCourse = await getCourseEnrollmentCounts(courseList.map((c) => c.id));
-  const initialCourses = courseList.map((c) => ({ ...c, enrollmentCount: countsByCourse[c.id] ?? 0 }));
+  const courseIds = courseList.map((c) => c.id);
+  const [countsByCourse, offersByCourse] = await Promise.all([
+    getCourseEnrollmentCounts(courseIds),
+    getOffersForCourses(courseIds),
+  ]);
+  const initialCourses = courseList.map((course) => {
+    const offer = offersByCourse.get(course.id) ?? null;
+    return {
+      ...course,
+      enrollmentCount: countsByCourse[course.id] ?? 0,
+      offerId: offer?.id ?? null,
+      offerActive: offer?.active ?? null,
+      effectiveAccessMode: offer?.accessMode ?? course.accessMode,
+    };
+  });
 
   return <CoursesClient initialCourses={initialCourses} initialQ={q} initialStatus={status} />;
 }

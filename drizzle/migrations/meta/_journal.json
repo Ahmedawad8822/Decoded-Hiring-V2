@@ -71,6 +71,69 @@
       "when": 1789900000000,
       "tag": "0009_editorial_memory_identity",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "6",
+      "when": 1790310133719,
+      "tag": "0010_old_nuke",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "6",
+      "when": 1790397288844,
+      "tag": "0011_supreme_husk",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "6",
+      "when": 1790401755312,
+      "tag": "0012_booking_window_overlap_trigger",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "6",
+      "when": 1790406000000,
+      "tag": "0013_booking_lifecycle",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "6",
+      "when": 1790413200000,
+      "tag": "0014_offer_access",
+      "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "6",
+      "when": 1790456400000,
+      "tag": "0015_order_orchestration",
+      "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "6",
+      "when": 1790484000000,
+      "tag": "0016_lead_submissions",
+      "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "6",
+      "when": 1790487600000,
+      "tag": "0017_public_rate_limits",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "6",
+      "when": 1790515200000,
+      "tag": "0018_business_events",
+      "breakpoints": true
     }
   ]
 }
