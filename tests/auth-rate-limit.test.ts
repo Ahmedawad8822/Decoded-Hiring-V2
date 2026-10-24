@@ -7,6 +7,7 @@ import assert from "node:assert/strict";
 import "./helpers/env"; // MUST be first: fake TEST-ONLY secret before any app module.
 
 import { getAuth } from "../src/lib/auth";
+import { getDb, publicRateLimits } from "../src/lib/db";
 import { AUTH_STRICT_LIMIT } from "../src/lib/auth/rate-limit";
 import { migrateLocalDb } from "../src/lib/db/migrate";
 import { disposeCloudflareBindings } from "../src/lib/cloudflare/bindings";
@@ -75,4 +76,19 @@ test("sign-up and password reset are throttled too", async () => {
     }
     assert.equal(last, 429, path);
   }
+});
+
+test("session reads are not throttled and write nothing", async () => {
+  const db = await getDb();
+  const before = (await db.select().from(publicRateLimits)).length;
+  for (let i = 0; i < 3; i++) {
+    const res = await (await getAuth()).handler(
+      new Request("http://localhost:3000/api/auth/get-session", {
+        headers: { origin: "http://localhost:3000", "cf-connecting-ip": "203.0.113.30" },
+      }),
+    );
+    assert.notEqual(res.status, 429);
+  }
+  const after = (await db.select().from(publicRateLimits)).length;
+  assert.equal(after, before, "get-session must not consume a D1 rate-limit write");
 });

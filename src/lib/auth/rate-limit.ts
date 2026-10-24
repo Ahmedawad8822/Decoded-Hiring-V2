@@ -52,12 +52,19 @@ export function authAdvancedIpOptions() {
   return { ipAddressHeaders: ["cf-connecting-ip", "x-forwarded-for"] };
 }
 
+/**
+ * Unthrottled paths. Session reads are cheap and frequent; throttling them
+ * would cost one D1 write per read against the free-tier write budget.
+ */
+const UNLIMITED_PATHS = ["/get-session"];
+
 export function buildAuthRateLimitOptions() {
-  const customRules: Record<string, { window: number; max: number }> = {};
+  const customRules: Record<string, { window: number; max: number } | false> = {};
   for (const path of STRICT_PATHS) customRules[path] = { ...AUTH_STRICT_LIMIT };
   for (const path of PASSWORD_FLOW_PATHS) {
     customRules[path] = { ...AUTH_PASSWORD_FLOW_LIMIT };
   }
+  for (const path of UNLIMITED_PATHS) customRules[path] = false;
   return {
     enabled: !authRateLimitDisabledForTests(),
     ...AUTH_DEFAULT_LIMIT,
