@@ -48,3 +48,49 @@ jobs:
 
       - name: Build
         run: npm run build
+
+  e2e:
+    name: Playwright E2E
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      # Clearly fake, CI-only values (the admin pair is the .env.example local
+      # dev seed, not a secret). Everything runs against local Miniflare D1/R2
+      # and the fake editorial provider — no real services are contacted.
+      CI: "true"
+      E2E_PORT: "3000"
+      BETTER_AUTH_SECRET: ci-only-not-a-real-secret-0123456789abcdef
+      BETTER_AUTH_URL: http://localhost:3000
+      NEXT_PUBLIC_SITE_URL: http://localhost:3000
+      ADMIN_INITIAL_EMAIL: admin@decodedhiring.local
+      ADMIN_INITIAL_PASSWORD: admin-local-dev-password-2026!
+      ADMIN_INITIAL_NAME: Ahmed Awad
+      NEXT_TELEMETRY_DISABLED: "1"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Install Playwright Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Playwright E2E
+        run: npm run test:e2e:ci
+
+      - name: Upload Playwright artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-artifacts
+          path: |
+            playwright-report/
+            test-results/
+          if-no-files-found: ignore
+          retention-days: 7
