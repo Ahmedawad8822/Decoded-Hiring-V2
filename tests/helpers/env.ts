@@ -39,6 +39,15 @@ process.env.DH_COMMERCE_TEST_SEAM = "1";
 
 
 /**
+ * Auth rate-limit seam. Suites sign in repeatedly from one loopback IP, so
+ * the durable Better Auth limiter is off by default under test.
+ * tests/auth-rate-limit.test.ts clears this to exercise the real limiter.
+ * Ignored by production code when NODE_ENV is "production".
+ */
+process.env.DH_AUTH_RATE_LIMIT_DISABLED = "1";
+
+
+/**
  * Per-process throwaway D1/R2 state. Each `tsx` suite gets its own empty
  * Miniflare persistence dir so tests never read or write the developer's
  * `.wrangler/state/v3` (dev server, seeds, E2E). Must be set before

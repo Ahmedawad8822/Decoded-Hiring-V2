@@ -37,6 +37,11 @@ export default defineConfig({
     // EXPLICIT TEST-ONLY: enable FakeProvider injection in generateDraftAction
     // so the E2E suite runs without real LLM API credentials. This env gate
     // is opt-in and documented — production code never sets it.
-    env: { EDITORIAL_FORCE_FAKE_PROVIDER: "1" },
+    env: {
+      EDITORIAL_FORCE_FAKE_PROVIDER: "1",
+      // EXPLICIT TEST-ONLY: the E2E suite signs in repeatedly from one
+      // loopback IP; the app ignores this when NODE_ENV is "production".
+      DH_AUTH_RATE_LIMIT_DISABLED: "1",
+    },
   },
 });
