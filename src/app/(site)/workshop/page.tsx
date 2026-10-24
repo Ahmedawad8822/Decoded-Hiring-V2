@@ -95,7 +95,7 @@ export default async function WorkshopPage() {
         </div>
         <figure className="hg-product-portrait hg-product-portrait--workshop">
           <Image
-            src="/images/ahmed-workshop-conversation.png"
+            src="/images/ahmed-workshop-conversation.webp"
             alt="Ahmed Awad in a focused workshop conversation"
             width={1122}
             height={1402}
