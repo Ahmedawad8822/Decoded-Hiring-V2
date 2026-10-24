@@ -109,21 +109,39 @@ export async function migrateLocalDb() {
       .filter(Boolean)
       .filter((s) => !isCommentOnly(s));
 
+    const record = d1.prepare(`INSERT INTO "${MIGRATIONS_TABLE}" (name) VALUES (?)`).bind(file);
+
+    if (!tolerant) {
+      // STRICT: the file's statements and its tracking row commit together
+      // (D1 batch() is one transaction), so a crash can never leave a file
+      // applied but unrecorded — the same guarantee wrangler gives.
+      try {
+        await d1.batch([...statements.map((statement) => d1.prepare(statement)), record]);
+      } catch (err: unknown) {
+        // FAIL LOUDLY — e.g. CREATE UNIQUE INDEX failures must never be
+        // silently ignored: the DB would be missing a required constraint.
+        throw new Error(
+          `[D1 Migration Failure in ${file}]: ${(err as Error).message ?? String(err)}`
+        );
+      }
+      continue;
+    }
+
+    // BASELINE (legacy DB, once): statement by statement so expected
+    // "already exists"/"duplicate column" errors can be tolerated.
     for (const statement of statements) {
       try {
         await d1.prepare(statement).run();
       } catch (err: unknown) {
         const error = err as Error;
-        if (tolerant && isExpectedIdempotentError(error.message)) {
+        if (isExpectedIdempotentError(error.message)) {
           continue;
         }
-        // FAIL LOUDLY — e.g. CREATE UNIQUE INDEX failures must never be
-        // silently ignored: the DB would be missing a required constraint.
         throw new Error(
           `[D1 Migration Failure in ${file}]: ${error.message ?? String(err)} — statement: ${statement.slice(0, 200)}`
         );
       }
     }
-    await d1.prepare(`INSERT INTO "${MIGRATIONS_TABLE}" (name) VALUES (?)`).bind(file).run();
+    await record.run();
   }
 }
