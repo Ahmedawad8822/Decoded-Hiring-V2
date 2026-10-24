@@ -67,7 +67,9 @@ async function resolveCloudflareBindings(): Promise<CloudflareEnv> {
       const { getPlatformProxy } = await import("wrangler");
       const proxy = await getPlatformProxy<CloudflareEnv>({
         configPath: "wrangler.jsonc",
-        persist: { path: ".wrangler/state/v3" },
+        // DH_LOCAL_STATE_DIR lets test processes use a throwaway state dir;
+        // unset (dev, db:migrate:local, seeds, e2e) keeps the shared default.
+        persist: { path: process.env.DH_LOCAL_STATE_DIR || ".wrangler/state/v3" },
       });
       return proxy as unknown as PlatformProxyResult;
     })();
