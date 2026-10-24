@@ -1,5 +1,4 @@
-import { redirect } from "next/navigation";
-import { getServerSession } from "@/lib/auth";
+import { requireAdminPage } from "@/lib/auth";
 import { getAllAdminCourses, getCourseEnrollmentCounts } from "@/features/courses/service";
 import { CoursesClient } from "./courses-client";
 import { getOffersForCourses } from "@/features/offers/service";
@@ -15,11 +14,7 @@ export const metadata = {
 export default async function AdminCoursesPage(props: {
   searchParams: Promise<{ q?: string; status?: string }>;
 }) {
-  const session = await getServerSession();
-  if (!session?.user) redirect("/admin/login");
-  const role = (session.user as { role?: string }).role;
-  if (role !== "admin") redirect("/admin/login?error=forbidden");
-
+  await requireAdminPage();
   const searchParams = await props.searchParams;
   const q = searchParams.q || "";
   const status =
