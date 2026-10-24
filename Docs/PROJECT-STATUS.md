@@ -17,7 +17,7 @@ Last updated: **2026-10-24**
 | | |
 |---|---|
 | `main` | **Missions 01–08 + CI + security fixes** (PRs #15, #14 merged 2026-10-24). Every PR and push to `main` runs `.github/workflows/ci.yml`. |
-| Open PRs to `main` | Hardening PRs from the 2026-10-24 batch (see §2) |
+| Open PRs to `main` | Hardening batch #18–#22 and this update (see §2). All passed local gates; CI results are in each PR. |
 | Production | **Not deployed.** Local-only (Miniflare D1/R2). No deploy adapter, no real Cloudflare resources. |
 | Providers | All dormant by design: no payment, calendar, mailbox, meeting or analytics provider is active. |
 | Blueprint phase | Phases 1–6 built and on `main`. **Phase 7 (Hardening & Growth) is in progress** (CI merged; #14 open), then Phase 8 (Launch). |
@@ -29,6 +29,12 @@ Last updated: **2026-10-24**
 | Branch | Base | State | What it is |
 |---|---|---|---|
 | `main` | — | current | Missions 01–08 + CI + security fixes |
+| `hardening/ci-playwright` | `main` | PR [#18](https://github.com/Ahmedawad8822/Decoded-Hiring-V2/pull/18) open | Second CI job `e2e`: Playwright (`npm run test:e2e:ci`), local 8/8 |
+| `hardening/image-weight` | `main` | PR [#19](https://github.com/Ahmedawad8822/Decoded-Hiring-V2/pull/19) open | 5 hero PNGs (10.9 MB) → WebP (0.42 MB); refs updated |
+| `hardening/isolated-test-db` | `main` | PR [#20](https://github.com/Ahmedawad8822/Decoded-Hiring-V2/pull/20) open | `DH_LOCAL_STATE_DIR` + per-process temp D1/R2 for `npm test`; local 411/411 |
+| `hardening/progress-maths` | `main` | PR [#21](https://github.com/Ahmedawad8822/Decoded-Hiring-V2/pull/21) open | `computeCourseProgress()` shared; zero-required → 0%; post-reconcile batched status; local 417/417 |
+| `hardening/auth-cache-admin-gate` | `main` | PR [#22](https://github.com/Ahmedawad8822/Decoded-Hiring-V2/pull/22) open | `cache()`d `getAuth`/`getServerSession`; `requireAdminPage()` on all 10 admin pages; local 414/414 |
+| `chore/status-hardening-batch` | `main` | this update | Status doc; git/eslint ignore `.claude/` (subagent worktrees) |
 | `docs/project-status` | — | merged (#16) | This file + `AGENTS.md` pointer |
 | `mission-08-commerce-scheduling` | — | merged (#17) | Mission 08 integration branch; sub-PRs #7–#13 |
 | `ci/github-actions` | — | merged (#15) | CI workflow |
@@ -36,7 +42,7 @@ Last updated: **2026-10-24**
 | `decoded-hiring-v2/t_*-mission-08.1-*` (2) | — | stale | Early Mission 08.1 worktree branches, superseded. Safe to delete. |
 | `mission-04*` … `mission-08*` | — | merged | Historical mission branches |
 
-No known merge conflicts between open PRs.
+**Expected conflict:** #21 and #22 (and any later PR that adds a suite) each append one file to the `package.json` `test` script. Whichever merges second keeps both entries.
 
 ---
 
@@ -47,13 +53,13 @@ Source of truth: `Docs/Reference/Decoded_Hiring_V2_Master_Blueprint_FINAL_v2.1.d
 | Phase | Outcome | Status | Where |
 |---|---|---|---|
 | 0 Discovery & design | Foundation package (CONTEXT.md, PRODUCT-SPEC, UX-RULES, …) | **Partial.** Blueprint plus per-mission docs exist; most §18.6 foundation documents were never added to the repo (see §6). | `Docs/` |
-| 1 Foundation | Repo, CI, Next.js/Cloudflare, Better Auth, D1/R2, observability, adapter seams | **Mostly done.** CI on `main` (PR #15); provider adapters exist (Mission 08). Deploy path missing; Playwright not yet in CI. | Missions 04, 08 |
+| 1 Foundation | Repo, CI, Next.js/Cloudflare, Better Auth, D1/R2, observability, adapter seams | **Mostly done.** CI on `main` (PR #15); Playwright job in PR #18; provider adapters exist (Mission 08). Deploy path missing. | Missions 04, 08 |
 | 2 Public website | Port public design + Website Analysis hierarchy | **Done** | Mission 04.5, `Docs/QA/` |
 | 3 Content & admin | Studio, editor, Pages, Guides, Field Notes, Landing Pages, media, lifecycle | **Partial.** Guides, Field Notes, media and block editor done. Pages, Landing Pages and Trash/permanent-delete lifecycle not built. | Missions 04–05 |
 | 4 Learning platform | Courses, sections/lessons/resources, player, progress, free enrollment | **Done** | Mission 06 |
 | 5 Commerce & scheduling | Access modes, dormant checkout, booking types, holds, adapters, Studio control plane | **Done** (providers dormant). Not built: real provider adapters, Scheduling Agent, Workflows-based reminders, Command Center. | Mission 08 |
 | 6 Website Editorial AI | Knowledge ingestion/retrieval, skills, memory, draft → review → publish | **Done** (FakeProvider in tests; OpenAI adapter needs credentials) | Mission 07 |
-| 7 Hardening & growth | Security review, performance, crawler policy, analytics, Command Center, reliability automation | **In progress.** CI (#15) and security fixes (#14) merged; hardening batch in flight. | §5 below |
+| 7 Hardening & growth | Security review, performance, crawler policy, analytics, Command Center, reliability automation | **In progress.** CI (#15) and security fixes (#14) merged; hardening batch #18–#22 open. | §5 below |
 | 8 Launch | Acceptance, V1 content import, staging, DNS cutover, rollback | Not started | — |
 
 ---
@@ -78,27 +84,27 @@ notification is sent while mailbox providers stay dormant.
 
 Take the top unblocked item. Move items, don't delete them silently.
 
-1. **Add Playwright to CI** as a second job running Mission 08's `npm run test:e2e:ci`.
-   It needs the admin seed env vars from `.env.example` (fake values are fine in CI)
-   and `npx playwright install --with-deps chromium`.
-2. **Phase 8 prerequisite: production deploy path.** Add `@opennextjs/cloudflare`.
+1. **Review and merge the hardening batch** once each PR's CI is green, in this order:
+   #18 (Playwright CI), #20 (isolated test DB), #21 (progress), #22 (auth/admin gate),
+   #19 (images), then this status update. After each merge, merge `main` into the rest
+   and resolve the `package.json` `test` line (see §2).
+2. **Phase 8 prerequisite: production deploy path.** Start after #20 merges, since both edit `bindings.ts`. Add `@opennextjs/cloudflare`.
    Switch `src/lib/cloudflare/bindings.ts` to `getCloudflareContext()`; the current
    `globalThis.__env__` path does not exist on OpenNext. Configure real D1/R2 IDs in
    `wrangler.jsonc`, set secrets, apply migrations with `wrangler d1 migrations apply`,
    and configure the OpenNext incremental cache so `revalidatePath` works.
    Needs Ahmed's choices: Cloudflare account, domain, preview/staging setup.
 3. **Phase 7 hardening backlog** (from the 2026-10-24 audit; check whether Mission 08 already covers an item before starting it):
-   - Tests share the local dev D1 (`.wrangler/state/v3`). Give each test run an isolated, throwaway database.
-   - Progress maths is duplicated in `getEnrollmentProgress` and `getBatchedEnrollmentProgress`. Extract one pure function, and fix the 0-required-lessons case (100% but not completed).
+   - ~~Tests share the local dev D1~~: PR #20.
+   - ~~Duplicated progress maths, 0-required case~~: PR #21.
    - Learner page renders write to D1 (completion reconcile on read). Move reconcile to write paths.
-   - Admin authorization is repeated per page. Centralize it in the admin layout or `proxy.ts`.
-   - `getAuth()` builds a Better Auth instance per call. Use React `cache()` per request.
+   - ~~Admin gate repeated per page; `getAuth()` per call~~: PR #22. A layout/`proxy.ts` gate was rejected because `/admin/login` lives under the admin layout.
    - The migration runner re-executes every file. Rely on wrangler's tracked migrations.
    - Enrollment cancellation: no flow sets `cancelled`, and `enrollFree` reactivates it. Decide the policy first.
    - Lifecycle gaps: archived lessons can be republished; slug changes break URLs with no redirects; Trash/restore/permanent delete (blueprint §5) is missing.
    - Rate limiting/Turnstile: Mission 08 added a D1 fixed-window limiter for public booking, leads and telemetry. Better Auth sign-in/sign-up still need limits, and Turnstile is not wired anywhere.
-   - Performance budget: 2 MB hero PNGs to AVIF/WebP; set up a `next/image` loader for Cloudflare; Lighthouse/bundle checks in CI.
-   - Hygiene: ticket-reference comments ("review correction H"), 9.4k lines of global CSS, `prototypes/` and the `.docx` in git, ~10 GB of local `.worktrees/`.
+   - Performance budget: ~~hero PNGs → WebP~~ (PR #19). Still to do: a `next/image` loader for Cloudflare, and Lighthouse/bundle checks in CI.
+   - Hygiene: ticket-reference comments ("review correction H"), 9.4k lines of global CSS, `prototypes/` and the `.docx` in git, ~10 GB of local `.worktrees/`. Subagent worktrees under `.claude/worktrees/` can be removed with `git worktree remove` once their PRs merge.
 4. **Phase 7 growth (blueprint §16–17):** analytics provider activation (PostHog via
    Zaraz, consent first), Command Center, crawler policy, IndexNow, reliability
    automation. Each needs a spec before implementation.
@@ -145,7 +151,9 @@ Take the top unblocked item. Move items, don't delete them silently.
   return `ActionResult` via `toActionResult()` (`src/lib/action-result.ts`) and never leak
   raw messages. Mission 08 domains use their own `*DomainError` classes with safe fallbacks.
 - **Branches/PRs:** one branch per task, PR to `main` (or to the mission integration
-  branch). Mission merges need Ahmed's explicit GO. Never deploy or touch production
+  branch). Parallel subagents work in isolated worktrees under `.claude/worktrees/`
+  (git- and lint-ignored). They commit to `hardening/*`-style branches, and the
+  coordinator reviews, pushes and opens PRs. Mission merges need Ahmed's explicit GO. Never deploy or touch production
   resources without approval.
 - **Docs:** each mission keeps its own `Docs/Engineering/MISSION-XX-*.md`. This file is the cross-mission index and queue.
 
@@ -154,6 +162,11 @@ Take the top unblocked item. Move items, don't delete them silently.
 ## 9. Session log
 
 Newest first. One entry per task: date, what changed, branch/PR, what's next.
+
+- **2026-10-24.** Hardening batch run as 5 parallel subagents (Sonnet ×4, Haiku ×1),
+  reviewed and opened as PRs #18 (Playwright CI), #19 (images −96%), #20 (isolated test
+  DB), #21 (progress maths), #22 (auth cache + admin gate). `.claude/` is git- and
+  lint-ignored. Next: merge the batch in the §5 order, then the deploy path.
 
 - **2026-10-24.** Merged PR #14 (security fixes; CI green on `192f4df`) and PR #16 (this doc)
   into `main`. Next: hardening batch (Playwright in CI, progress maths, auth caching and admin
