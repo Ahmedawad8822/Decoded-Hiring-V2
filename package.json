@@ -22,7 +22,7 @@
     "db:migrate:local": "tsx scripts/migrate-local.ts",
     "db:migrate:remote": "wrangler d1 migrations apply DB --env production --remote",
     "db:seed": "tsx scripts/seed.ts",
-    "test:e2e:ci": "tsx scripts/e2e-bootstrap.ts && bash -lc 'status=0; playwright test e2e/mission-08-final-certification.spec.ts || status=1; playwright test e2e/field-notes.spec.ts || status=1; playwright test e2e/smoke.spec.ts || status=1; exit $status'",
+    "test:e2e:ci": "tsx scripts/e2e-bootstrap.ts && bash -lc 'status=0; playwright test e2e/mission-08-final-certification.spec.ts || status=1; playwright test e2e/field-notes.spec.ts || status=1; playwright test e2e/smoke.spec.ts || status=1; playwright test e2e/csp.spec.ts || status=1; exit $status'",
     "admin:create": "tsx scripts/create-admin.ts"
   },
   "dependencies": {
