@@ -1,8 +1,23 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
+  // Top level = LOCAL config: `next dev`, tests, `db:migrate:local` (via
+  // getPlatformProxy) and `npm run preview` (OpenNext build in `wrangler dev`).
+  // Resource IDs here are never used remotely.
   "name": "decoded-hiring-v2",
+  "main": ".open-next/worker.js",
   "compatibility_date": "2026-09-15",
-  "compatibility_flags": ["nodejs_compat"],
+  "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
+  "assets": {
+    "directory": ".open-next/assets",
+    "binding": "ASSETS"
+  },
+  "services": [
+    {
+      // OpenNext self-reference (cache revalidation); must match the worker name.
+      "binding": "WORKER_SELF_REFERENCE",
+      "service": "decoded-hiring-v2"
+    }
+  ],
   "d1_databases": [
     {
       "binding": "DB",
@@ -15,6 +30,48 @@
     {
       "binding": "MEDIA_BUCKET",
       "bucket_name": "decoded-hiring-local-media"
+    },
+    {
+      // OpenNext R2 incremental cache (ISR / revalidatePath).
+      "binding": "NEXT_INC_CACHE_R2_BUCKET",
+      "bucket_name": "decoded-hiring-local-next-cache"
     }
-  ]
+  ],
+
+  // PRODUCTION — not provisioned yet. Before the first deploy, replace every
+  // <PLACEHOLDER> with real resources (see Docs/Engineering/DEPLOYMENT.md).
+  // Bindings are not inherited by environments, so all of them are repeated.
+  "env": {
+    "production": {
+      "name": "decoded-hiring-v2",
+      "services": [
+        {
+          "binding": "WORKER_SELF_REFERENCE",
+          "service": "decoded-hiring-v2"
+        }
+      ],
+      "d1_databases": [
+        {
+          "binding": "DB",
+          "database_name": "<PROD_D1_DATABASE_NAME>",
+          "database_id": "<PROD_D1_DATABASE_ID>",
+          "migrations_dir": "drizzle/migrations"
+        }
+      ],
+      "r2_buckets": [
+        {
+          "binding": "MEDIA_BUCKET",
+          "bucket_name": "<PROD_MEDIA_BUCKET_NAME>"
+        },
+        {
+          "binding": "NEXT_INC_CACHE_R2_BUCKET",
+          "bucket_name": "<PROD_NEXT_CACHE_BUCKET_NAME>"
+        }
+      ],
+      "vars": {
+        "BETTER_AUTH_URL": "<PROD_SITE_URL>",
+        "NEXT_PUBLIC_SITE_URL": "<PROD_SITE_URL>"
+      }
+    }
+  }
 }

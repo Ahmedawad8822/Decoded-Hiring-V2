@@ -17,3 +17,5 @@ test-results/
 *.tsbuildinfo
 .worktrees/
 .claude/worktrees/
+.open-next/
+.dev.vars
