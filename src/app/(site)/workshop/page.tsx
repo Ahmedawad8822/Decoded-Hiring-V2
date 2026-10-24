@@ -3,9 +3,17 @@ import { ArrowUpRight } from "lucide-react";
 import Image from "next/image";
 
 import { WorkshopProgramme } from "@/components/products/workshop-programme";
+import { PublicScheduler } from "@/components/products/public-scheduler";
+import { TrackedOfferLink } from "@/components/products/tracked-offer-link";
 import { WorkshopSystemMap } from "@/components/products/workshop-system-map";
 import { LeadForm } from "@/features/leads/lead-form";
 import { publicMetadata } from "@/lib/seo";
+import { PUBLIC_OFFER_SLUGS } from "@/features/offers/catalog";
+import { resolveOfferPublicPresentation } from "@/features/offers/presentation";
+import { getOfferBySlugForKind } from "@/features/offers/service";
+import { resolvePublicSchedulingModel } from "@/features/scheduling/public-scheduling";
+
+export const dynamic = "force-dynamic";
 
 export const metadata = publicMetadata({
   title: "AI-Powered Recruitment Workshop | Ahmed Awad",
@@ -14,7 +22,21 @@ export const metadata = publicMetadata({
   path: "/workshop",
 });
 
-export default function WorkshopPage() {
+export default async function WorkshopPage() {
+  const offer = await getOfferBySlugForKind(PUBLIC_OFFER_SLUGS.workshop, "WORKSHOP");
+  const offerPresentation = offer
+    ? resolveOfferPublicPresentation(offer, {
+        freeHref: "#workshop-brief",
+        freeLabel: "Request a workshop conversation",
+        contactHref: "#workshop-brief",
+        contactLabel: "Request a workshop conversation",
+      })
+    : null;
+  const scheduling = await resolvePublicSchedulingModel({
+    offerSlug: PUBLIC_OFFER_SLUGS.workshop,
+    kind: "WORKSHOP",
+  });
+
   return (
     <article className="hg-page is-active">
       <section className="hg-section hg-product-hero hg-studio-mint hg-with-portrait">
@@ -33,14 +55,42 @@ export default function WorkshopPage() {
             <span>20 modules</span>
             <span>Private team or open cohort</span>
             <span>Live delivery</span>
+            {offerPresentation?.priceLabel && <span>{offerPresentation.priceLabel}</span>}
           </div>
           <div className="hg-actions">
-            <a className="hg-primary" href="#workshop-brief">
-              Bring this to my team <ArrowUpRight aria-hidden="true" />
-            </a>
-            <a className="hg-secondary" href="#workshop-brief">
+            {offer && !offerPresentation?.ctaHref ? (
+              <span className="hg-primary" aria-disabled="true">
+                Currently unavailable
+              </span>
+            ) : (
+              <TrackedOfferLink
+                className="hg-primary"
+                offerSlug={PUBLIC_OFFER_SLUGS.workshop}
+                route="/workshop"
+                surface="hero-primary"
+                target={scheduling.enabled ? "schedule" : "lead"}
+                href={
+                  scheduling.enabled
+                    ? "#workshop-schedule"
+                    : offerPresentation?.ctaHref ?? "#workshop-brief"
+                }
+              >
+                {scheduling.enabled
+                  ? "Choose a time"
+                  : offerPresentation?.ctaLabel ?? "Bring this to my team"}{" "}
+                <ArrowUpRight aria-hidden="true" />
+              </TrackedOfferLink>
+            )}
+            <TrackedOfferLink
+              className="hg-secondary"
+              offerSlug={PUBLIC_OFFER_SLUGS.workshop}
+              route="/workshop"
+              surface="hero-secondary"
+              target="lead"
+              href="#workshop-brief"
+            >
               Join the open-cohort list
-            </a>
+            </TrackedOfferLink>
           </div>
         </div>
         <figure className="hg-product-portrait hg-product-portrait--workshop">
@@ -101,6 +151,28 @@ export default function WorkshopPage() {
         </h2>
         <WorkshopProgramme />
       </section>
+
+      {scheduling.enabled && (
+        <section
+          className="hg-section hg-scheduling-stage"
+          id="workshop-schedule"
+        >
+          <div className="hg-scheduling-intro">
+            <p className="hg-kicker">Open scheduling route</p>
+            <h2 className="hg-title">Choose a configured conversation slot.</h2>
+            <p className="hg-body">
+              Team enquiries stay lead-first. This scheduler appears only when
+              the linked workshop Offer is explicitly configured for free,
+              automatic booking.
+            </p>
+          </div>
+          <PublicScheduler
+            model={scheduling}
+            fallbackHref="#workshop-brief"
+            fallbackLabel="Request a workshop conversation instead"
+          />
+        </section>
+      )}
 
       <section className="hg-section hg-form-stage" id="workshop-brief">
         <p className="hg-kicker">Start with your problem</p>

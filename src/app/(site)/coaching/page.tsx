@@ -2,8 +2,16 @@ import { ArrowDownRight, MoveUpRight, Route, ScanSearch } from "lucide-react";
 import Image from "next/image";
 
 import { CoachingDiagnostic } from "@/components/products/coaching-diagnostic";
+import { PublicScheduler } from "@/components/products/public-scheduler";
+import { TrackedOfferLink } from "@/components/products/tracked-offer-link";
 import { LeadForm } from "@/features/leads/lead-form";
 import { publicMetadata } from "@/lib/seo";
+import { PUBLIC_OFFER_SLUGS } from "@/features/offers/catalog";
+import { resolveOfferPublicPresentation } from "@/features/offers/presentation";
+import { getOfferBySlugForKind } from "@/features/offers/service";
+import { resolvePublicSchedulingModel } from "@/features/scheduling/public-scheduling";
+
+export const dynamic = "force-dynamic";
 
 export const metadata = publicMetadata({
   title: "Recruitment Decision Coaching | Ahmed Awad",
@@ -12,7 +20,21 @@ export const metadata = publicMetadata({
   path: "/coaching",
 });
 
-export default function CoachingPage() {
+export default async function CoachingPage() {
+  const offer = await getOfferBySlugForKind(PUBLIC_OFFER_SLUGS.coaching, "COACHING");
+  const offerPresentation = offer
+    ? resolveOfferPublicPresentation(offer, {
+        freeHref: "#hg-coaching-brief",
+        freeLabel: "Open a decision brief",
+        contactHref: "#hg-coaching-brief",
+        contactLabel: "Open a decision brief",
+      })
+    : null;
+  const scheduling = await resolvePublicSchedulingModel({
+    offerSlug: PUBLIC_OFFER_SLUGS.coaching,
+    kind: "COACHING",
+  });
+
   return (
     <article className="hg-page is-active">
       <section className="hg-section hg-product-hero hg-with-portrait hg-coaching-hero">
@@ -28,13 +50,34 @@ export default function CoachingPage() {
           </p>
           <div className="hg-product-meta">
             <span>One live case</span>
-            <span>Google Meet</span>
+            <span>Private live session</span>
             <span>Decision map included</span>
+            {offerPresentation?.priceLabel && <span>{offerPresentation.priceLabel}</span>}
           </div>
           <div className="hg-actions">
-            <a className="hg-primary" href="#hg-coaching-brief">
-              Open a decision brief <ArrowDownRight aria-hidden="true" />
-            </a>
+            {offer && !offerPresentation?.ctaHref ? (
+              <span className="hg-primary" aria-disabled="true">
+                Currently unavailable
+              </span>
+            ) : (
+              <TrackedOfferLink
+                className="hg-primary"
+                offerSlug={PUBLIC_OFFER_SLUGS.coaching}
+                route="/coaching"
+                surface="hero-primary"
+                target={scheduling.enabled ? "schedule" : "lead"}
+                href={
+                  scheduling.enabled
+                    ? "#hg-coaching-schedule"
+                    : offerPresentation?.ctaHref ?? "#hg-coaching-brief"
+                }
+              >
+                {scheduling.enabled
+                  ? "Choose a time"
+                  : offerPresentation?.ctaLabel ?? "Open a decision brief"}{" "}
+                <ArrowDownRight aria-hidden="true" />
+              </TrackedOfferLink>
+            )}
           </div>
         </div>
         <figure className="hg-product-portrait hg-product-portrait--coaching">
@@ -131,6 +174,28 @@ export default function CoachingPage() {
           </div>
         </div>
       </section>
+
+      {scheduling.enabled && (
+        <section
+          className="hg-section hg-scheduling-stage"
+          id="hg-coaching-schedule"
+        >
+          <div className="hg-scheduling-intro">
+            <p className="hg-kicker">Book the conversation</p>
+            <h2 className="hg-title">Choose a live slot without leaving the site.</h2>
+            <p className="hg-body">
+              These times come from the same scheduling rules that protect the
+              booking itself. If the configuration changes or another person
+              reaches a slot first, the server rechecks it before confirming.
+            </p>
+          </div>
+          <PublicScheduler
+            model={scheduling}
+            fallbackHref="#hg-coaching-brief"
+            fallbackLabel="Send a decision brief instead"
+          />
+        </section>
+      )}
 
       <section className="hg-section hg-coaching-brief" id="hg-coaching-brief">
         <div className="hg-coaching-brief-copy">

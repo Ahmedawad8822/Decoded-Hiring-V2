@@ -31,6 +31,7 @@ import type {
 import { hasLearnerAccess } from "@/features/enrollments/access";
 import { isUniqueConstraintError } from "@/lib/db/sqlite-errors";
 import { AppError } from "@/lib/errors";
+import { getOfferForCourse } from "@/features/offers/service";
 
 // ============================================================================
 // COURSES SERVICE (Mission 06)
@@ -146,6 +147,16 @@ export async function updateCourse(id: string, input: UpdateCourseInput): Promis
       .where(and(eq(courses.slug, input.slug), ne(courses.id, id)))
       .get();
     if (clash) throw new AppError("conflict", `A course with the slug "${input.slug}" already exists.`);
+  }
+
+  if (typeof input.accessMode !== "undefined" && input.accessMode !== current.accessMode) {
+    const linkedOffer = await getOfferForCourse(id);
+    if (linkedOffer) {
+      throw new AppError(
+        "conflict",
+        `Course access is owned by linked Offer "${linkedOffer.slug}". Update the Offer instead of the legacy course fallback.`,
+      );
+    }
   }
 
   const now = new Date();

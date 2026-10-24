@@ -5,11 +5,14 @@ import { getAdminCourseById } from "@/features/courses/service";
 import { hasLearnerAccess } from "./access";
 import { isUniqueConstraintError } from "@/lib/db/sqlite-errors";
 import { AppError } from "@/lib/errors";
+import { getEffectiveCourseAccessPolicy } from "@/features/offers/service";
 
 // ============================================================================
 // ENROLLMENTS SERVICE (Mission 06)
-// Only FREE published courses auto-enroll. Archived courses reject NEW
-// enrollments; existing learners keep access (no revocation here).
+// Only effectively-FREE published courses auto-enroll. A linked Mission 08.3
+// Offer is authoritative; courses without one retain Mission 06 accessMode as
+// a compatibility fallback. Archived courses reject NEW enrollments; existing
+// learners keep access (no revocation here).
 // ============================================================================
 
 export async function getEnrollment(userId: string, courseId: string): Promise<Enrollment | null> {
@@ -50,12 +53,22 @@ export async function enrollFree(userId: string, courseId: string): Promise<Enro
   if (course.status !== "published") {
     throw new AppError("invalid", "This course is not yet published and cannot be enrolled in.");
   }
-  if (course.accessMode !== "FREE") {
-    if (course.accessMode === "PAID_ONE_TIME") {
-      throw new AppError("invalid", "This course requires a one-time payment. Online checkout is not available yet — please contact us.");
+  const access = await getEffectiveCourseAccessPolicy(course);
+  if (!access.available) {
+    throw new AppError("invalid", "Enrollment is currently unavailable for this course.");
+  }
+  if (access.mode !== "FREE") {
+    if (access.mode === "PAID_ONE_TIME") {
+      throw new AppError(
+        "invalid",
+        "This course requires a one-time payment. Online checkout is not available yet — please use the configured alternative access path.",
+      );
     }
-    if (course.accessMode === "MANUAL_INVOICE") {
-      throw new AppError("invalid", "This course is enrolled by manual invoice. Please contact us to arrange access.");
+    if (access.mode === "MANUAL_INVOICE") {
+      throw new AppError("invalid", "This course is enrolled by manual invoice. Please use the configured access path.");
+    }
+    if (access.mode === "COMING_SOON") {
+      throw new AppError("invalid", "Enrollment for this course is coming soon.");
     }
     throw new AppError("invalid", "Enrollment is currently disabled for this course.");
   }
