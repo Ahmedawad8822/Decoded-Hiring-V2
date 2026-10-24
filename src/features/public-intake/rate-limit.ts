@@ -94,6 +94,13 @@ export async function consumeFixedWindowMs(params: {
   windowMs: number;
   maxCount: number;
 }): Promise<{ allowed: boolean; retryAfterMs: number }> {
+  // Pruning assumes no window outlives the retention; fail loudly instead of
+  // silently resetting a longer window's counter early.
+  if (params.windowMs > RATE_LIMIT_RETENTION_MS) {
+    throw new Error(
+      `Rate-limit window ${params.windowMs}ms exceeds RATE_LIMIT_RETENTION_MS (${RATE_LIMIT_RETENTION_MS}ms); raise the retention first.`
+    );
+  }
   const result = await consumeFixedWindowDecision(params);
   if (pruneSampler() < RATE_LIMIT_PRUNE_PROBABILITY) {
     await pruneAfterConsume(params.now);

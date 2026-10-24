@@ -239,3 +239,16 @@ test("a pruning failure is logged and never changes the consume decision", async
     "prune failure must be logged",
   );
 });
+
+test("windows longer than the pruning retention are rejected loudly", async () => {
+  await assert.rejects(
+    () =>
+      consumeFixedWindowMs({
+        scopeKey: "test:too-long-window",
+        now: new Date(),
+        windowMs: RATE_LIMIT_RETENTION_MS + 1,
+        maxCount: 1,
+      }),
+    /exceeds RATE_LIMIT_RETENTION_MS/,
+  );
+});
