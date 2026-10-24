@@ -1,0 +1,35 @@
+# Dependency audit triage
+
+Date: 2026-10-24 (branch `security/npm-audit`)
+
+| | Total | Critical | High | Moderate |
+|---|---|---|---|---|
+| Before | 22 | 1 | 11 | 10 |
+| After | 4 | 0 | 0 | 4 |
+
+"Runtime" = ships in the production Worker bundle. "Dev/build" = tooling only, never deployed.
+
+Key finding: the production `better-auth` (1.7.5) and `drizzle-orm` (0.45.2) were **not** vulnerable. The critical and drizzle-orm findings were
+for copies nested under `@better-auth/cli` (better-auth 1.4.22, drizzle-orm 0.41.0), a dev-only CLI that no script, source file or CI step uses.
+
+## Decisions
+
+| Package (advisory) | Sev | Scope | Vulnerable range -> fix | Exposure / decision |
+|---|---|---|---|---|
+| better-auth nested in @better-auth/cli 1.4.22 (GHSA-wxw3-q3m9-c3jr, 2vg6-77g8-24mp, 9h47-pqcx-hjr4, 86j7-9j95-vpqj, 7w99-5wm4-3g79, 392p-2q2v-4372, g38m-r43w-p2q7, fmh4-wcc4-5jm3, pw9m-5jxm-xr6h, qq9h-g4jm-xgf3) | critical | dev only (nested copy) | <1.6.22 -> n/a for CLI | Runtime better-auth is 1.7.5 (fixed). Removed `@better-auth/cli` (unused; latest 1.4.21/1.4.22 has no fix). |
+| @better-auth/cli | high | dev | no fix | Removed (unused). Re-add only if schema generation is needed, accepting findings. |
+| drizzle-orm 0.41.0 nested in cli (GHSA-gpj5-g38j-94v9, SQL identifier escaping) | high | dev only (nested) | <0.45.2 | Runtime drizzle-orm is 0.45.2 (fixed). Nested copy gone with CLI removal. |
+| lodash, chevrotain, @chevrotain/*, @mrleebo/prisma-ast (GHSA-r5fr-rjxr-66jc, f23m-r3pf-42rh, xxjr-mmjv-4gpg) | high/mod | dev (via cli) | - | Removed with CLI. |
+| zod (GHSA-mrhx-c7xc-m3w5, memory exhaustion on oversized constrained collections) | high | RUNTIME (direct, and better-auth copy) | <4.6.6 -> 4.6.7 | Bumped exact pin 4.4.3 -> 4.6.7 (published 2026-10-12, 12 days old). Same major. better-auth's nested 4.6.5 copy deduped to 4.6.7. Exposure: our schemas validate request bodies, so a large array/set with length constraints could hit it; upgraded regardless. |
+| source-map-js (GHSA-68fv-2mgg-jv7q, event-loop DoS via source-map sections) | high | build only (tailwind/postcss CSS pipeline) | <1.2.2 -> 1.2.2 | Not in Worker. `npm audit fix` bump 1.2.1 -> 1.2.2 (published 2026-09-30). |
+| undici 7.29.1 in miniflare (GHSA-4qv8-2p9j-2685, f72v-6w45-q472, xjj6-f33q-929c) | high | dev (wrangler local runtime) | <7.30.1 -> 7.30.1 | miniflare pins undici exactly (7.29.1) in every release, no parent fix. **Override** `"undici@7.29.1": "7.30.1"` (patch bump, published 2026-10-15, 9 days old). Remove once miniflare ships with undici >=7.30.1. @dotenvx's undici 6.29.1 is unaffected and untouched. |
+| miniflare, wrangler (via undici) | mod | dev | - | Cleared by the override. wrangler stays at 4.151.1. |
+| glob 10.3.3 in @node-minify/core (GHSA-5j98-mcp5-4vw2, CLI `-c` command injection) | high | build (OpenNext) | <10.5.0 -> 10.5.0 | @node-minify/core 9.0.2 pins glob exactly. **Override** `"@node-minify/core": {"glob": "10.5.0"}` (same major). Advisory concerns the glob CLI, which is not invoked. Remove once OpenNext moves off node-minify 9.0.2. |
+| @node-minify/core, @opennextjs/aws, @opennextjs/cloudflare | high | build | - | Cleared by the glob override. `npm audit`'s suggested fix (cloudflare 1.20.9) is a downgrade and was not applied. |
+| brace-expansion 1.1.18 / 5.0.10 (GHSA-q2hr-2g5m-vwhr, qhr7-859c-m2p7, 6j4f-fj2g-mc7p) | high | dev (eslint, typescript-eslint) | -> 1.1.21 / 5.0.12 | `npm audit fix` lockfile-only bump. |
+| esbuild 0.18.20, @esbuild-kit/core-utils, @esbuild-kit/esm-loader, drizzle-kit (GHSA-67mh-4wv8-2f99, dev-server request exposure) | moderate | dev only | no fix | **Remaining (4).** drizzle-kit 0.31.x still depends on the deprecated @esbuild-kit loader. Only exploitable against a running esbuild dev server, which drizzle-kit does not start. Suggested "fix" is a downgrade to drizzle-kit 0.18.1. Accepted; revisit on the next drizzle-kit release. |
+
+## Other changes
+
+- `jackspeak` 2.3.6 -> 3.4.3 and glob 10.3.3 -> 10.5.0 are transitive consequences of the glob override.
+- `npm audit fix --force` was not used. Unrelated bumps made by `npm audit fix` (wrangler 4.152.0, drizzle-kit 0.31.11) were reverted to the prior locked versions.
