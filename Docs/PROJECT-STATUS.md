@@ -18,7 +18,7 @@ Last updated: **2026-10-24**
 |---|---|
 | `main` | `e4e4a31`: Missions 01–07 merged (foundation, public site, Guides, Field Notes, Learning Platform, Website Editorial AI) |
 | Biggest pending item | **Mission 08 (Commerce & Scheduling)** is fully built and release-verified on `mission-08-commerce-scheduling` (454 commits ahead of `main`) but **not merged**: it awaits **Ahmed's explicit GO**. No PR to `main` exists yet. |
-| Open PRs to `main` | #14 security fixes, #15 CI workflow (CI green) |
+| Open PRs to `main` | #14 security fixes, #15 CI workflow (CI green), #16 this status doc |
 | Production | **Not deployed.** Local-only (Miniflare D1/R2). No deploy adapter, no real Cloudflare resources. |
 | Providers | All dormant by design: no payment, calendar, mailbox, meeting or analytics provider is active. |
 | Blueprint phase | Phases 1–6 built (Phase 5 still on its branch). **Phase 7 (Hardening & Growth) is next**, then Phase 8 (Launch). |
@@ -33,7 +33,7 @@ Last updated: **2026-10-24**
 | `mission-08-commerce-scheduling` | `main@e4e4a31` | **certified, awaiting GO** | Mission 08.1–08.8 integration branch (sub-PRs #7–#13 merged *into this branch*, not into `main`). See `Docs/Engineering/MISSION-08-COMMERCE-SCHEDULING.md` on that branch. |
 | `fix/security-quick-fixes` | `main` | PR [#14](https://github.com/Ahmedawad8822/Decoded-Hiring-V2/pull/14) open | Open-redirect fix, race-safe enrollment reconcile, typed public errors (`AppError`, `ActionResult`) across all actions incl. Mission 07 |
 | `ci/github-actions` | `main` | PR [#15](https://github.com/Ahmedawad8822/Decoded-Hiring-V2/pull/15) open, CI green | `.github/workflows/ci.yml` (lint, typecheck, unit tests, local migrations, build), `npm run db:migrate:local`, `typecheck` runs `next typegen` |
-| `docs/project-status` | `main` | this file | Project status / hand-off doc |
+| `docs/project-status` | `main` | PR [#16](https://github.com/Ahmedawad8822/Decoded-Hiring-V2/pull/16) open | This file + `AGENTS.md` pointer |
 | `decoded-hiring-v2/t_*-mission-08.1-*` (2) | — | stale | Early Mission 08.1 worktree branches, superseded by the integration branch. Safe to delete after Mission 08 merges. |
 | `mission-04*`, `mission-05*`, `mission-06*`, `mission-07*` | — | merged | Historical mission branches |
 
