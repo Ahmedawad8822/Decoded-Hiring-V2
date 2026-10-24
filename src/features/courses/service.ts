@@ -21,6 +21,10 @@ import {
 import type { ContentBlock } from "@/features/publishing/types";
 import { slugifyTitle } from "@/features/publishing/types";
 import { extractYouTubeVideoId } from "./youtube";
+import {
+  buildReleaseSlugStatement,
+  buildSlugChangeStatements,
+} from "@/features/slug-redirects/service";
 import type {
   CreateCourseInput,
   CreateLessonInput,
@@ -104,7 +108,10 @@ export async function createCourse(input: CreateCourseInput): Promise<Course> {
   const now = new Date();
   const id = newId("course");
   try {
-    await db.insert(courses).values({
+    // A new live course wins over any redirect that used this slug.
+    await db.batch([
+      buildReleaseSlugStatement(db, { entityType: "course", scope: "", slug }),
+      db.insert(courses).values({
       id,
       title: input.title,
       slug,
@@ -115,7 +122,8 @@ export async function createCourse(input: CreateCourseInput): Promise<Course> {
       createdAt: now,
       updatedAt: now,
       publishedAt: null,
-    });
+      }),
+    ]);
   } catch (error: unknown) {
     // The courses.slug UNIQUE index is the authoritative concurrency
     // backstop: the pre-check above cannot see a parallel insert. Only that
@@ -169,7 +177,18 @@ export async function updateCourse(id: string, input: UpdateCourseInput): Promis
   if (typeof input.coverImage !== "undefined") patch.coverImage = input.coverImage || null;
 
   try {
-    await db.update(courses).set(patch).where(eq(courses.id, id));
+    // Same batch (one D1 transaction): the UPDATE plus the old-slug redirect.
+    await db.batch([
+      db.update(courses).set(patch).where(eq(courses.id, id)),
+      ...buildSlugChangeStatements(db, {
+        entityType: "course",
+        entityId: id,
+        oldSlug: current.slug,
+        newSlug: patch.slug ?? current.slug,
+        everPublished: current.publishedAt !== null,
+        now,
+      }),
+    ]);
   } catch (error: unknown) {
     // Lost race on the courses.slug UNIQUE index: a parallel admin renamed
     // another course onto this slug between the pre-check and the UPDATE.
@@ -357,7 +376,10 @@ export async function createLesson(input: CreateLessonInput): Promise<Lesson> {
   const now = new Date();
   const id = newId("lesson");
   try {
-    await db.insert(lessons).values({
+    // A new live lesson wins over any redirect that used this slug.
+    await db.batch([
+      buildReleaseSlugStatement(db, { entityType: "lesson", scope: input.courseId, slug }),
+      db.insert(lessons).values({
       id,
       courseId: input.courseId,
       sectionId: input.sectionId,
@@ -371,7 +393,8 @@ export async function createLesson(input: CreateLessonInput): Promise<Lesson> {
       createdAt: now,
       updatedAt: now,
       publishedAt: null,
-    });
+      }),
+    ]);
   } catch (error: unknown) {
     // The lessons (course_id, slug) UNIQUE index is the authoritative
     // concurrency backstop: only that condition is converted to the same
@@ -415,7 +438,19 @@ export async function updateLesson(id: string, input: UpdateLessonInput): Promis
   if (typeof input.required !== "undefined") patch.required = input.required;
 
   try {
-    await db.update(lessons).set(patch).where(eq(lessons.id, id));
+    // Same batch (one D1 transaction): the UPDATE plus the old-slug redirect.
+    await db.batch([
+      db.update(lessons).set(patch).where(eq(lessons.id, id)),
+      ...buildSlugChangeStatements(db, {
+        entityType: "lesson",
+        scope: current.courseId,
+        entityId: id,
+        oldSlug: current.slug,
+        newSlug: patch.slug ?? current.slug,
+        everPublished: current.publishedAt !== null,
+        now,
+      }),
+    ]);
   } catch (error: unknown) {
     // Lost race on the lessons (course_id, slug) UNIQUE index: a parallel
     // admin created/renamed a lesson onto this slug between the pre-check

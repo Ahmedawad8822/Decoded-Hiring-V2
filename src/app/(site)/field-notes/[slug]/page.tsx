@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { notFound } from "next/navigation";
+import { notFound, permanentRedirect } from "next/navigation";
+import { resolveFieldNoteRedirect } from "@/features/slug-redirects/service";
 import { getPublicFieldNoteBySlug } from "@/features/field-notes/service";
 import { ContentBlock, estimateReadingTime } from "@/features/publishing/types";
 import { ContentBlockRenderer } from "@/components/publishing/ContentBlockRenderer";
@@ -49,6 +50,8 @@ export default async function PublicFieldNoteDetailPage(props: PageProps) {
   });
 
   if (!note) {
+    const target = await resolveFieldNoteRedirect(slug);
+    if (target) permanentRedirect(target);
     notFound();
   }
 

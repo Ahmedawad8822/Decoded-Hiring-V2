@@ -11,6 +11,10 @@ import {
 } from "@/features/publishing/lifecycle";
 import { isUniqueConstraintError } from "@/lib/db/sqlite-errors";
 import { AppError } from "@/lib/errors";
+import {
+  buildReleaseSlugStatement,
+  buildSlugChangeStatements,
+} from "@/features/slug-redirects/service";
 
 export async function getPublishedGuides(): Promise<Guide[]> {
   const db = await getDb();
@@ -70,7 +74,10 @@ export async function createGuide(input: CreateGuideInput): Promise<Guide> {
   const id = `guide_${crypto.randomUUID().slice(0, 12)}`;
 
   try {
-    await db.insert(guides).values({
+    // A new live guide wins over any redirect that used this slug.
+    await db.batch([
+      buildReleaseSlugStatement(db, { entityType: "guide", scope: "", slug: input.slug }),
+      db.insert(guides).values({
       id,
       title: input.title,
       slug: input.slug,
@@ -86,7 +93,8 @@ export async function createGuide(input: CreateGuideInput): Promise<Guide> {
       createdAt: now,
       updatedAt: now,
       publishedAt: null,
-    });
+      }),
+    ]);
   } catch (error: unknown) {
     // The guides.slug UNIQUE index is the authoritative concurrency
     // backstop: the pre-check above cannot see a parallel insert. Only that
@@ -143,7 +151,18 @@ export async function updateGuide(id: string, input: UpdateGuideInput): Promise<
   if (typeof input.metaDescription !== "undefined") updateData.metaDescription = input.metaDescription;
 
   try {
-    await db.update(guides).set(updateData).where(eq(guides.id, id));
+    // Same batch (one D1 transaction): the UPDATE plus the old-slug redirect.
+    await db.batch([
+      db.update(guides).set(updateData).where(eq(guides.id, id)),
+      ...buildSlugChangeStatements(db, {
+        entityType: "guide",
+        entityId: id,
+        oldSlug: current.slug,
+        newSlug: updateData.slug ?? current.slug,
+        everPublished: current.publishedAt !== null,
+        now,
+      }),
+    ]);
   } catch (error: unknown) {
     // Same race rule as create: only a lost slug-unique race converts to the
     // friendly domain error; unrelated DB errors propagate untouched.

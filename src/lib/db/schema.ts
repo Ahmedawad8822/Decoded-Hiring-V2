@@ -1069,3 +1069,30 @@ export type OrderHistory = typeof orderHistory.$inferSelect;
 export type PaymentEvent = typeof paymentEvents.$inferSelect;
 export type OrchestrationEffect = typeof orchestrationEffects.$inferSelect;
 export type OrchestrationHistory = typeof orchestrationHistory.$inferSelect;
+
+// ============================================================================
+// SLUG REDIRECTS
+// ----------------------------------------------------------------------------
+// Old slug of a once-published Guide / Field Note / Course / Lesson -> entity_id.
+// The destination is resolved at request time, so A -> B -> C lands on C.
+// scope = course id for lessons, "" otherwise. A live entity taking a slug
+// deletes the redirect row for it (live entity wins).
+// ============================================================================
+
+export type SlugRedirectEntityType = "guide" | "field_note" | "course" | "lesson";
+
+export const slugRedirects = sqliteTable(
+  "slug_redirects",
+  {
+    id: text("id").primaryKey(),
+    entityType: text("entity_type").$type<SlugRedirectEntityType>().notNull(),
+    scope: text("scope").notNull().default(""),
+    oldSlug: text("old_slug").notNull(),
+    entityId: text("entity_id").notNull(),
+    createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+  },
+  (table) => [
+    uniqueIndex("slug_redirects_lookup_unique").on(table.entityType, table.scope, table.oldSlug),
+    index("slug_redirects_entity_idx").on(table.entityType, table.entityId),
+  ]
+);
