@@ -16,8 +16,8 @@ Last updated: **2026-10-25**
 
 | | |
 |---|---|
-| `main` | `6f716f0`: **Missions 01–08, CI (verify, Playwright E2E with all 6 specs, Worker size budget), security fixes and CSP, hardening batches 1–4, deploy-path prep, Next 16.4.2.** Unit tests: 30 suites, each on its own throwaway D1/R2. Migrations through `0020_slug_redirects`. |
-| Open PRs to `main` | **Batch 5** (all green except #44, whose CI is running): [#40](https://github.com/Ahmedawad8822/Decoded-Hiring-V2/pull/40) supply-chain CI, [#41](https://github.com/Ahmedawad8822/Decoded-Hiring-V2/pull/41) image magic bytes, [#42](https://github.com/Ahmedawad8822/Decoded-Hiring-V2/pull/42) per-IP intake limits, [#43](https://github.com/Ahmedawad8822/Decoded-Hiring-V2/pull/43) static/ISR content pages, [#44](https://github.com/Ahmedawad8822/Decoded-Hiring-V2/pull/44) e2e stability, and this doc. Suggested merge order: #44, #40, #41, #42, #43, then this doc. They share only the `package.json` test line (#41, #42) and `SECURITY-THREAT-MODEL.md` (#41, #42), in different rows. |
+| `main` | `8ba9c11` (plus this doc): **Missions 01–08, CI (verify, Playwright E2E with all 6 specs, Worker size budget, npm audit; CodeQL on demand; Dependabot config), security fixes and CSP, hardening batches 1–5, deploy-path prep, Next 16.4.2.** Unit tests: 32 suites, each on its own throwaway D1/R2. Migrations through `0020_slug_redirects`. |
+| Open PRs to `main` | None |
 | Production | **Not deployed.** The OpenNext adapter and config are prepared and verified locally (`Docs/Engineering/DEPLOYMENT.md`). No real Cloudflare resources exist yet; `wrangler.jsonc → env.production` holds placeholders. |
 | Providers | All dormant by design: no payment, calendar, mailbox, meeting or analytics provider is active. |
 | Blueprint phase | Phases 1–6 built and on `main`. **Phase 7 (Hardening & Growth) is in progress** (CI merged; #14 open), then Phase 8 (Launch). |
@@ -28,7 +28,7 @@ Last updated: **2026-10-25**
 
 | Branch | Base | State | What it is |
 |---|---|---|---|
-| `main` | — | current | Missions 01–08, CI, security fixes + CSP, hardening batches 1–4, deploy-path prep, Next 16.4.2 |
+| `main` | — | current | Missions 01–08, CI, security fixes + CSP, hardening batches 1–5, deploy-path prep, Next 16.4.2 |
 | `hardening/*` (5) | — | merged (#18–#22) | Playwright CI, images, isolated test DB, progress maths, auth cache/admin gate |
 | `docs/context-and-dod` | — | merged ([#25](https://github.com/Ahmedawad8822/Decoded-Hiring-V2/pull/25)) | `Docs/CONTEXT.md` (41 terms, 12 ⚠ conflicts) and `Docs/DEFINITION-OF-DONE.md` |
 | `ci/worker-size-budget` | — | merged ([#26](https://github.com/Ahmedawad8822/Decoded-Hiring-V2/pull/26)) | CI job `worker-size`: fails above 2950 KiB gzip (`npm run cf:size`) |
@@ -45,12 +45,12 @@ Last updated: **2026-10-25**
 | `ci/all-e2e-specs` | — | merged ([#37](https://github.com/Ahmedawad8822/Decoded-Hiring-V2/pull/37)) | All 5 Playwright specs in CI; e2e timeout 40 min |
 | `security/csp` | — | merged ([#38](https://github.com/Ahmedawad8822/Decoded-Hiring-V2/pull/38)) | Static CSP header + `e2e/csp.spec.ts`; fixes anonymous `/learn` null-session crash |
 | `docs/status-batch-4` | — | merged (#39) | Status doc |
-| `ci/supply-chain-checks` | main | open ([#40](https://github.com/Ahmedawad8822/Decoded-Hiring-V2/pull/40)) | Dependabot (7-day cooldown, majors of the framework packages ignored), `audit.yml` (`npm audit --omit=dev --audit-level=high`), CodeQL **manual only** until code scanning/GHAS is enabled on the private repo |
-| `security/image-magic-bytes` | main | open ([#41](https://github.com/Ahmedawad8822/Decoded-Hiring-V2/pull/41)) | `lib/uploads/sniff.ts`; `uploadMedia` rejects bytes that don't match the declared type and stores the sniffed type (G11) |
-| `security/per-ip-intake-limits` | main | open ([#42](https://github.com/Ahmedawad8822/Decoded-Hiring-V2/pull/42)) | Salted per-IP buckets for lead 10, booking 8 and analytics 20 per 15 min, checked before the shared counters (G6) |
-| `perf/static-content-pages` | main | open ([#43](https://github.com/Ahmedawad8822/Decoded-Hiring-V2/pull/43)) | `/guides/[slug]` and `/field-notes/[slug]` ISR; `/contact`, `/mission-01` and `/ai-recruiter-os` static; `?preview=true` rewritten to dynamic `/preview/...`; revalidation on rename, editorial publish and offers |
-| `ci/e2e-stability` | main | open ([#44](https://github.com/Ahmedawad8822/Decoded-Hiring-V2/pull/44)) | mission-07 drops from 3.4 min to 25 s (the old helper's 15 s dead waits); no `networkidle` |
-| `docs/status-batch-5` | main | open | Status doc |
+| `ci/supply-chain-checks` | — | merged ([#40](https://github.com/Ahmedawad8822/Decoded-Hiring-V2/pull/40)) | Dependabot (7-day cooldown, majors of the framework packages ignored), `audit.yml` (`npm audit --omit=dev --audit-level=high`), CodeQL **manual only** until code scanning/GHAS is enabled on the private repo |
+| `security/image-magic-bytes` | — | merged ([#41](https://github.com/Ahmedawad8822/Decoded-Hiring-V2/pull/41)) | `lib/uploads/sniff.ts`; `uploadMedia` rejects bytes that don't match the declared type and stores the sniffed type (G11) |
+| `security/per-ip-intake-limits` | — | merged ([#42](https://github.com/Ahmedawad8822/Decoded-Hiring-V2/pull/42)) | Salted per-IP buckets for lead 10, booking 8 and analytics 20 per 15 min, checked before the shared counters (G6) |
+| `perf/static-content-pages` | — | merged ([#43](https://github.com/Ahmedawad8822/Decoded-Hiring-V2/pull/43)) | `/guides/[slug]` and `/field-notes/[slug]` ISR; `/contact`, `/mission-01` and `/ai-recruiter-os` static; `?preview=true` rewritten to dynamic `/preview/...`; revalidation on rename, editorial publish and offers |
+| `ci/e2e-stability` | — | merged ([#44](https://github.com/Ahmedawad8822/Decoded-Hiring-V2/pull/44)) | mission-07 drops from 3.4 min to 25 s (the old helper's 15 s dead waits); no `networkidle` |
+| `docs/status-batch-5` | — | merged (#45) | Status doc |
 | `chore/status-hardening-batch` | — | merged (#23) | Status doc; git/eslint ignore `.claude/` |
 | `deploy/opennext-cloudflare` | — | merged ([#24](https://github.com/Ahmedawad8822/Decoded-Hiring-V2/pull/24)) | `@opennextjs/cloudflare@1.20.9`, `getCloudflareContext()` bindings with local fallback, `wrangler.jsonc` local + `env.production` placeholders, R2 incremental cache, deploy scripts, `DEPLOYMENT.md` |
 | `docs/project-status` | — | merged (#16) | This file + `AGENTS.md` pointer |
@@ -125,21 +125,21 @@ Take the top unblocked item. Move items, don't delete them silently.
    - ~~CI runs 3 of 5 Playwright specs~~ (done, #37).
    - ~~22 npm audit advisories~~ (done, #36). 4 moderate dev-only remain; remove the 2 `overrides` when miniflare and `@node-minify/core` update (`Docs/Engineering/DEPENDENCY-AUDIT.md`).
    - **CI stability:**
-     - ~~mission-07 e2e slow and flaky~~ (#44, pending merge).
+     - ~~mission-07 e2e slow and flaky~~ (done, #44).
      - The dev server logs `workerd … Failed to get handler to worker` during e2e, probably the
        `WORKER_SELF_REFERENCE` service binding that has no running worker locally. Harmless so far.
        #44 confirmed that only OpenNext's ISR queue calls it, and the log line shows up only on Linux CI. Next step: a
        throwaway-branch experiment on Linux CI with the top-level binding removed (keep it for `npm run preview`).
    - Check one lesson with a real YouTube video under the CSP in staging (the seed has none).
    - **From the threat model (#33), not yet scheduled:**
-     - ~~Public intake limits aren't per-IP~~ (#42, pending merge).
-     - ~~Image uploads trust the client MIME type~~ (#41, pending merge).
+     - ~~Public intake limits aren't per-IP~~ (done, #42).
+     - ~~Image uploads trust the client MIME type~~ (done, #41).
      - The admin audit trail is partial (Guide/Field Note/Course/Lesson/media/offer mutations).
      - No 2FA or passkeys for admin; a single flat `admin` role.
-     - ~~No Dependabot/CodeQL/`npm audit` in CI~~ (#40, pending merge). Ahmed has to enable Dependabot in repo settings, and code scanning/GHAS if he wants CodeQL on PRs.
+     - ~~No Dependabot/CodeQL/`npm audit` in CI~~ (done, #40). Ahmed has to enable Dependabot in repo settings, and code scanning/GHAS if he wants CodeQL on PRs.
      - Course PDFs stream with no signed URLs.
    - **From the performance budget (#33):**
-     - ~~Dynamic `searchParams` pages and unneeded `force-dynamic`~~ (#43, pending merge). `/coaching` and `/workshop` stay dynamic (live slots). Check ISR with the R2 cache in staging.
+     - ~~Dynamic `searchParams` pages and unneeded `force-dynamic`~~ (done, #43). `/coaching` and `/workshop` stay dynamic (live slots). Check ISR with the R2 cache in staging.
      - No Lighthouse/CWV/geo-TTFB measurement yet.
    - Performance budget: ~~hero PNGs → WebP~~ (done, #19). Still to do: a `next/image` loader for Cloudflare, and Lighthouse/bundle checks in CI.
    - Hygiene: ticket-reference comments ("review correction H"), 9.4k lines of global CSS, `prototypes/` and the `.docx` in git, ~10 GB of local `.worktrees/`. Subagent worktrees under `.claude/worktrees/` can be removed with `git worktree remove` once their PRs merge.
@@ -207,7 +207,11 @@ Newest first. One entry per task: date, what changed, branch/PR, what's next.
     - CodeQL is limited to manual runs on #40, because the repo is private.
     - Threat-model rows G6 and G11 are updated on #42 and #41.
   - #42 passed the full Playwright suite, even though every local request shares the `unknown` IP bucket.
-  - Next: merge in the §1 order, then remove the worktrees.
+  - Merged in order, each updated from `main` and green on GitHub first: #44 (`6ca3b5f`), #40 (`08c774c`), #41 (`dedd6a4`), #42 (`4a7c933`), #43 (`8ba9c11`), then this doc (#45).
+  - The whole Playwright CI job dropped from ~10 min to 5.5–8 min.
+  - The `update-merge-wait.sh` helper now waits on the `ci.yml` run. The new `audit.yml` run finishes first and was being picked up instead.
+  - Subagent worktrees removed. No open PRs.
+  - Next: Ahmed's first-deploy decisions. Agent backlog: admin audit trail, admin 2FA, signed PDF URLs, the `WORKER_SELF_REFERENCE` Linux experiment, Trash lifecycle, and the remaining Phase 0 docs.
 
 - **2026-10-25.** Merged batch 4 in order: #33 (`2efc86d`), #36 (`08d476b`), #34 (`448440d`),
   #35 (`96d9fc9`), #37 (`a1b8fe5`), #38 (`217784a`), then this doc (#39). Each was updated
