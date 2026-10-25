@@ -23,7 +23,7 @@ jobs:
       BETTER_AUTH_SECRET: ci-only-not-a-real-secret-0123456789abcdef
       NEXT_TELEMETRY_DISABLED: "1"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: actions/setup-node@v4
         with:
@@ -68,7 +68,7 @@ jobs:
       ADMIN_INITIAL_NAME: Ahmed Awad
       NEXT_TELEMETRY_DISABLED: "1"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: actions/setup-node@v4
         with:
@@ -107,7 +107,7 @@ jobs:
       # Workers Free limit is 3072 KiB gzipped; fail a little below it.
       WORKER_GZIP_BUDGET_KIB: "2950"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: actions/setup-node@v4
         with:
