@@ -58,10 +58,16 @@ export async function updateGuideAction(
       };
     }
 
+    // /guides/[slug] is static/ISR: a rename must also drop the cached page
+    // at the OLD slug so it re-renders as a 308 to the new one.
+    const before = await guideService.getAdminGuideById(parsed.data.id);
     const updated = await guideService.updateGuide(parsed.data.id, parsed.data);
 
     revalidatePath("/guides");
     revalidatePath(`/guides/${updated.slug}`);
+    if (before && before.slug !== updated.slug) {
+      revalidatePath(`/guides/${before.slug}`);
+    }
     revalidatePath("/admin/content");
 
     return {

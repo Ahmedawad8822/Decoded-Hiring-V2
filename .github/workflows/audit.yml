@@ -1,0 +1,33 @@
+name: Dependency audit
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "41 5 * * 1" # weekly: catch new advisories on an unchanged tree
+
+concurrency:
+  group: audit-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  npm-audit:
+    name: npm audit (production, high+)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # Fails on high/critical advisories in production dependencies only.
+      # Known dev-tooling moderates (see Docs/Engineering/DEPENDENCY-AUDIT.md)
+      # are below the threshold and do not fail the job.
+      - name: npm audit
+        run: npm audit --omit=dev --audit-level=high

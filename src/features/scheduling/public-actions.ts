@@ -14,6 +14,7 @@ import {
   recoverAutoConfirmBooking,
   recoverBookingByRequestKey,
 } from "@/features/scheduling/bookings";
+import { getRequestClientIpHash } from "@/features/public-intake/rate-limit";
 import {
   consumePublicBookingAdmission,
   resolvePublicBookableSlot,
@@ -267,6 +268,7 @@ export async function submitPublicBooking(
   const admitted = await consumePublicBookingAdmission({
     bookingTypeId: bookable.model.bookingTypeId,
     requesterEmail: parsed.data.requesterEmail,
+    clientIpHash: await getRequestClientIpHash(),
     now,
   });
   if (!admitted) {

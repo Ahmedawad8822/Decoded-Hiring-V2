@@ -43,7 +43,11 @@ for (const route of routes) {
     expect(csp).toContain("frame-ancestors 'self'");
     expect(csp).toContain("frame-src https://www.youtube-nocookie.com");
 
-    await page.waitForLoadState("networkidle");
+    // page.goto already waited for "load"; networkidle is discouraged by Playwright
+    // and flaky with dev-server HMR connections. Settle on a paint instead.
+    await page.evaluate(
+      () => new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r()))),
+    );
     const violations = await page.evaluate(
       () => (window as unknown as CspWindow).__cspViolations,
     );

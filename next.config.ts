@@ -62,6 +62,28 @@ const nextConfig: NextConfig = {
   poweredByHeader: false,
   reactStrictMode: true,
   serverExternalPackages: ["wrangler", "miniflare", "esbuild"],
+  // Staff preview (?preview=true) must read the session, which would make the
+  // public article routes dynamic. Rewrite it to dedicated dynamic routes so
+  // /guides/[slug] and /field-notes/[slug] stay static/ISR. The browser URL
+  // is unchanged. beforeFiles so it wins over the dynamic segment.
+  async rewrites() {
+    return {
+      beforeFiles: [
+        {
+          source: "/guides/:slug",
+          has: [{ type: "query" as const, key: "preview", value: "true" }],
+          destination: "/preview/guides/:slug",
+        },
+        {
+          source: "/field-notes/:slug",
+          has: [{ type: "query" as const, key: "preview", value: "true" }],
+          destination: "/preview/field-notes/:slug",
+        },
+      ],
+      afterFiles: [],
+      fallback: [],
+    };
+  },
   async headers() {
     return [
       {
