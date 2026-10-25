@@ -1,6 +1,7 @@
 import { getR2Bucket } from "../cloudflare/bindings";
 import { getDb, media } from "../db";
 import { AppError } from "@/lib/errors";
+import { sniffImageType } from "@/lib/uploads/sniff";
 
 const ALLOWED_MIME_TYPES: Record<string, string> = {
   "image/jpeg": "jpg",
@@ -91,8 +92,7 @@ export async function uploadMedia(
 
   // 1. Validate content type
   const normalizedType = contentType.toLowerCase().trim();
-  const ext = ALLOWED_MIME_TYPES[normalizedType];
-  if (!ext) {
+  if (!ALLOWED_MIME_TYPES[normalizedType]) {
     throw new AppError("invalid",
       `Unsupported media type "${contentType}". Supported types: ${Object.keys(ALLOWED_MIME_TYPES).join(", ")}`
     );
@@ -104,6 +104,14 @@ export async function uploadMedia(
     throw new AppError("invalid", `File size (${(size / 1024 / 1024).toFixed(2)} MB) exceeds maximum limit of 5 MB.`);
   }
 
+  // 2b. Verify the REAL type from magic bytes. The declared MIME is untrusted:
+  // it must match what the bytes say, and the sniffed type is what we store.
+  const sniffedType = sniffImageType(buffer);
+  if (!sniffedType || sniffedType !== normalizedType) {
+    throw new AppError("invalid", "File content does not match an allowed image type.");
+  }
+  const ext = ALLOWED_MIME_TYPES[sniffedType];
+
   // 3. Generate safe canonical storage key (Never trust client filename as storage path)
   const safeId = crypto.randomUUID();
   const key = `${namespace}/${safeId}.${ext}`;
@@ -112,7 +120,7 @@ export async function uploadMedia(
   const bucket = deps?.bucket ?? (await getR2Bucket());
   await bucket.put(key, buffer, {
     httpMetadata: {
-      contentType: normalizedType,
+      contentType: sniffedType,
     },
   });
 
@@ -137,7 +145,7 @@ export async function uploadMedia(
     id: safeId,
     key,
     filename: filename.replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 100),
-    contentType: normalizedType,
+    contentType: sniffedType,
     size,
     uploadedBy: uploadedBy || null,
     createdAt: new Date(),
@@ -158,7 +166,7 @@ export async function uploadMedia(
     key,
     url: `/api/media/${key}`,
     filename,
-    contentType: normalizedType,
+    contentType: sniffedType,
     size,
   };
 }
