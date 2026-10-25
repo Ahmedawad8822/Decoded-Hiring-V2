@@ -10,7 +10,7 @@ Blueprint §9 ("Flashlight Speed" as a budget) and §18.9 (free-first guardrails
 | INP (mobile p75) | <= 200 ms | Not measured | No |
 | CLS | <= 0.05 | Not measured | No |
 | Cached public TTFB | < 200 ms from target markets | Not measured | No |
-| Public DB reads on a cache hit | 0 where practical | Static routes: 0 at request time (see section 3). Dynamic public routes read D1 | No |
+| Public DB reads on a cache hit | 0 where practical | Static and ISR routes: 0 at request time (see section 3). Dynamic public routes (`/coaching`, `/workshop`, preview) read D1 | No |
 | Initial JS | Aggressively small | See section 4 | No |
 | Images | Responsive, modern formats, correct dimensions, lazy below the fold | See section 5 | No |
 | Third-party scripts | No render-blocking analytics/marketing | None found in `src` (no `<script>` except JSON-LD in `src/lib/seo.tsx`; no external font/CSS import found) | By absence only |
@@ -46,15 +46,19 @@ Static (○) means served from prerender/cache with no D1 read at request time. 
 
 | Type | Routes |
 |---|---|
-| ○ Static | `/`, `/about`, `/cookies`, `/field-notes`, `/guides`, `/login`, `/privacy`, `/programmes`, `/robots.txt`, `/signup`, `/terms`, `/_not-found` |
-| ƒ Dynamic public | `/ai-recruiter-os`, `/coaching`, `/mission-01`, `/workshop` (all four are `force-dynamic`), `/contact`, `/guides/[slug]`, `/field-notes/[slug]`, `/sitemap.xml`, `/api/*` |
+| ○ Static | `/`, `/about`, `/contact`, `/cookies`, `/field-notes`, `/guides`, `/login`, `/privacy`, `/programmes`, `/robots.txt`, `/signup`, `/terms`, `/_not-found` |
+| ○ Static, timed ISR (`revalidate = 300`) | `/mission-01`, `/ai-recruiter-os` |
+| ● ISR on demand (`generateStaticParams` returns `[]`, `revalidate = 3600`) | `/guides/[slug]`, `/field-notes/[slug]` |
+| ƒ Dynamic public | `/coaching`, `/workshop` (`force-dynamic`, live scheduling), `/preview/guides/[slug]`, `/preview/field-notes/[slug]` (staff preview, session read), `/sitemap.xml`, `/api/*` |
 | ƒ Dynamic private | `/admin/*` (all, plus `/admin/login`), `/learn`, `/learn/courses`, `/learn/courses/[courseSlug]`, `/learn/courses/[courseSlug]/lessons/[lessonSlug]` |
 
 Observations:
 - `/guides` and `/field-notes` are ○ but are **prerendered from the build machine's D1** and refreshed by `revalidatePath()` on publish (R2 incremental cache). They need a revalidation strategy before launch (DEPLOYMENT.md).
-- `/guides/[slug]` and `/field-notes/[slug]` are ƒ: every article view reads D1. Making them cacheable (ISR or `generateStaticParams`) is the largest available lever for the "0 DB reads on a cache hit" rule.
-- The offer pages (`/coaching`, `/workshop`, `/ai-recruiter-os`, `/mission-01`) are `force-dynamic` because they read the offer catalog from D1; a short `revalidate` would be the cached alternative (proposal, not built).
-- `/contact`, `/guides/[slug]` and `/field-notes/[slug]` are ƒ because they await `searchParams` (`?reason=`, `?preview=`), which opts the route out of static rendering. Moving preview handling elsewhere would allow caching (proposal).
+- `/guides/[slug]` and `/field-notes/[slug]` no longer read `searchParams`. They render the published article only, cache in the R2 incremental cache and are refreshed by `revalidatePath("/guides/<slug>")` on create, edit, publish, unpublish and archive (Studio actions), on a slug **rename** (the old slug is revalidated too so it becomes a 308), and on editorial-AI publish (`publishDraftAction`). `revalidate = 3600` is only a safety net. Slug redirects (`permanentRedirect` from `slug_redirects`) and 404s for unpublished content still run inside the cached render; 404s are not cached (`no-store`), 308s and 200s are.
+- Staff preview (`?preview=true`) is rewritten in `next.config.ts` (`beforeFiles`, matches `has: query preview=true`) to `/preview/guides/[slug]` and `/preview/field-notes/[slug]`, which are `force-dynamic`, read the session, return 404 to anyone who is not an admin, and are `noindex`. The browser URL is unchanged. Verified with `opennextjs-cloudflare preview`: published article `x-nextjs-cache: MISS` then `HIT`; `?preview=true` is `private, no-store`.
+- `/contact` reads `?reason=` in a client component (`useSearchParams` inside `<Suspense>`), which only selects the form variant and the `audiencePath` bound into the `submitLead` action (server-validated, max 80 chars). The static fallback is the generic contact form.
+- `/mission-01` and `/ai-recruiter-os` were `force-dynamic` only because they read the offer row; there is no per-request input, so they are ISR (`revalidate = 300`) and `refreshCommerce()` revalidates them on every Studio offer or booking-type change.
+- `/coaching` and `/workshop` stay `force-dynamic` on purpose: `resolvePublicSchedulingModel()` reads live availability windows, bookings and slot holds relative to the current time and (when a calendar provider is configured) checks provider availability. A cached copy would show stale or taken slots. Making them cacheable would mean moving the slot picker into a client component that fetches slots from an API route (proposal, not built).
 
 ## 4. Client JavaScript (approximate, gzip)
 

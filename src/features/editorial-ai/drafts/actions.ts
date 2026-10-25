@@ -11,6 +11,8 @@
 
 import { revalidatePath } from "next/cache";
 import { requireAdmin } from "@/lib/auth";
+import { getAdminGuideById } from "@/features/guides/service";
+import { getAdminFieldNoteById } from "@/features/field-notes/service";
 import { toActionResult } from "@/lib/action-result";
 import {
   generateDraft,
@@ -117,6 +119,16 @@ export async function publishDraftAction(id: string) {
   return toActionResult(async () => {
     const session = await requireAdmin();
     const result = await publishDraft(id, session.user.id);
+    // Editorial publish creates and publishes a Guide / Field Note directly via
+    // the services, so the public list and the (ISR) article page must be
+    // revalidated here too.
+    const published =
+      result.entityType === "guide"
+        ? await getAdminGuideById(result.entityId)
+        : await getAdminFieldNoteById(result.entityId);
+    const base = result.entityType === "guide" ? "/guides" : "/field-notes";
+    revalidatePath(base);
+    if (published) revalidatePath(`${base}/${published.slug}`);
     revalidatePath(`/admin/editorial/${id}`);
     revalidatePath("/admin/editorial");
     revalidatePath("/admin/content");

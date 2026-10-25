@@ -13,6 +13,9 @@ import { resolveOfferPublicPresentation } from "@/features/offers/presentation";
 import { getOfferBySlugForKind } from "@/features/offers/service";
 import { resolvePublicSchedulingModel } from "@/features/scheduling/public-scheduling";
 
+// force-dynamic is required: resolvePublicSchedulingModel() reads live
+// availability, bookings and slot holds relative to "now". Caching it would
+// show stale or already-taken slots.
 export const dynamic = "force-dynamic";
 
 export const metadata = publicMetadata({
