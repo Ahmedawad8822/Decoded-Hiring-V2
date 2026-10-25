@@ -50,7 +50,7 @@
     "eslint-config-next": "16.4.2",
     "playwright": "^1.63.0",
     "tailwindcss": "4.3.3",
-    "typescript": "6.0.3",
+    "typescript": "7.0.2",
     "wrangler": "^4.151.1"
   },
   "overrides": {
