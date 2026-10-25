@@ -3,6 +3,7 @@
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 
+import { getRequestClientIpHash } from "@/features/public-intake/rate-limit";
 import { createLeadSubmission, LeadDomainError } from "./service";
 import type { LeadActionState, LeadSubmissionKind } from "./types";
 
@@ -174,6 +175,7 @@ export async function submitLead(
 
   try {
     await createLeadSubmission({
+      clientIpHash: await getRequestClientIpHash(),
       idempotencyKey: parsed.data.idempotencyKey,
       kind: parsed.data.kind,
       fullName: parsed.data.fullName,

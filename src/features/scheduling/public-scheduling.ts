@@ -22,7 +22,9 @@ import { getDb } from "@/lib/db";
 import { getOfferBySlugForKind } from "@/features/offers/service";
 import {
   anonymousRateLimitFingerprint,
+  PUBLIC_IP_LIMITS,
   consumePublicFixedWindowLimit,
+  consumePublicIpLimit,
 } from "@/features/public-intake/rate-limit";
 import {
   UnconfiguredCommerceSchedulingProviders,
@@ -221,6 +223,8 @@ async function listAvailableSlots(params: {
 export async function consumePublicBookingAdmission(params: {
   bookingTypeId: string;
   requesterEmail: string;
+  /** Salted client-IP hash; per-IP limit skipped when absent. */
+  clientIpHash?: string | null;
   now?: Date;
   windowMinutes?: number;
   maxBookings?: number;
@@ -238,6 +242,16 @@ export async function consumePublicBookingAdmission(params: {
   // budget is already exhausted, only this requester's own quota is spent.
   // Both counters are atomic D1 UPSERTs, so parallel callers cannot all pass
   // a stale SELECT count before their booking writes commit.
+  // The per-IP bucket comes before both, so an abusive IP spends neither the
+  // requester's nor the shared booking-type budget.
+  if (params.clientIpHash) {
+    const ipAllowed = await consumePublicIpLimit({
+      ipHash: params.clientIpHash,
+      limit: PUBLIC_IP_LIMITS.booking,
+      now,
+    });
+    if (!ipAllowed) return false;
+  }
   const emailFingerprint = await anonymousRateLimitFingerprint(
     params.requesterEmail,
   );
