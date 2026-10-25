@@ -6,7 +6,12 @@ import { PUBLIC_OFFER_SLUGS } from "@/features/offers/catalog";
 import { resolveOfferPublicPresentation } from "@/features/offers/presentation";
 import { getOfferBySlugForKind } from "@/features/offers/service";
 
-export const dynamic = "force-dynamic";
+// ISR, not force-dynamic: the only data is the offer row (access mode, price,
+// active flag), which has no per-request input. Studio offer edits call
+// revalidatePath("/mission-01") (features/commerce/admin-actions.ts); the time-based
+// revalidate covers a build whose D1 differs from production and any direct
+// DB edit.
+export const revalidate = 300;
 
 export const metadata = publicMetadata({
   path: "/mission-01",

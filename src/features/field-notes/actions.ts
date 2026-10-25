@@ -13,9 +13,14 @@ export type ActionState<T = unknown> = {
   error?: string;
 };
 
-function revalidateFieldNotes(slug: string) {
+function revalidateFieldNotes(slug: string, previousSlug?: string) {
   revalidatePath("/field-notes");
   revalidatePath(`/field-notes/${slug}`);
+  // /field-notes/[slug] is static/ISR: after a rename the cached page at the
+  // OLD slug must re-render as a 308 to the new one.
+  if (previousSlug && previousSlug !== slug) {
+    revalidatePath(`/field-notes/${previousSlug}`);
+  }
   revalidatePath("/admin/content");
 }
 
@@ -63,11 +68,12 @@ export async function updateFieldNoteAction(
       };
     }
 
+    const before = await fieldNoteService.getAdminFieldNoteById(parsed.data.id);
     const updated = await fieldNoteService.updateFieldNote(parsed.data.id, parsed.data, {
       createdBy: session.user.id,
     });
 
-    revalidateFieldNotes(updated.slug);
+    revalidateFieldNotes(updated.slug, before?.slug);
 
     return {
       ok: true,

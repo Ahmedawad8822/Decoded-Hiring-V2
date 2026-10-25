@@ -20,6 +20,9 @@ function refreshCommerce() {
   revalidatePath("/admin/commerce");
   revalidatePath("/coaching");
   revalidatePath("/workshop");
+  // ISR offer pages (offer row is their only data source).
+  revalidatePath("/mission-01");
+  revalidatePath("/ai-recruiter-os");
   revalidatePath("/admin/courses");
 }
 
