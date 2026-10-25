@@ -1,0 +1,35 @@
+name: CodeQL
+
+# The repo is private: uploading results needs GitHub Advanced Security
+# (code scanning). Until Ahmed enables it, this runs only on demand. Once
+# enabled, restore: push/pull_request to main and a weekly schedule
+# (cron "23 4 * * 1").
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: codeql-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  analyze:
+    name: Analyze (javascript-typescript)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: github/codeql-action/init@v4
+        with:
+          languages: javascript-typescript
+          build-mode: none
+
+      - uses: github/codeql-action/analyze@v4
+        with:
+          category: "/language:javascript-typescript"
