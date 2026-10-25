@@ -128,6 +128,7 @@ Take the top unblocked item. Move items, don't delete them silently.
    - ~~22 npm audit advisories~~ (done, #36). 4 moderate dev-only remain; remove the 2 `overrides` when miniflare and `@node-minify/core` update (`Docs/Engineering/DEPENDENCY-AUDIT.md`).
    - **CI stability:**
      - ~~mission-07 e2e slow and flaky~~ (done, #44).
+     - `mission-06-learning-platform` flaked once on #53. "✓ Completed" never appeared after "Mark lesson complete", probably the same lost-click-before-hydration race #44 fixed in mission-07; it passed on `main` with the same code. Apply #44's `clickAction` hydration wait to mission-06's action clicks.
      - The dev server logs `workerd … Failed to get handler to worker` during e2e, probably the
        `WORKER_SELF_REFERENCE` service binding that has no running worker locally. Harmless so far.
        #44 confirmed that only OpenNext's ISR queue calls it, and the log line shows up only on Linux CI. Next step: a
