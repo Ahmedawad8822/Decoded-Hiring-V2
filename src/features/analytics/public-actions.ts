@@ -3,9 +3,33 @@
 import { z } from "zod";
 
 import { getPublicOfferBySlug } from "@/features/offers/service";
-import { consumePublicFixedWindowLimit } from "@/features/public-intake/rate-limit";
+import {
+  PUBLIC_IP_LIMITS,
+  consumePublicFixedWindowLimit,
+  consumePublicIpLimit,
+  getRequestClientIpHash,
+} from "@/features/public-intake/rate-limit";
 import { recordBusinessEventBestEffort } from "./service";
 import { PUBLIC_ANALYTICS_BUDGET } from "./types";
+
+/** Per-IP bucket first, then the shared budget; false => drop the event. */
+async function admitPublicAnalytics(now: Date): Promise<boolean> {
+  const ipHash = await getRequestClientIpHash();
+  if (ipHash) {
+    const ipAllowed = await consumePublicIpLimit({
+      ipHash,
+      limit: PUBLIC_IP_LIMITS.analytics,
+      now,
+    });
+    if (!ipAllowed) return false;
+  }
+  return consumePublicFixedWindowLimit({
+    scopeKey: PUBLIC_ANALYTICS_BUDGET.scopeKey,
+    now,
+    windowMinutes: PUBLIC_ANALYTICS_BUDGET.windowMinutes,
+    maxCount: PUBLIC_ANALYTICS_BUDGET.maxCount,
+  });
+}
 
 const offerCtaSchema = z.object({
   eventKey: z.string().uuid(),
@@ -26,13 +50,7 @@ export async function recordPublicOfferCta(input: unknown): Promise<void> {
   if (!routeMatchesKind) return;
 
   const now = new Date();
-  const admitted = await consumePublicFixedWindowLimit({
-    scopeKey: PUBLIC_ANALYTICS_BUDGET.scopeKey,
-    now,
-    windowMinutes: PUBLIC_ANALYTICS_BUDGET.windowMinutes,
-    maxCount: PUBLIC_ANALYTICS_BUDGET.maxCount,
-  });
-  if (!admitted) return;
+  if (!(await admitPublicAnalytics(now))) return;
 
   await recordBusinessEventBestEffort({
     dedupeKey: `public-cta:${parsed.eventKey}`,
@@ -72,13 +90,7 @@ export async function recordPublicBookingStarted(input: unknown): Promise<void> 
   }
 
   const now = new Date();
-  const admitted = await consumePublicFixedWindowLimit({
-    scopeKey: PUBLIC_ANALYTICS_BUDGET.scopeKey,
-    now,
-    windowMinutes: PUBLIC_ANALYTICS_BUDGET.windowMinutes,
-    maxCount: PUBLIC_ANALYTICS_BUDGET.maxCount,
-  });
-  if (!admitted) return;
+  if (!(await admitPublicAnalytics(now))) return;
 
   await recordBusinessEventBestEffort({
     dedupeKey: `public-booking:${parsed.eventKey}:started`,

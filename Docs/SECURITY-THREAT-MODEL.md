@@ -55,7 +55,7 @@ Blueprint §8 (security), §17.4 (high-risk changes), §18.6 (repository knowled
 |---|---|---|---|
 | `/api/auth/[...all]` | GET, POST | Better Auth | Sign-in/up, session, admin plugin. D1 rate limited |
 | `/api/media/[...key]` | GET | None | Only `guides/` and `field-notes/` keys; `public, max-age=31536000, immutable` |
-| `/api/media/upload` | POST | `requireAdmin` | Images, 5 MB |
+| `/api/media/upload` | POST | `requireAdmin` | Images, 5 MB, magic bytes |
 | `/api/course-resources/upload` | POST | `requireAdmin` | PDF, 10 MB, magic bytes |
 | `/api/course-resources/[resourceId]` | GET | Session plus enrolment or admin | `private, no-store`, attachment |
 | `/api/editorial-ai/knowledge/upload` | POST | `requireAdmin` | text/plain, text/markdown, 2 MB |
@@ -84,7 +84,7 @@ Page gates: `requireAdminPage()` on admin pages (redirect), session redirect in 
 | T5 | Admin actions/routes | Privilege escalation, IDOR (E) | Server-side role check on every admin action and upload route; role never taken from input | `requireAdmin`, `requireAdminPage`; `tests/auth-gates.test.ts` |
 | T6 | Learner resources | Unauthorised PDF download (I) | Session; admin, or active enrolment plus lesson `published`; unpublished gives 404 (no existence leak); `no-store`; `nosniff`; filename sanitised | `api/course-resources/[resourceId]/route.ts`, `lib/course-resources/access.ts` |
 | T7 | Public media route | Private R2 object served publicly (I) | `getMedia()` allows only `guides`/`field-notes`, regex key check, no `..` | `lib/media/service.ts` |
-| T8 | Uploads | Hostile file, XSS via SVG (T) | Media: MIME allowlist (jpeg/png/webp/avif/gif, no SVG). PDF: `%PDF-` magic check. Knowledge: text/markdown only. Server-minted UUID keys, sanitised filename | `lib/media/service.ts`, `lib/course-resources/service.ts`, `knowledge/storage.ts` |
+| T8 | Uploads | Hostile file, XSS via SVG (T) | Media: MIME allowlist (jpeg/png/webp/avif/gif, no SVG) plus magic-byte sniffing that must match the declared type; the sniffed type is stored. PDF: `%PDF-` magic check. Knowledge: text/markdown only. Server-minted UUID keys, sanitised filename | `lib/media/service.ts`, `lib/uploads/sniff.ts`, `lib/course-resources/service.ts`, `knowledge/storage.ts` |
 | T9 | Uploads | Memory exhaustion (D) | Three layers: Content-Length plus 256 KiB envelope, `File.size`, service `byteLength` | `lib/upload-limits.ts`, upload routes |
 | T10 | Uploads | Orphaned R2 object (R) | Best-effort `bucket.delete` when the D1 insert fails | `uploadMedia` |
 | T11 | All actions/routes | Internal detail leak (I) | `AppError` message is user-safe; any other error is logged and replaced by a fallback; actions return `ActionResult` instead of throwing | `src/lib/errors.ts`, `src/lib/action-result.ts` |
@@ -108,12 +108,12 @@ Regression tests: `tests/{auth-gates,auth-rate-limit,mission-06-security-hardeni
 | G3 | **No 2FA/passkeys for admin**; no short-session or re-auth for destructive actions | Admin takeover is the highest-impact event | §8 Identity |
 | G4 | **Audit coverage is partial.** `editorial_audit_log` covers editorial actions; orders and bookings have history tables. Guide, Field Note, Course, Lesson, media, offer and booking-type admin mutations have no uniform audit trail (editorial audit writes are best-effort and can be lost) | Weak accountability | §8 Admin |
 | G5 | **`public_rate_limits` is never pruned** (no delete path in `src` or `scripts`). Grows with every distinct email/IP fingerprint | D1 storage and write budget | §18.9 |
-| G6 | **Public intake limits are not per-IP.** Leads and bookings key on an email fingerprint plus a global burst counter; analytics uses one global counter. An attacker can exhaust the shared budget (40 leads per kind, 50 analytics events per 15 min) and block real visitors | Intake denial of service | §8 Edge |
+| G6 | ~~**Public intake limits are not per-IP.**~~ Fixed: salted per-IP buckets (`PUBLIC_IP_LIMITS`) are checked before the shared counters. Residual risk: an attacker rotating many IPs can still drain the shared budget. Leads and bookings key on an email fingerprint plus a global burst counter; analytics uses one global counter. An attacker can exhaust the shared budget (40 leads per kind, 50 analytics events per 15 min) and block real visitors | Intake denial of service | §8 Edge |
 | G7 | Auth limiter trusts `cf-connecting-ip`, then `x-forwarded-for`; safe behind Cloudflare, spoofable if the Worker is reachable otherwise (unverified in production) | Limiter bypass | |
 | G8 | No explicit CSRF/origin test; relies on Better Auth and Next server-action defaults (unverified) | CSRF | §8 Browser |
 | G9 | `requireEmailVerification: false`; no password policy beyond Better Auth defaults (unverified) | Fake sign-ups, weak passwords | |
 | G10 | Course PDFs stream through the Worker; no short-lived signed URLs or watermarking | Cost, sharing | §8 Private resources |
-| G11 | Image upload trusts client-declared MIME (no magic-byte check as for PDFs) | Mislabelled/polyglot file | §8 Input |
+| G11 | ~~Image upload trusts client-declared MIME (no magic-byte check as for PDFs)~~ Fixed: `lib/uploads/sniff.ts` | Mislabelled/polyglot file | §8 Input |
 | G12 | No hotlink resistance on `/api/media`; no bot controls | Bandwidth, scraping | §8 Content theft |
 | G13 | Provider credential storage, rotation and revocation design not specified | Needed before payments/calendar | §8 Commerce |
 | G14 | Single flat `admin` role; no editor vs commerce-operator split | Least privilege | §8 |

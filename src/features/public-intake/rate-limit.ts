@@ -57,6 +57,80 @@ export async function anonymousRateLimitFingerprint(
 }
 
 /**
+ * Per-client-IP budgets for public intake, checked BEFORE the shared
+ * (global / per-kind / per-booking-type) counters so one abusive IP exhausts
+ * only its own bucket and never spends the budget real visitors share.
+ * Keyed `ip:<endpoint>:<hash>`; raw IPs are never stored.
+ */
+export const PUBLIC_IP_LIMITS = {
+  /** Lead / contact enquiries (email limit is 5 per 15 min). */
+  lead: { endpoint: "lead", windowMinutes: 15, maxCount: 10 },
+  /** Public booking attempts (email limit is 3 per 15 min). */
+  booking: { endpoint: "booking", windowMinutes: 15, maxCount: 8 },
+  /** Public analytics events (global budget is 50 per 15 min). */
+  analytics: { endpoint: "analytics", windowMinutes: 15, maxCount: 20 },
+} as const;
+
+export const UNKNOWN_CLIENT_IP = "unknown";
+
+/** CF-Connecting-IP, else first X-Forwarded-For entry, else "unknown". */
+export function resolveClientIp(headers: Pick<Headers, "get">): string {
+  const cf = headers.get("cf-connecting-ip")?.trim();
+  if (cf) return cf.slice(0, 64);
+  const xff = headers.get("x-forwarded-for")?.split(",")[0]?.trim();
+  if (xff) return xff.slice(0, 64);
+  return UNKNOWN_CLIENT_IP;
+}
+
+/** SHA-256(salt + IP) hex, salted with BETTER_AUTH_SECRET. Fails closed. */
+export async function hashClientIp(ip: string): Promise<string> {
+  const secret = process.env.BETTER_AUTH_SECRET;
+  if (!secret) {
+    throw new Error(
+      "Missing BETTER_AUTH_SECRET environment variable; cannot salt client IP hashes.",
+    );
+  }
+  const bytes = new TextEncoder().encode(`dh-intake-ip-v1:${secret}:${ip}`);
+  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    Uint8Array.from(bytes).buffer,
+  );
+  return Array.from(new Uint8Array(digest))
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
+}
+
+/**
+ * Salted client-IP hash for the current request, or null when there is no
+ * request context (plain tsx tests, scripts), in which case the per-IP check
+ * is skipped by callers.
+ */
+export async function getRequestClientIpHash(): Promise<string | null> {
+  let ip: string;
+  try {
+    const { headers } = await import("next/headers");
+    ip = resolveClientIp(await headers());
+  } catch {
+    return null;
+  }
+  return hashClientIp(ip);
+}
+
+/** Consumes one slot from a client's per-endpoint bucket. */
+export async function consumePublicIpLimit(params: {
+  ipHash: string;
+  limit: { endpoint: string; windowMinutes: number; maxCount: number };
+  now: Date;
+}): Promise<boolean> {
+  return consumePublicFixedWindowLimit({
+    scopeKey: `ip:${params.limit.endpoint}:${params.ipHash}`,
+    now: params.now,
+    windowMinutes: params.limit.windowMinutes,
+    maxCount: params.limit.maxCount,
+  });
+}
+
+/**
  * Atomically consumes one slot from a scope-anchored fixed-window public
  * mutation budget.
  *

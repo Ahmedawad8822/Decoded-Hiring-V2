@@ -4,6 +4,7 @@ import "./helpers/env"; // MUST be first: fake TEST-ONLY secret before any app m
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { uploadMedia, MAX_MEDIA_FILE_SIZE } from "../src/lib/media/service";
+import { IMAGE_FIXTURES } from "./helpers/image-fixtures";
 import { MAX_COURSE_RESOURCE_SIZE } from "../src/lib/course-resources/service";
 import { isRequestBodyOverLimit, MULTIPART_ENVELOPE_ALLOWANCE } from "../src/lib/upload-limits";
 import { resolveLessonResourceAccess } from "../src/lib/course-resources/access";
@@ -123,7 +124,7 @@ test("SEC-SVG: allowed raster types still accepted (JPEG/PNG/WebP/AVIF/GIF)", as
     const records: unknown[] = [];
     const result = await uploadMedia(
       {
-        buffer: new Uint8Array([1, 2, 3]),
+        buffer: IMAGE_FIXTURES[contentType],
         filename: "cover",
         contentType,
         namespace: "guides",
@@ -174,7 +175,7 @@ test("SEC-CLEANUP-1: DB failure after put() deletes the orphaned R2 object", asy
     () =>
       uploadMedia(
         {
-          buffer: new Uint8Array([137, 80, 78, 71]),
+          buffer: IMAGE_FIXTURES["image/png"],
           filename: "cover.png",
           contentType: "image/png",
           namespace: "guides",
@@ -199,7 +200,7 @@ test("SEC-CLEANUP-2: cleanup failure does not hide the original DB failure", asy
     () =>
       uploadMedia(
         {
-          buffer: new Uint8Array([137, 80, 78, 71]),
+          buffer: IMAGE_FIXTURES["image/png"],
           filename: "note-cover.png",
           contentType: "image/png",
           namespace: "field-notes",

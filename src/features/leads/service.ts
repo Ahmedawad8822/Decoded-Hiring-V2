@@ -4,11 +4,15 @@ import { getDb, leadSubmissions, type LeadSubmission } from "@/lib/db";
 import { isUniqueConstraintError } from "@/lib/db/sqlite-errors";
 import {
   anonymousRateLimitFingerprint,
+  PUBLIC_IP_LIMITS,
   consumePublicFixedWindowLimit,
+  consumePublicIpLimit,
 } from "@/features/public-intake/rate-limit";
 import type { LeadSubmissionKind } from "./types";
 
 export type CreateLeadSubmissionInput = {
+  /** Salted client-IP hash (getRequestClientIpHash); per-IP limit skipped when absent. */
+  clientIpHash?: string | null;
   idempotencyKey: string;
   kind: LeadSubmissionKind;
   fullName: string;
@@ -102,6 +106,21 @@ function assertSameIntent(
 async function assertLeadVelocityAllowed(
   input: CreateLeadSubmissionInput,
 ): Promise<void> {
+  // Per-IP first: an abusive IP must not spend the shared email/kind budgets.
+  if (input.clientIpHash) {
+    const ipAllowed = await consumePublicIpLimit({
+      ipHash: input.clientIpHash,
+      limit: PUBLIC_IP_LIMITS.lead,
+      now: input.now,
+    });
+    if (!ipAllowed) {
+      throw new LeadDomainError(
+        "Too many enquiry submissions were created in a short window.",
+        "RATE_LIMITED",
+      );
+    }
+  }
+
   const emailFingerprint = await anonymousRateLimitFingerprint(input.email);
 
   const emailAllowed = await consumePublicFixedWindowLimit({
