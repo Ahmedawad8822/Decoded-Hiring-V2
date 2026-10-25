@@ -27,6 +27,15 @@ updates:
         update-types: ["version-update:semver-major"]
       - dependency-name: drizzle-orm
         update-types: ["version-update:semver-major"]
+      # Toolchain majors gated on the Next lint stack (see PROJECT-STATUS.md):
+      # TS 7 breaks typescript-eslint (#52); ESLint 10 isn't supported by the
+      # plugins eslint-config-next pulls in (#51).
+      - dependency-name: typescript
+        update-types: ["version-update:semver-major"]
+      - dependency-name: eslint
+        update-types: ["version-update:semver-major"]
+      - dependency-name: eslint-config-next
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: github-actions
     directory: /

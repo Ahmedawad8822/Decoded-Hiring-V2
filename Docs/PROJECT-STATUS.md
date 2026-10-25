@@ -8,7 +8,7 @@
   at the bottom. Keep it short and factual. Link to mission docs for detail.
 - If this file disagrees with the code or GitHub, the code/GitHub wins. Fix this file.
 
-Last updated: **2026-10-25**
+Last updated: **2026-10-26**
 
 ---
 
@@ -16,7 +16,7 @@ Last updated: **2026-10-25**
 
 | | |
 |---|---|
-| `main` | `8ba9c11` (plus this doc): **Missions 01–08, CI (verify, Playwright E2E with all 6 specs, Worker size budget, npm audit; CodeQL on demand; Dependabot config), security fixes and CSP, hardening batches 1–5, deploy-path prep, Next 16.4.2.** Unit tests: 32 suites, each on its own throwaway D1/R2. Migrations through `0020_slug_redirects`. |
+| `main` | `aeb8e33` (plus this doc): **Missions 01–08, CI (verify, Playwright E2E with all 6 specs, Worker size budget, npm audit; CodeQL on demand; Dependabot active), security fixes and CSP, hardening batches 1–5, deploy-path prep, Next 16.4.2, React 19.3.1, motion 14.** Unit tests: 32 suites, each on its own throwaway D1/R2. Migrations through `0020_slug_redirects`. |
 | Open PRs to `main` | None |
 | Production | **Not deployed.** The OpenNext adapter and config are prepared and verified locally (`Docs/Engineering/DEPLOYMENT.md`). No real Cloudflare resources exist yet; `wrangler.jsonc → env.production` holds placeholders. |
 | Providers | All dormant by design: no payment, calendar, mailbox, meeting or analytics provider is active. |
@@ -45,12 +45,14 @@ Last updated: **2026-10-25**
 | `ci/all-e2e-specs` | — | merged ([#37](https://github.com/Ahmedawad8822/Decoded-Hiring-V2/pull/37)) | All 5 Playwright specs in CI; e2e timeout 40 min |
 | `security/csp` | — | merged ([#38](https://github.com/Ahmedawad8822/Decoded-Hiring-V2/pull/38)) | Static CSP header + `e2e/csp.spec.ts`; fixes anonymous `/learn` null-session crash |
 | `docs/status-batch-4` | — | merged (#39) | Status doc |
-| `ci/supply-chain-checks` | — | merged ([#40](https://github.com/Ahmedawad8822/Decoded-Hiring-V2/pull/40)) | Dependabot (7-day cooldown, majors of the framework packages ignored), `audit.yml` (`npm audit --omit=dev --audit-level=high`), CodeQL **manual only** until code scanning/GHAS is enabled on the private repo |
+| `ci/supply-chain-checks` | — | merged ([#40](https://github.com/Ahmedawad8822/Decoded-Hiring-V2/pull/40)) | Dependabot (7-day cooldown, majors of the framework packages ignored), `audit.yml` (`npm audit --omit=dev --audit-level=high`), CodeQL **manual only** until code scanning/GHAS is enabled on the private repo. Dependabot is already active (it opened #46–#52) |
 | `security/image-magic-bytes` | — | merged ([#41](https://github.com/Ahmedawad8822/Decoded-Hiring-V2/pull/41)) | `lib/uploads/sniff.ts`; `uploadMedia` rejects bytes that don't match the declared type and stores the sniffed type (G11) |
 | `security/per-ip-intake-limits` | — | merged ([#42](https://github.com/Ahmedawad8822/Decoded-Hiring-V2/pull/42)) | Salted per-IP buckets for lead 10, booking 8 and analytics 20 per 15 min, checked before the shared counters (G6) |
 | `perf/static-content-pages` | — | merged ([#43](https://github.com/Ahmedawad8822/Decoded-Hiring-V2/pull/43)) | `/guides/[slug]` and `/field-notes/[slug]` ISR; `/contact`, `/mission-01` and `/ai-recruiter-os` static; `?preview=true` rewritten to dynamic `/preview/...`; revalidation on rename, editorial publish and offers |
 | `ci/e2e-stability` | — | merged ([#44](https://github.com/Ahmedawad8822/Decoded-Hiring-V2/pull/44)) | mission-07 drops from 3.4 min to 25 s (the old helper's 15 s dead waits); no `networkidle` |
 | `docs/status-batch-5` | — | merged (#45) | Status doc |
+| `dependabot/*` | — | merged #46–#50; closed #51 and #52 | Dependabot triage: see the 2026-10-26 session log entry |
+| `chore/dependabot-triage` | main | open | Dependabot ignores TS/ESLint majors; status doc |
 | `chore/status-hardening-batch` | — | merged (#23) | Status doc; git/eslint ignore `.claude/` |
 | `deploy/opennext-cloudflare` | — | merged ([#24](https://github.com/Ahmedawad8822/Decoded-Hiring-V2/pull/24)) | `@opennextjs/cloudflare@1.20.9`, `getCloudflareContext()` bindings with local fallback, `wrangler.jsonc` local + `env.production` placeholders, R2 incremental cache, deploy scripts, `DEPLOYMENT.md` |
 | `docs/project-status` | — | merged (#16) | This file + `AGENTS.md` pointer |
@@ -126,6 +128,7 @@ Take the top unblocked item. Move items, don't delete them silently.
    - ~~22 npm audit advisories~~ (done, #36). 4 moderate dev-only remain; remove the 2 `overrides` when miniflare and `@node-minify/core` update (`Docs/Engineering/DEPENDENCY-AUDIT.md`).
    - **CI stability:**
      - ~~mission-07 e2e slow and flaky~~ (done, #44).
+     - `mission-06-learning-platform` flaked once on #53. "✓ Completed" never appeared after "Mark lesson complete", probably the same lost-click-before-hydration race #44 fixed in mission-07; it passed on `main` with the same code. Apply #44's `clickAction` hydration wait to mission-06's action clicks.
      - The dev server logs `workerd … Failed to get handler to worker` during e2e, probably the
        `WORKER_SELF_REFERENCE` service binding that has no running worker locally. Harmless so far.
        #44 confirmed that only OpenNext's ISR queue calls it, and the log line shows up only on Linux CI. Next step: a
@@ -136,8 +139,13 @@ Take the top unblocked item. Move items, don't delete them silently.
      - ~~Image uploads trust the client MIME type~~ (done, #41).
      - The admin audit trail is partial (Guide/Field Note/Course/Lesson/media/offer mutations).
      - No 2FA or passkeys for admin; a single flat `admin` role.
-     - ~~No Dependabot/CodeQL/`npm audit` in CI~~ (done, #40). Ahmed has to enable Dependabot in repo settings, and code scanning/GHAS if he wants CodeQL on PRs.
+     - ~~No Dependabot/CodeQL/`npm audit` in CI~~ (done, #40). Dependabot is active. Code scanning/GHAS is still needed for CodeQL on PRs.
      - Course PDFs stream with no signed URLs.
+   - **Deferred toolchain majors:**
+     - TypeScript 7 (#52): `typescript-eslint` doesn't support it.
+     - ESLint 10 (#51): plugins under `eslint-config-next@16.4.2` (`import`, `jsx-a11y`, `react`) peer-depend on ESLint ≤ 9.
+
+     Dependabot ignores both majors (and `eslint-config-next` majors). Revisit with the next Next.js upgrade.
    - **From the performance budget (#33):**
      - ~~Dynamic `searchParams` pages and unneeded `force-dynamic`~~ (done, #43). `/coaching` and `/workshop` stay dynamic (live slots). Check ISR with the R2 cache in staging.
      - No Lighthouse/CWV/geo-TTFB measurement yet.
@@ -176,7 +184,7 @@ Take the top unblocked item. Move items, don't delete them silently.
 | LLM provider + credentials for Editorial AI | Real draft generation (tests use FakeProvider) |
 | Analytics activation and consent policy (PostHog/Zaraz/GA4) | Measurability gate, Command Center |
 | Enrollment cancellation policy | Cancel flow, `enrollFree` reactivation rule |
-| Enable Dependabot and (optionally) GitHub code scanning/GHAS | #40's Dependabot PRs; CodeQL on PRs |
+| Enable GitHub code scanning/GHAS (optional; Dependabot is already active) | CodeQL on PRs |
 
 ---
 
@@ -201,6 +209,12 @@ Take the top unblocked item. Move items, don't delete them silently.
 ## 9. Session log
 
 Newest first. One entry per task: date, what changed, branch/PR, what's next.
+
+- **2026-10-26.** Dependabot triage. Dependabot was already active and opened #46–#52 straight after #40.
+  - Merged #46 (`upload-artifact` v7, `3f5cfe0`), #47 (`checkout` v7, `65874ad`), #48 (`setup-node` v7, `d49e0ac`) and #49 (12 minor/patch updates incl. React 19.3.1, better-auth 1.7.10, Playwright 1.64.1, `3b63238`). `main` CI was green on `3b63238`.
+  - #50 (motion 14) was rebased by Dependabot and was green when merged (`aeb8e33`). 14.0 only removes internal APIs, and we use only `motion.*`, `animate` and `useReducedMotion` on the home components.
+  - Closed with reasons: #52 (TypeScript 7 fails CI: typescript-eslint doesn't support it) and #51 (ESLint 10: the Next lint plugins aren't ESLint 10-compatible). `dependabot.yml` now ignores those majors. Branch `chore/dependabot-triage`.
+  - Next: unchanged (Ahmed's deploy decisions; agent backlog in §5).
 
 - **2026-10-25.** Batch 5: five Sonnet subagents in `.claude/worktrees`, reviewed by the coordinator, with PRs #40–#44 opened, none merged yet.
   - Coordinator fixes:
