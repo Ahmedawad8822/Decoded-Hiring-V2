@@ -11,7 +11,7 @@
     "start": "next start",
     "cf:build": "opennextjs-cloudflare build",
     "cf:size": "tsx scripts/check-worker-size.ts",
-    "preview": "opennextjs-cloudflare build && opennextjs-cloudflare preview",
+    "preview": "opennextjs-cloudflare build && opennextjs-cloudflare preview --config wrangler.preview.jsonc",
     "deploy": "opennextjs-cloudflare build --env production && opennextjs-cloudflare deploy --env production",
     "lint": "eslint . --max-warnings=0",
     "typecheck": "next typegen && tsc --noEmit",
