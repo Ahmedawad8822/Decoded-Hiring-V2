@@ -1,8 +1,12 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   // Top level = LOCAL config: `next dev`, tests, `db:migrate:local` (via
-  // getPlatformProxy) and `npm run preview` (OpenNext build in `wrangler dev`).
+  // getPlatformProxy) and the base for wrangler.preview.jsonc.
   // Resource IDs here are never used remotely.
+  // No WORKER_SELF_REFERENCE here on purpose: getPlatformProxy has no running
+  // worker to resolve it, and on Linux workerd logs "Failed to get handler to
+  // worker" (CI e2e noise). `npm run preview` uses wrangler.preview.jsonc,
+  // which adds the binding; production gets it from env.production below.
   "name": "decoded-hiring-v2",
   "main": ".open-next/worker.js",
   "compatibility_date": "2026-09-15",
@@ -11,13 +15,6 @@
     "directory": ".open-next/assets",
     "binding": "ASSETS"
   },
-  "services": [
-    {
-      // OpenNext self-reference (cache revalidation); must match the worker name.
-      "binding": "WORKER_SELF_REFERENCE",
-      "service": "decoded-hiring-v2"
-    }
-  ],
   "d1_databases": [
     {
       "binding": "DB",
