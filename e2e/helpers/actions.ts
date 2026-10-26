@@ -15,10 +15,17 @@ import { expect, type Locator, type Page } from "@playwright/test";
 export async function clickAction(page: Page, target: string | Locator) {
   const button = typeof target === "string" ? page.locator(target) : target;
   await expect(button).toBeEnabled();
-  const handle = await button.elementHandle();
+  await waitForHydration(page, button);
+  await button.click();
+}
+
+// Waits until React has hydrated `target`. Call it BEFORE filling a form:
+// hydration resets controlled inputs, so values typed into the SSR markup are
+// silently cleared (seen as "Please enter both email and password").
+export async function waitForHydration(page: Page, target: Locator) {
+  const handle = await target.elementHandle();
   await page.waitForFunction(
     (el) => !!el && Object.keys(el).some((k) => k.startsWith("__reactProps$")),
     handle,
   );
-  await button.click();
 }

@@ -1,7 +1,7 @@
 import { test, expect } from "@playwright/test";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { clickAction } from "./helpers/actions";
+import { clickAction, waitForHydration } from "./helpers/actions";
 
 // G3: /admin/security renders for a signed-in admin (e2e runs with
 // ADMIN_REQUIRE_2FA=false, so the rest of the Studio is not gated).
@@ -27,6 +27,7 @@ test("admin security page renders the 2FA status and enable button", async ({ pa
   test.skip(!email || !password, "needs ADMIN_INITIAL_EMAIL/ADMIN_INITIAL_PASSWORD (npm run test:e2e bootstraps them)");
 
   await page.goto("/admin/login", { waitUntil: "domcontentloaded" });
+  await waitForHydration(page, page.getByLabel(/Admin Email/));
   await page.getByLabel(/Admin Email/).fill(email);
   await page.getByLabel(/^Password/).fill(password);
   // One hydration-aware click: retrying sign-in would trip the 5/min sign-in rate limit.
