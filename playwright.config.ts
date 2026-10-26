@@ -42,6 +42,9 @@ export default defineConfig({
       // EXPLICIT TEST-ONLY: the E2E suite signs in repeatedly from one
       // loopback IP; the app ignores this when NODE_ENV is "production".
       DH_AUTH_RATE_LIMIT_DISABLED: "1",
+      // EXPLICIT TEST-ONLY: the seeded e2e admin has no TOTP enrolled, so the
+      // G3 admin 2FA gate is off here. Production leaves it enforced.
+      ADMIN_REQUIRE_2FA: "false",
     },
   },
 });

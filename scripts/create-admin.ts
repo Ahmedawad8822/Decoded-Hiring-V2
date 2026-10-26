@@ -237,6 +237,7 @@ async function main() {
         ? "promoted to admin, password reset"
         : "promoted to admin, password untouched";
     console.log(`✅ ${input.email}: ${action} on ${where}. role=admin, credential accounts=${rows[0].credential}.`);
+    console.log("ℹ️  Two-factor auth: this admin must enroll TOTP 2FA at /admin/security on first login (required unless ADMIN_REQUIRE_2FA=false).");
   } finally {
     fs.rmSync(sqlFile, { force: true });
     if (tmpParent) fs.rmSync(tmpParent, { recursive: true, force: true });

@@ -13,7 +13,7 @@
 // ---------------------------------------------------------------------------
 
 import { test, expect } from "@playwright/test";
-import { clickAction } from "./helpers/actions";
+import { clickAction, waitForHydration } from "./helpers/actions";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
@@ -47,10 +47,10 @@ const FORBIDDEN = ["builders", "gcc", "compiler", "production features", "produc
 
 async function signInAdmin(page: Page) {
   await page.goto("/admin/login");
-  await page.getByLabel(/Admin Email/).waitFor({ state: "visible" });
+  await waitForHydration(page, page.getByLabel(/Admin Email/));
   await page.getByLabel(/Admin Email/).fill(ADMIN_EMAIL);
   await page.getByLabel(/^Password/).fill(ADMIN_PASSWORD);
-  await page.getByRole("button", { name: /Sign in to Studio/ }).click();
+  await clickAction(page, page.getByRole("button", { name: /Sign in to Studio/ }));
   await page.waitForURL(/\/admin\/content/);
   await expect(page.getByRole("tab", { name: /Field Notes/ })).toBeVisible();
 }

@@ -23,6 +23,8 @@ export const users = sqliteTable("user", {
   banned: integer("banned", { mode: "boolean" }).default(false),
   banReason: text("ban_reason"),
   banExpires: integer("ban_expires", { mode: "timestamp" }),
+  // Better Auth twoFactor plugin (G3): true once a TOTP secret is verified.
+  twoFactorEnabled: integer("two_factor_enabled", { mode: "boolean" }).default(false),
 });
 
 export const sessions = sqliteTable("session", {
@@ -56,6 +58,24 @@ export const accounts = sqliteTable("account", {
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
   updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
 });
+
+// Better Auth twoFactor plugin. `secret` and `backupCodes` are stored
+// encrypted by the plugin (secret via BETTER_AUTH_SECRET, symmetric).
+export const twoFactors = sqliteTable(
+  "two_factor",
+  {
+    id: text("id").primaryKey(),
+    secret: text("secret").notNull(),
+    backupCodes: text("backup_codes").notNull(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    verified: integer("verified", { mode: "boolean" }).default(true),
+    failedVerificationCount: integer("failed_verification_count").default(0),
+    lockedUntil: integer("locked_until", { mode: "timestamp" }),
+  },
+  (t) => [index("two_factor_user_id_idx").on(t.userId), index("two_factor_secret_idx").on(t.secret)]
+);
 
 export const verifications = sqliteTable("verification", {
   id: text("id").primaryKey(),

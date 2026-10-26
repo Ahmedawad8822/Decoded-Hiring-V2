@@ -1,7 +1,7 @@
 import { test, expect } from "@playwright/test";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { clickAction } from "./helpers/actions";
+import { clickAction, waitForHydration } from "./helpers/actions";
 
 function localEnv(key: string): string {
   const direct = process.env[key];
@@ -94,6 +94,7 @@ test.beforeAll(async ({ browser }) => {
 // the user action inside the test.
 async function signInAdmin(page: import("@playwright/test").Page, email: string, password: string) {
   await page.goto("/admin/login");
+  await waitForHydration(page, page.getByLabel(/Admin Email/));
   await page.getByLabel(/Admin Email/).fill(email);
   await page.getByLabel(/^Password/).fill(password);
   await clickAction(page, page.getByRole("button", { name: "Sign in to Studio" }));

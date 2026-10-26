@@ -81,6 +81,15 @@ export function AdminStudioShell({ children }: { children: React.ReactNode }) {
         >
           ◉ Memory
         </Link>
+
+        <div className="sr-section">Account</div>
+        <Link
+          className="sr-link"
+          href="/admin/security"
+          aria-current={pathname.startsWith("/admin/security") ? "page" : undefined}
+        >
+          ◐ Security
+        </Link>
       </aside>
 
       {/* Studio Main Content Area */}
