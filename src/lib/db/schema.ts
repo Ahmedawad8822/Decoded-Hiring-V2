@@ -23,6 +23,8 @@ export const users = sqliteTable("user", {
   banned: integer("banned", { mode: "boolean" }).default(false),
   banReason: text("ban_reason"),
   banExpires: integer("ban_expires", { mode: "timestamp" }),
+  // Better Auth twoFactor plugin (G3): true once a TOTP secret is verified.
+  twoFactorEnabled: integer("two_factor_enabled", { mode: "boolean" }).default(false),
 });
 
 export const sessions = sqliteTable("session", {
@@ -56,6 +58,24 @@ export const accounts = sqliteTable("account", {
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
   updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
 });
+
+// Better Auth twoFactor plugin. `secret` and `backupCodes` are stored
+// encrypted by the plugin (secret via BETTER_AUTH_SECRET, symmetric).
+export const twoFactors = sqliteTable(
+  "two_factor",
+  {
+    id: text("id").primaryKey(),
+    secret: text("secret").notNull(),
+    backupCodes: text("backup_codes").notNull(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    verified: integer("verified", { mode: "boolean" }).default(true),
+    failedVerificationCount: integer("failed_verification_count").default(0),
+    lockedUntil: integer("locked_until", { mode: "timestamp" }),
+  },
+  (t) => [index("two_factor_user_id_idx").on(t.userId), index("two_factor_secret_idx").on(t.secret)]
+);
 
 export const verifications = sqliteTable("verification", {
   id: text("id").primaryKey(),
@@ -1102,3 +1122,32 @@ export const slugRedirects = sqliteTable(
     index("slug_redirects_entity_idx").on(table.entityType, table.entityId),
   ]
 );
+
+// ============================================================================
+// ADMIN AUDIT LOG (threat-model G4)
+// ----------------------------------------------------------------------------
+// Uniform, append-only trail of admin mutations across Guides, Field Notes,
+// Courses, Lessons, media, Offers and Booking Types. `details` is a small JSON
+// object (old/new slug, status change...) and never holds secrets or PII.
+// `actor_id` is a plain text user id (no FK) so the trail outlives the user.
+// The editorial AI audit stays in `editorial_audit_log`.
+// ============================================================================
+
+export const adminAuditLog = sqliteTable(
+  "admin_audit_log",
+  {
+    id: text("id").primaryKey(),
+    actorId: text("actor_id").notNull(),
+    action: text("action").notNull(), // e.g. "guide.publish"
+    entityType: text("entity_type").notNull(), // e.g. "guide"
+    entityId: text("entity_id").notNull(),
+    details: text("details"), // small JSON object, nullable
+    createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+  },
+  (table) => [
+    index("admin_audit_log_entity_idx").on(table.entityType, table.entityId),
+    index("admin_audit_log_created_idx").on(table.createdAt),
+  ]
+);
+
+export type AdminAuditLogRow = typeof adminAuditLog.$inferSelect;

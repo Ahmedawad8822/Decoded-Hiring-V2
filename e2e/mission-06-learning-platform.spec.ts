@@ -1,6 +1,7 @@
 import { test, expect } from "@playwright/test";
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { clickAction, waitForHydration } from "./helpers/actions";
 
 function localEnv(key: string): string {
   const direct = process.env[key];
@@ -93,9 +94,10 @@ test.beforeAll(async ({ browser }) => {
 // the user action inside the test.
 async function signInAdmin(page: import("@playwright/test").Page, email: string, password: string) {
   await page.goto("/admin/login");
+  await waitForHydration(page, page.getByLabel(/Admin Email/));
   await page.getByLabel(/Admin Email/).fill(email);
   await page.getByLabel(/^Password/).fill(password);
-  await page.getByRole("button", { name: "Sign in to Studio" }).click();
+  await clickAction(page, page.getByRole("button", { name: "Sign in to Studio" }));
   await expect(page).toHaveURL(/\/admin\/content/, { timeout: 90_000 });
 }
 
@@ -120,12 +122,12 @@ test.describe("mission 06 learning platform lifecycle", () => {
     await test.step("create draft FREE course", async () => {
       await page.goto("/admin/courses");
       await expect(page.getByRole("heading", { name: "Courses" })).toBeVisible();
-      await page.getByRole("button", { name: "＋ New course" }).click();
+      await clickAction(page, page.getByRole("button", { name: "＋ New course" }));
       await page.getByLabel("Course title").fill(courseTitle);
       await page.getByLabel("Course slug").fill(courseSlug);
       await page.getByLabel("Course description").fill("End-to-end lifecycle course.");
       await page.getByLabel("Access mode").selectOption("FREE");
-      await page.getByRole("button", { name: "Create draft" }).click();
+      await clickAction(page, page.getByRole("button", { name: "Create draft" }));
       await expect(page.getByText(courseTitle).first()).toBeVisible();
     });
 
@@ -133,37 +135,37 @@ test.describe("mission 06 learning platform lifecycle", () => {
       await page.getByRole("link", { name: "Curriculum →" }).first().click();
       await expect(page.getByText(courseTitle).first()).toBeVisible();
       await page.getByLabel("New section title").fill("E2E Section");
-      await page.getByRole("button", { name: "＋ Add section" }).click();
+      await clickAction(page, page.getByRole("button", { name: "＋ Add section" }));
       await expect(page.getByText("E2E Section").first()).toBeVisible();
 
-      await page.getByRole("button", { name: "＋ Add lesson" }).click();
+      await clickAction(page, page.getByRole("button", { name: "＋ Add lesson" }));
       await page.getByLabel("New lesson title").fill("First Lesson E2E");
       await page.getByLabel("New lesson slug").fill(lesson1Slug);
-      await page.getByRole("button", { name: "Add lesson" }).click();
+      await clickAction(page, page.getByRole("button", { name: "Add lesson" }));
       await expect(page.getByText("First Lesson E2E").first()).toBeVisible();
 
-      await page.getByRole("button", { name: "＋ Add lesson" }).click();
+      await clickAction(page, page.getByRole("button", { name: "＋ Add lesson" }));
       await page.getByLabel("New lesson title").fill("Second Lesson E2E");
       await page.getByLabel("New lesson slug").fill(lesson2Slug);
-      await page.getByRole("button", { name: "Add lesson" }).click();
+      await clickAction(page, page.getByRole("button", { name: "Add lesson" }));
       await expect(page.getByText("Second Lesson E2E").first()).toBeVisible();
     });
 
     await test.step("attach PDF resource to lesson 1", async () => {
       const row = page.getByRole("row", { name: /First Lesson E2E/ });
-      await row.getByRole("button", { name: "＋ PDF" }).click();
+      await clickAction(page, row.getByRole("button", { name: "＋ PDF" }));
       await page.locator('input[type="file"]').setInputFiles("e2e/fixtures/sample.pdf");
       await page.getByLabel("Resource title").fill("E2E Worksheet");
-      await page.getByRole("button", { name: "Upload PDF" }).click();
+      await clickAction(page, page.getByRole("button", { name: "Upload PDF" }));
       await expect(page.getByText("enrolled learners can download it")).toBeVisible();
     });
 
     await test.step("publish lessons + course, verify enrollment CTA", async () => {
-      await page.getByRole("row", { name: /First Lesson E2E/ }).getByRole("button", { name: "Publish" }).click();
+      await clickAction(page, page.getByRole("row", { name: /First Lesson E2E/ }).getByRole("button", { name: "Publish" }));
       await expect(page.getByText("live for learners on next load")).toBeVisible();
-      await page.getByRole("row", { name: /Second Lesson E2E/ }).getByRole("button", { name: "Publish" }).click();
+      await clickAction(page, page.getByRole("row", { name: /Second Lesson E2E/ }).getByRole("button", { name: "Publish" }));
       await page.goto("/admin/courses");
-      await page.locator(`[data-course-slug="${courseSlug}"]`).getByRole("button", { name: "Publish", exact: true }).click();
+      await clickAction(page, page.locator(`[data-course-slug="${courseSlug}"]`).getByRole("button", { name: "Publish", exact: true }));
       await expect(page.locator(`[data-course-slug="${courseSlug}"]`).getByText("PUBLISHED")).toBeVisible({ timeout: 30_000 });
       // Authenticated but unenrolled admin sees the enrollment CTA = available.
       await page.goto(`/learn/courses/${courseSlug}`);
@@ -177,14 +179,14 @@ test.describe("mission 06 learning platform lifecycle", () => {
       await page.getByLabel(/Name/).fill("E2E Learner");
       await page.getByLabel(/Email/).fill(learnerEmail);
       await page.getByLabel(/^Password/).fill("e2e-password-123");
-      await page.getByRole("button", { name: "Create account" }).click();
+      await clickAction(page, page.getByRole("button", { name: "Create account" }));
       await expect(page).toHaveURL(/\/learn/, { timeout: 90_000 });
       await expect(page.getByText("No enrollments yet")).toBeVisible();
     });
 
     await test.step("enroll free, appears in my courses", async () => {
       await page.goto(`/learn/courses/${courseSlug}`);
-      await page.getByRole("button", { name: "Start free — enroll now" }).click();
+      await clickAction(page, page.getByRole("button", { name: "Start free — enroll now" }));
       await expect(page.getByText("Continue where you left off")).toBeVisible();
       await page.goto("/learn/courses");
       await expect(page.getByText(courseTitle).first()).toBeVisible();
@@ -201,14 +203,14 @@ test.describe("mission 06 learning platform lifecycle", () => {
         dlLink.click(),
       ]);
       expect(download.suggestedFilename()).toMatch(/\.pdf$/i);
-      await page.getByRole("button", { name: "Mark lesson complete" }).first().click();
+      await clickAction(page, page.getByRole("button", { name: "Mark lesson complete" }).first());
       await expect(page.getByText("✓ Completed").first()).toBeVisible();
     });
 
     await test.step("next lesson, complete course", async () => {
       await page.getByRole("link", { name: /^Next/ }).first().click();
       await expect(page.getByRole("heading", { name: "Second Lesson E2E" })).toBeVisible();
-      await page.getByRole("button", { name: "Mark lesson complete" }).first().click();
+      await clickAction(page, page.getByRole("button", { name: "Mark lesson complete" }).first());
       await expect(page.getByText("✓ Completed").first()).toBeVisible();
       await page.goto(`/learn/courses/${courseSlug}`);
       await expect(page.getByText("Course complete")).toBeVisible();
@@ -229,7 +231,7 @@ test.describe("mission 06 learning platform lifecycle", () => {
       await page.getByLabel(/Name/).fill("E2E Learner Two");
       await page.getByLabel(/Email/).fill(learner2Email);
       await page.getByLabel(/^Password/).fill("e2e-password-123");
-      await page.getByRole("button", { name: "Create account" }).click();
+      await clickAction(page, page.getByRole("button", { name: "Create account" }));
       await expect(page).toHaveURL(/\/learn/, { timeout: 90_000 });
       await page.goto(`/learn/courses/${courseSlug}/lessons/${lesson1Slug}`);
       await expect(page.getByText("Enrollment required")).toBeVisible();
@@ -254,7 +256,7 @@ test.describe("mission 06 learning platform lifecycle", () => {
     // ---- CLEANUP ----
     await test.step("archive temporary e2e course", async () => {
       await page.goto("/admin/courses");
-      await page.locator(`[data-course-slug="${courseSlug}"]`).getByRole("button", { name: "Archive" }).click();
+      await clickAction(page, page.locator(`[data-course-slug="${courseSlug}"]`).getByRole("button", { name: "Archive" }));
       await expect(page.getByText(courseTitle).first()).toBeVisible();
     });
   });
@@ -267,7 +269,7 @@ test.describe("mission 06 learning platform lifecycle", () => {
     await page.getByLabel(/Name/).fill("E2E Responsive");
     await page.getByLabel(/Email/).fill(`e2e-responsive-${run}@example.com`);
     await page.getByLabel(/^Password/).fill("e2e-password-123");
-    await page.getByRole("button", { name: "Create account" }).click();
+    await clickAction(page, page.getByRole("button", { name: "Create account" }));
     await expect(page).toHaveURL(/\/learn/, { timeout: 90_000 });
 
     const urls = [

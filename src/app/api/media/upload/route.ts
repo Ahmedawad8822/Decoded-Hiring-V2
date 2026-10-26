@@ -1,4 +1,5 @@
 import { requireAdmin } from "@/lib/auth";
+import { recordAdminAudit } from "@/features/audit/service";
 import { httpStatusFor, publicErrorMessage } from "@/lib/errors";
 import { MAX_MEDIA_FILE_SIZE, uploadMedia } from "@/lib/media/service";
 import { isRequestBodyOverLimit } from "@/lib/upload-limits";
@@ -58,6 +59,14 @@ export async function POST(request: Request) {
       contentType,
       uploadedBy: session.user.id,
       namespace,
+    });
+
+    await recordAdminAudit({
+      actorId: session.user.id,
+      action: "media.upload",
+      entityType: "media",
+      entityId: result.key,
+      details: { contentType: result.contentType, size: result.size, namespace },
     });
 
     return NextResponse.json(result, { status: 201 });

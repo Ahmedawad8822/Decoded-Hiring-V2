@@ -12,7 +12,8 @@
 // software-platform contamination.
 // ---------------------------------------------------------------------------
 
-import { test, expect, type Locator, type Page } from "@playwright/test";
+import { test, expect } from "@playwright/test";
+import { clickAction, waitForHydration } from "./helpers/actions";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
@@ -46,35 +47,12 @@ const FORBIDDEN = ["builders", "gcc", "compiler", "production features", "produc
 
 async function signInAdmin(page: Page) {
   await page.goto("/admin/login");
-  await page.getByLabel(/Admin Email/).waitFor({ state: "visible" });
+  await waitForHydration(page, page.getByLabel(/Admin Email/));
   await page.getByLabel(/Admin Email/).fill(ADMIN_EMAIL);
   await page.getByLabel(/^Password/).fill(ADMIN_PASSWORD);
-  await page.getByRole("button", { name: /Sign in to Studio/ }).click();
+  await clickAction(page, page.getByRole("button", { name: /Sign in to Studio/ }));
   await page.waitForURL(/\/admin\/content/);
   await expect(page.getByRole("tab", { name: /Field Notes/ })).toBeVisible();
-}
-
-// Clicks an action button. The admin pages refresh themselves after a
-// successful action (window.location.reload()), so callers follow this with a
-// web-first assertion on the element that proves the new state rendered; those
-// assertions retry across the reload. Do NOT wait for a "loading" readyState or
-// "networkidle" here: a polled waitForFunction cannot observe the reload (it
-// burned its full 15 s timeout on every call) and networkidle is discouraged.
-//
-// The click is held back until React has hydrated the button (React stamps a
-// `__reactProps$...` key on hydrated DOM nodes): after a reload the SSR markup
-// is visible and clickable before its onClick handler is attached, and a click
-// in that window is silently lost. This replaces what the old networkidle wait
-// was implicitly covering.
-async function clickAction(page: Page, target: string | Locator) {
-  const button = typeof target === "string" ? page.locator(target) : target;
-  await expect(button).toBeEnabled();
-  const handle = await button.elementHandle();
-  await page.waitForFunction(
-    (el) => !!el && Object.keys(el).some((k) => k.startsWith("__reactProps$")),
-    handle,
-  );
-  await button.click();
 }
 
 test.describe("mission 07 editorial ai lifecycle", () => {
