@@ -10,6 +10,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import "./helpers/env"; // MUST be first: fake TEST-ONLY secret before any app module.
+// These admins have no 2FA enrolled; the 2FA gate itself is covered by
+// tests/admin-two-factor.test.ts.
+process.env.ADMIN_REQUIRE_2FA = "false";
 import { createRequire } from "node:module";
 import { and, eq } from "drizzle-orm";
 import { adminAuditLog, getDb, users } from "../src/lib/db";
