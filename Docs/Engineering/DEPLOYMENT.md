@@ -46,7 +46,7 @@ Cloudflare. Every production value in `wrangler.jsonc → env.production` is a
 3. **Secrets:**
    - `wrangler secret put BETTER_AUTH_SECRET --env production` (32+ random characters)
    - provider secrets later, when providers are activated
-4. **Vars:** set `BETTER_AUTH_URL` and `NEXT_PUBLIC_SITE_URL` to the real origin.
+4. **Vars:** set `BETTER_AUTH_URL` and `NEXT_PUBLIC_SITE_URL` to the real origin. **Do not set `ADMIN_REQUIRE_2FA` in production.** Admin TOTP 2FA is enforced unless that variable is exactly `false`; it is `false` only in `.env.example` (local dev) and the Playwright web server (CI/e2e). An admin without 2FA is redirected to `/admin/security` (pages) or rejected (actions) until they enroll.
 5. **Migrations:** `npm run db:migrate:remote`.
 6. **Admin account:** create the first admin in remote D1 with the script (credentials come from the environment, never argv; password at least 12 characters; idempotent, an existing email is only promoted unless `--reset-password` is added):
 
@@ -55,7 +55,7 @@ Cloudflare. Every production value in `wrangler.jsonc → env.production` is a
      npm run admin:create -- --remote --env production
    ```
 
-   `--remote` without `--env` is refused. Without flags it targets local D1 (honours `DH_LOCAL_STATE_DIR`). Run it after step 5, then sign in at `/admin/login` to confirm.
+   `--remote` without `--env` is refused. Without flags it targets local D1 (honours `DH_LOCAL_STATE_DIR`). Run it after step 5, then sign in at `/admin/login`. The first sign-in lands on `/admin/security`: enroll an authenticator app and save the backup codes before anything else works. Lost-device recovery: a backup code, or, with D1 access, delete the user's row in `two_factor` and set `user.two_factor_enabled = 0` (they re-enroll on next sign-in).
 7. **Deploy:** `npm run deploy`. Prefer a staging environment first (`env.staging`, same shape).
 8. **Domain:** add a custom domain or route in Cloudflare. DNS cutover from V1 is a Phase 8 launch step.
 

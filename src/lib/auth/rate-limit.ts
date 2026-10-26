@@ -15,14 +15,19 @@ import {
  * storage so raw client IPs are not persisted.
  */
 
-/** Credential endpoints: sign-in / sign-up. Per client IP per path. */
+/** Credential endpoints: sign-in / sign-up / 2FA verification. Per client IP per path. */
 export const AUTH_STRICT_LIMIT = { window: 60, max: 5 } as const;
 /** Password reset / change / verification-mail flows (email-sending, abusable). */
 export const AUTH_PASSWORD_FLOW_LIMIT = { window: 60, max: 5 } as const;
 /** Everything else (session reads, admin plugin routes, ...). */
 export const AUTH_DEFAULT_LIMIT = { window: 60, max: 120 } as const;
 
-const STRICT_PATHS = ["/sign-in/*", "/sign-up/*"];
+const STRICT_PATHS = [
+  "/sign-in/*",
+  "/sign-up/*",
+  // 2FA code guessing (G3): verify-totp / verify-backup-code / verify-otp, same 5/min/IP as sign-in.
+  "/two-factor/verify-*",
+];
 const PASSWORD_FLOW_PATHS = [
   "/request-password-reset",
   "/forget-password",
@@ -32,6 +37,11 @@ const PASSWORD_FLOW_PATHS = [
   "/change-password",
   "/change-email",
   "/send-verification-email",
+  // Password-confirming 2FA management endpoints (G3).
+  "/two-factor/enable",
+  "/two-factor/disable",
+  "/two-factor/get-totp-uri",
+  "/two-factor/generate-backup-codes",
 ];
 
 /**

@@ -2,8 +2,8 @@ import { cache } from "react";
 import { redirect } from "next/navigation";
 import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
-import { admin } from "better-auth/plugins";
-import { getDb, users, sessions, accounts, verifications } from "../db";
+import { admin, twoFactor } from "better-auth/plugins";
+import { getDb, users, sessions, accounts, verifications, twoFactors } from "../db";
 import { AppError } from "@/lib/errors";
 import { authAdvancedIpOptions, buildAuthRateLimitOptions } from "./rate-limit";
 
@@ -26,6 +26,28 @@ export function resolveAuthSecret(): string {
   return secret;
 }
 
+export const TWO_FACTOR_ISSUER = "Decoded Hiring";
+
+/** Where an admin without 2FA is sent, and the only admin page that allows it. */
+export const ADMIN_SECURITY_PATH = "/admin/security";
+
+/**
+ * G3: admin 2FA is enforced unless ADMIN_REQUIRE_2FA is exactly "false"
+ * (local dev, CI/e2e). Anything else, including unset, means enforced.
+ */
+export function isAdmin2faRequired(): boolean {
+  return process.env.ADMIN_REQUIRE_2FA !== "false";
+}
+
+export type AdminGateOptions = {
+  /** Only the security page and its actions may set this: lets an admin who has not enrolled 2FA in. */
+  allowWithout2fa?: boolean;
+};
+
+function hasTwoFactor(user: unknown): boolean {
+  return (user as { twoFactorEnabled?: boolean | null }).twoFactorEnabled === true;
+}
+
 function createAuth(db: Parameters<typeof drizzleAdapter>[0]) {
   return betterAuth({
     database: drizzleAdapter(db, {
@@ -35,6 +57,7 @@ function createAuth(db: Parameters<typeof drizzleAdapter>[0]) {
         session: sessions,
         account: accounts,
         verification: verifications,
+        twoFactor: twoFactors,
       },
     }),
     emailAndPassword: {
@@ -47,6 +70,8 @@ function createAuth(db: Parameters<typeof drizzleAdapter>[0]) {
         defaultRole: "user",
         adminRole: "admin",
       }),
+      // G3: TOTP + backup codes only (no SMS/email OTP: sendOTP is not set).
+      twoFactor({ issuer: TWO_FACTOR_ISSUER }),
     ],
     // Durable per-client throttling on D1 (see ./rate-limit).
     rateLimit: buildAuthRateLimitOptions(),
@@ -95,16 +120,21 @@ export const getServerSession = cache(async () => {
  * non-admin -> /admin/login?error=forbidden, otherwise returns the session.
  * Not placed in admin/layout.tsx because /admin/login lives under it.
  */
-export async function requireAdminPage() {
-  const session = await getServerSession();
+type GateSession = Awaited<ReturnType<typeof getServerSession>>;
+
+/** Pure page-gate decision (exported so tests can drive it without a request). */
+export function checkAdminPage(session: GateSession, options: AdminGateOptions = {}) {
   if (!session?.user) redirect("/admin/login");
   const role = (session.user as { role?: string }).role;
   if (role !== "admin") redirect("/admin/login?error=forbidden");
+  if (isAdmin2faRequired() && !options.allowWithout2fa && !hasTwoFactor(session.user)) {
+    redirect(ADMIN_SECURITY_PATH);
+  }
   return session;
 }
 
-export async function requireAdmin() {
-  const session = await getServerSession();
+/** Pure action-gate decision (exported so tests can drive it without a request). */
+export function checkAdmin(session: GateSession, options: AdminGateOptions = {}) {
   if (!session?.user) {
     throw new AppError("unauthorized", "Unauthorized: You must be signed in");
   }
@@ -112,7 +142,21 @@ export async function requireAdmin() {
   if (userRole !== "admin") {
     throw new AppError("forbidden", "Forbidden: Admin access required");
   }
+  if (isAdmin2faRequired() && !options.allowWithout2fa && !hasTwoFactor(session.user)) {
+    throw new AppError(
+      "forbidden",
+      "Two-factor authentication is required: enable it at /admin/security first"
+    );
+  }
   return session;
+}
+
+export async function requireAdminPage(options: AdminGateOptions = {}) {
+  return checkAdminPage(await getServerSession(), options);
+}
+
+export async function requireAdmin(options: AdminGateOptions = {}) {
+  return checkAdmin(await getServerSession(), options);
 }
 
 export async function requireUser() {
