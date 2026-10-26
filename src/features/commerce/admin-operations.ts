@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { actorIdFromSession, recordAdminAudit } from "@/features/audit/service";
+
 import { createOffer, updateOffer } from "@/features/offers/service";
 import { createOfferSchema, updateOfferSchema } from "@/features/offers/types";
 import {
@@ -100,9 +102,12 @@ export function createCommerceAdminOperations(
       input: unknown,
     ): Promise<CommerceAdminActionState<{ id: string }>> {
       try {
-        await guard();
+        const actorId = actorIdFromSession(await guard());
         const parsed = createOfferSchema.parse(input);
         const created = await createOffer(parsed);
+        if (actorId) {
+          await recordAdminAudit({ actorId, action: "offer.create", entityType: "offer", entityId: created.id, details: { slug: created.slug, kind: created.kind, accessMode: created.accessMode, currency: created.currency, amountMinor: created.amountMinor, active: created.active } });
+        }
         return { ok: true, data: { id: created.id } };
       } catch (error: unknown) {
         return fail(error, "Failed to create Offer.");
@@ -113,9 +118,12 @@ export function createCommerceAdminOperations(
       input: unknown,
     ): Promise<CommerceAdminActionState<{ id: string }>> {
       try {
-        await guard();
+        const actorId = actorIdFromSession(await guard());
         const parsed = updateOfferSchema.parse(input);
         const updated = await updateOffer(parsed);
+        if (actorId) {
+          await recordAdminAudit({ actorId, action: "offer.update", entityType: "offer", entityId: updated.id, details: { slug: updated.slug, kind: updated.kind, accessMode: updated.accessMode, currency: updated.currency, amountMinor: updated.amountMinor, active: updated.active } });
+        }
         return { ok: true, data: { id: updated.id } };
       } catch (error: unknown) {
         return fail(error, "Failed to update Offer.");
@@ -126,9 +134,12 @@ export function createCommerceAdminOperations(
       input: unknown,
     ): Promise<CommerceAdminActionState<{ id: string }>> {
       try {
-        await guard();
+        const actorId = actorIdFromSession(await guard());
         const parsed = createBookingTypeSchema.parse(input);
         const created = await createBookingType(parsed);
+        if (actorId) {
+          await recordAdminAudit({ actorId, action: "booking_type.create", entityType: "booking_type", entityId: created.id, details: { slug: created.slug, accessMode: created.accessMode, confirmationPolicy: created.confirmationPolicy, active: created.active } });
+        }
         return { ok: true, data: { id: created.id } };
       } catch (error: unknown) {
         return fail(error, "Failed to create booking type.");
@@ -139,9 +150,12 @@ export function createCommerceAdminOperations(
       input: unknown,
     ): Promise<CommerceAdminActionState<{ id: string }>> {
       try {
-        await guard();
+        const actorId = actorIdFromSession(await guard());
         const parsed = updateBookingTypeSchema.parse(input);
         const updated = await updateBookingType(parsed);
+        if (actorId) {
+          await recordAdminAudit({ actorId, action: "booking_type.update", entityType: "booking_type", entityId: updated.id, details: { slug: updated.slug, accessMode: updated.accessMode, confirmationPolicy: updated.confirmationPolicy, active: updated.active } });
+        }
         return { ok: true, data: { id: updated.id } };
       } catch (error: unknown) {
         return fail(error, "Failed to update booking type.");
@@ -152,9 +166,12 @@ export function createCommerceAdminOperations(
       input: unknown,
     ): Promise<CommerceAdminActionState<{ id: string }>> {
       try {
-        await guard();
+        const actorId = actorIdFromSession(await guard());
         const parsed = createAvailabilityWindowSchema.parse(input);
         const created = await createAvailabilityWindow(parsed);
+        if (actorId) {
+          await recordAdminAudit({ actorId, action: "availability_window.create", entityType: "availability_window", entityId: created.id, details: { bookingTypeId: created.bookingTypeId, weekday: created.weekday, startMinute: created.startMinute, endMinute: created.endMinute } });
+        }
         return { ok: true, data: { id: created.id } };
       } catch (error: unknown) {
         return fail(error, "Failed to create availability window.");
@@ -165,9 +182,12 @@ export function createCommerceAdminOperations(
       id: unknown,
     ): Promise<CommerceAdminActionState<{ deleted: boolean }>> {
       try {
-        await guard();
+        const actorId = actorIdFromSession(await guard());
         const safeId = z.string().trim().min(1).parse(id);
         const deleted = await deleteAvailabilityWindow(safeId);
+        if (actorId) {
+          await recordAdminAudit({ actorId, action: "availability_window.delete", entityType: "availability_window", entityId: safeId, details: { deleted } });
+        }
         return { ok: true, data: { deleted } };
       } catch (error: unknown) {
         return fail(error, "Failed to remove availability window.");
