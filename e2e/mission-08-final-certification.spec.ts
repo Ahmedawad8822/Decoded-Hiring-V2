@@ -1,6 +1,7 @@
 import { test, expect, type Page } from "@playwright/test";
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { clickAction } from "./helpers/actions";
 
 function localEnv(key: string): string {
   const direct = process.env[key];
@@ -197,7 +198,10 @@ test.describe("Mission 08 final integrated certification", () => {
           name: /I understand my details are used to reserve this time/i,
         })
         .check();
-      await scheduler.getByRole("button", { name: "Reserve this time" }).click();
+      await clickAction(
+        page,
+        scheduler.getByRole("button", { name: "Reserve this time" }),
+      );
       await expect(
         page.getByRole("status").getByText("Time reserved"),
       ).toBeVisible({ timeout: 90_000 });
