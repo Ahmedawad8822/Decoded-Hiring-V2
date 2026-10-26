@@ -16,8 +16,8 @@ Last updated: **2026-10-26**
 
 | | |
 |---|---|
-| `main` | `aeb8e33` (plus this doc): **Missions 01–08, CI (verify, Playwright E2E with all 6 specs, Worker size budget, npm audit; CodeQL on demand; Dependabot active), security fixes and CSP, hardening batches 1–5, deploy-path prep, Next 16.4.2, React 19.3.1, motion 14.** Unit tests: 32 suites, each on its own throwaway D1/R2. Migrations through `0020_slug_redirects`. |
-| Open PRs to `main` | None |
+| `main` | `b902784`: **Missions 01–08, CI (verify, Playwright E2E with all 6 specs, Worker size budget, npm audit; CodeQL on demand; Dependabot active), security fixes and CSP, hardening batches 1–5, deploy-path prep, Next 16.4.2, React 19.3.1, motion 14.** Unit tests: 32 suites, each on its own throwaway D1/R2. Migrations through `0020_slug_redirects`. |
+| Open PRs to `main` | **Batch 6:** [#54](https://github.com/Ahmedawad8822/Decoded-Hiring-V2/pull/54) Phase 0 docs, [#55](https://github.com/Ahmedawad8822/Decoded-Hiring-V2/pull/55) admin audit trail (migration 0021), [#56](https://github.com/Ahmedawad8822/Decoded-Hiring-V2/pull/56) e2e hydration clicks, [#57](https://github.com/Ahmedawad8822/Decoded-Hiring-V2/pull/57) admin 2FA (migration 0021, which is a **clash with #55**: regenerate the second one as 0022), and this doc. Suggested merge order: #56, #54, #55, #57 (renumbered to 0022), then this doc. |
 | Production | **Not deployed.** The OpenNext adapter and config are prepared and verified locally (`Docs/Engineering/DEPLOYMENT.md`). No real Cloudflare resources exist yet; `wrangler.jsonc → env.production` holds placeholders. |
 | Providers | All dormant by design: no payment, calendar, mailbox, meeting or analytics provider is active. |
 | Blueprint phase | Phases 1–6 built and on `main`. **Phase 7 (Hardening & Growth) is in progress** (CI merged; #14 open), then Phase 8 (Launch). |
@@ -52,7 +52,12 @@ Last updated: **2026-10-26**
 | `ci/e2e-stability` | — | merged ([#44](https://github.com/Ahmedawad8822/Decoded-Hiring-V2/pull/44)) | mission-07 drops from 3.4 min to 25 s (the old helper's 15 s dead waits); no `networkidle` |
 | `docs/status-batch-5` | — | merged (#45) | Status doc |
 | `dependabot/*` | — | merged #46–#50; closed #51 and #52 | Dependabot triage: see the 2026-10-26 session log entry |
-| `chore/dependabot-triage` | main | open | Dependabot ignores TS/ESLint majors; status doc |
+| `chore/dependabot-triage` | — | merged (#53) | Dependabot ignores TS/ESLint majors; status doc |
+| `docs/phase0-content-standards-analytics` | main | open ([#54](https://github.com/Ahmedawad8822/Decoded-Hiring-V2/pull/54)) | `CONTENT-MODEL.md`, `ENGINEERING-STANDARDS.md`, `ANALYTICS-EVENTS.md`, each with a ⚠ Divergences section |
+| `security/admin-audit-trail` | main | open ([#55](https://github.com/Ahmedawad8822/Decoded-Hiring-V2/pull/55)) | `admin_audit_log` (migration 0021), `recordAdminAudit()` on every content/commerce admin mutation, `/admin/audit` (G4) |
+| `test/e2e-hydration-clicks` | main | open ([#56](https://github.com/Ahmedawad8822/Decoded-Hiring-V2/pull/56)) | Shared `e2e/helpers/actions.ts` `clickAction` in mission-06/07/08 |
+| `security/admin-2fa` | main | open ([#57](https://github.com/Ahmedawad8822/Decoded-Hiring-V2/pull/57)) | Better Auth TOTP and backup codes, `/admin/security`, `ADMIN_REQUIRE_2FA` (enforced unless `"false"`), migration 0021→0022 (G3) |
+| `docs/status-batch-6` | main | open | Status doc |
 | `chore/status-hardening-batch` | — | merged (#23) | Status doc; git/eslint ignore `.claude/` |
 | `deploy/opennext-cloudflare` | — | merged ([#24](https://github.com/Ahmedawad8822/Decoded-Hiring-V2/pull/24)) | `@opennextjs/cloudflare@1.20.9`, `getCloudflareContext()` bindings with local fallback, `wrangler.jsonc` local + `env.production` placeholders, R2 incremental cache, deploy scripts, `DEPLOYMENT.md` |
 | `docs/project-status` | — | merged (#16) | This file + `AGENTS.md` pointer |
@@ -128,7 +133,7 @@ Take the top unblocked item. Move items, don't delete them silently.
    - ~~22 npm audit advisories~~ (done, #36). 4 moderate dev-only remain; remove the 2 `overrides` when miniflare and `@node-minify/core` update (`Docs/Engineering/DEPENDENCY-AUDIT.md`).
    - **CI stability:**
      - ~~mission-07 e2e slow and flaky~~ (done, #44).
-     - `mission-06-learning-platform` flaked once on #53. "✓ Completed" never appeared after "Mark lesson complete", probably the same lost-click-before-hydration race #44 fixed in mission-07; it passed on `main` with the same code. Apply #44's `clickAction` hydration wait to mission-06's action clicks.
+     - (#56 pending merge) `mission-06-learning-platform` flaked once on #53. "✓ Completed" never appeared after "Mark lesson complete", probably the same lost-click-before-hydration race #44 fixed in mission-07; it passed on `main` with the same code. Apply #44's `clickAction` hydration wait to mission-06's action clicks.
      - The dev server logs `workerd … Failed to get handler to worker` during e2e, probably the
        `WORKER_SELF_REFERENCE` service binding that has no running worker locally. Harmless so far.
        #44 confirmed that only OpenNext's ISR queue calls it, and the log line shows up only on Linux CI. Next step: a
@@ -137,10 +142,17 @@ Take the top unblocked item. Move items, don't delete them silently.
    - **From the threat model (#33), not yet scheduled:**
      - ~~Public intake limits aren't per-IP~~ (done, #42).
      - ~~Image uploads trust the client MIME type~~ (done, #41).
-     - The admin audit trail is partial (Guide/Field Note/Course/Lesson/media/offer mutations).
-     - No 2FA or passkeys for admin; a single flat `admin` role.
+     - ~~The admin audit trail is partial~~ (#55, pending merge). Left: audit writes are not atomic with mutations (`buildAdminAuditStatement` is ready), no retention, no tamper evidence.
+     - ~~No 2FA for admin~~ (#57, pending merge). Left: no passkeys; a single flat `admin` role; the plugin's disable needs only the password; preview routes and `course-resources` reads skip the 2FA gate.
      - ~~No Dependabot/CodeQL/`npm audit` in CI~~ (done, #40). Dependabot is active. Code scanning/GHAS is still needed for CodeQL on PRs.
      - Course PDFs stream with no signed URLs.
+   - **From the Phase 0 docs (#54) ⚠ Divergences:**
+     - Archive is terminal: nothing restores it, though the blueprint and CONTEXT expect it. No Trash. Lesson `archived` is unreachable.
+     - Leads never leave `NEW`, and no Studio screen lists `lead_submissions`.
+     - `ActionResult` is used only by editorial AI. `offers/service.ts` throws plain `Error`, so users see the generic message.
+     - `isSafeMediaUrl` accepts external `https://` covers, but the CSP `img-src` blocks them.
+     - `business_events` has no Drizzle model and no pruning, and `getBusinessEventSummary` writes on read.
+     - `DEFINITION-OF-DONE.md` and `ARCHITECTURE.md` are stale (spec count, CI jobs, React version, migrations).
    - **Deferred toolchain majors:**
      - TypeScript 7 (#52): `typescript-eslint` doesn't support it.
      - ESLint 10 (#51): plugins under `eslint-config-next@16.4.2` (`import`, `jsx-a11y`, `react`) peer-depend on ESLint ≤ 9.
@@ -185,6 +197,7 @@ Take the top unblocked item. Move items, don't delete them silently.
 | Analytics activation and consent policy (PostHog/Zaraz/GA4) | Measurability gate, Command Center |
 | Enrollment cancellation policy | Cancel flow, `enrollFree` reactivation rule |
 | Enable GitHub code scanning/GHAS (optional; Dependabot is already active) | CodeQL on PRs |
+| Restore semantics for archived content and whether to build Trash (from #54) | Lifecycle work |
 
 ---
 
@@ -209,6 +222,11 @@ Take the top unblocked item. Move items, don't delete them silently.
 ## 9. Session log
 
 Newest first. One entry per task: date, what changed, branch/PR, what's next.
+
+- **2026-10-26.** Batch 6: four Sonnet subagents. The coordinator reviewed them and opened #54–#57; none is merged.
+  - #55 and #57 both generated migration `0021`, so the second to merge must be regenerated as `0022` (as with #35).
+  - #57's caveats are recorded in §5: the server-side disable needs only the password, and the read-only admin paths are not 2FA-gated.
+  - Next: merge in the §1 order, then remove the worktrees.
 
 - **2026-10-26.** Dependabot triage. Dependabot was already active and opened #46–#52 straight after #40.
   - Merged #46 (`upload-artifact` v7, `3f5cfe0`), #47 (`checkout` v7, `65874ad`), #48 (`setup-node` v7, `d49e0ac`) and #49 (12 minor/patch updates incl. React 19.3.1, better-auth 1.7.10, Playwright 1.64.1, `3b63238`). `main` CI was green on `3b63238`.
