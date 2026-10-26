@@ -2,6 +2,7 @@
 
 import { publicErrorMessage } from "@/lib/errors";
 import { requireAdmin } from "@/lib/auth";
+import { recordAdminAudit } from "@/features/audit/service";
 import { revalidatePath } from "next/cache";
 import * as guideService from "./service";
 import { createGuideSchema, updateGuideSchema, CreateGuideInput, UpdateGuideInput } from "./types";
@@ -16,7 +17,7 @@ export async function createGuideAction(
   input: CreateGuideInput
 ): Promise<ActionState<{ id: string; slug: string }>> {
   try {
-    await requireAdmin();
+    const session = await requireAdmin();
 
     const parsed = createGuideSchema.safeParse(input);
     if (!parsed.success) {
@@ -27,6 +28,7 @@ export async function createGuideAction(
     }
 
     const created = await guideService.createGuide(parsed.data);
+    await recordAdminAudit({ actorId: session.user.id, action: "guide.create", entityType: "guide", entityId: created.id, details: { slug: created.slug } });
 
     revalidatePath("/guides");
     revalidatePath(`/guides/${created.slug}`);
@@ -48,7 +50,7 @@ export async function updateGuideAction(
   input: UpdateGuideInput
 ): Promise<ActionState<{ id: string; slug: string }>> {
   try {
-    await requireAdmin();
+    const session = await requireAdmin();
 
     const parsed = updateGuideSchema.safeParse(input);
     if (!parsed.success) {
@@ -62,6 +64,7 @@ export async function updateGuideAction(
     // at the OLD slug so it re-renders as a 308 to the new one.
     const before = await guideService.getAdminGuideById(parsed.data.id);
     const updated = await guideService.updateGuide(parsed.data.id, parsed.data);
+    await recordAdminAudit({ actorId: session.user.id, action: "guide.update", entityType: "guide", entityId: updated.id, details: { oldSlug: before?.slug ?? null, newSlug: updated.slug } });
 
     revalidatePath("/guides");
     revalidatePath(`/guides/${updated.slug}`);
@@ -84,9 +87,10 @@ export async function updateGuideAction(
 
 export async function publishGuideAction(id: string): Promise<ActionState<{ slug: string }>> {
   try {
-    await requireAdmin();
+    const session = await requireAdmin();
 
     const published = await guideService.publishGuide(id);
+    await recordAdminAudit({ actorId: session.user.id, action: "guide.publish", entityType: "guide", entityId: id, details: { slug: published.slug, status: "published" } });
 
     revalidatePath("/guides");
     revalidatePath(`/guides/${published.slug}`);
@@ -106,9 +110,10 @@ export async function publishGuideAction(id: string): Promise<ActionState<{ slug
 
 export async function unpublishGuideAction(id: string): Promise<ActionState<{ slug: string }>> {
   try {
-    await requireAdmin();
+    const session = await requireAdmin();
 
     const draft = await guideService.unpublishGuide(id);
+    await recordAdminAudit({ actorId: session.user.id, action: "guide.unpublish", entityType: "guide", entityId: id, details: { slug: draft.slug, status: "draft" } });
 
     revalidatePath("/guides");
     revalidatePath(`/guides/${draft.slug}`);
@@ -128,9 +133,10 @@ export async function unpublishGuideAction(id: string): Promise<ActionState<{ sl
 
 export async function archiveGuideAction(id: string): Promise<ActionState<{ slug: string }>> {
   try {
-    await requireAdmin();
+    const session = await requireAdmin();
 
     const archived = await guideService.archiveGuide(id);
+    await recordAdminAudit({ actorId: session.user.id, action: "guide.archive", entityType: "guide", entityId: id, details: { slug: archived.slug, status: "archived" } });
 
     revalidatePath("/guides");
     revalidatePath(`/guides/${archived.slug}`);
