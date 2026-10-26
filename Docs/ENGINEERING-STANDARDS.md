@@ -36,7 +36,7 @@ Blueprint §14, §15, §18.1 and §18.6. Status: **living document**, written ag
 | `requireUser()` | Learner actions and routes | Throws `unauthorized` |
 | `getServerSession()` / `getAuth()` | Anywhere a session is optional | Request-cached with React `cache()`; no process singleton |
 
-Must: hidden buttons are never authorization. Check on the server, in the action or service, every time. `BETTER_AUTH_SECRET` is required in every environment (fails closed). Single flat role `admin`; no 2FA yet.
+Must: hidden buttons are never authorization. Check on the server, in the action or service, every time. `BETTER_AUTH_SECRET` is required in every environment (fails closed). Single flat role `admin`. Both admin gates also require TOTP 2FA (redirect to `/admin/security` or `forbidden`) unless `ADMIN_REQUIRE_2FA` is exactly `false`; only the security page passes `allowWithout2fa`.
 
 ## 4. Cloudflare bindings
 
@@ -61,8 +61,8 @@ Always go through `src/lib/cloudflare/bindings.ts` (`getCloudflareBindings`, `ge
 | New suite | **Append it to the `test` script in `package.json`** (one long `&&` line). Concurrent PRs conflict on that line; resolve by keeping both entries. A suite not on that line does not run in CI |
 | Real DB, no mocks | Suites run against local Miniflare D1. Inject fakes only through the documented seams (`setD1DatabaseForTest`, provider fakes, `FakeProvider` for Editorial AI) |
 | Seams worth a test | Authorization, lifecycle transitions, idempotency, concurrency (lost race), money and booking state machines |
-| E2E | Playwright, Chromium, `workers: 1`, `retries: 0`; `npm run test:e2e` (needs `.env.local` admin vars from `.env.example`). CI runs six specs in `test:e2e:ci` (`mission-08-final-certification`, `field-notes`, `smoke`, `mission-06-learning-platform`, `mission-07-editorial-ai`, `csp`). Add a new spec to that script too |
-| **Hydration rule** | After a navigation or reload, SSR markup is clickable before React attaches `onClick`; a click in that window is silently lost. Use the `clickAction(page, target)` helper (`e2e/mission-07-editorial-ai.spec.ts`): assert the button is enabled, wait until the DOM node has a `__reactProps$` key, then click. Do not use `networkidle` or `waitForFunction` on `readyState`. **Gap:** `mission-06-learning-platform.spec.ts` does not use it yet and flaked once on #53 ("Mark lesson complete") |
+| E2E | Playwright, Chromium, `workers: 1`, `retries: 0`; `npm run test:e2e` (needs `.env.local` admin vars from `.env.example`). CI runs seven specs in `test:e2e:ci` (`mission-08-final-certification`, `field-notes`, `smoke`, `mission-06-learning-platform`, `mission-07-editorial-ai`, `csp`, `admin-security`). Add a new spec to that script too. The web server sets `ADMIN_REQUIRE_2FA=false`; a unit suite that uses a real admin session must set it itself (`tests/helpers/env.ts` does not) |
+| **Hydration rule** | After a navigation or reload, SSR markup is clickable before React attaches `onClick`; a click in that window is silently lost. Use `clickAction(page, target)` from `e2e/helpers/actions.ts`: assert the button is enabled, wait until the DOM node has a `__reactProps$` key, then click. Call `waitForHydration(page, locator)` before filling a form (hydration resets controlled inputs). Do not use `networkidle` or `waitForFunction` on `readyState`. Used by the mission-06, 07, 08 and `admin-security` specs |
 | Evidence | Report the gate output, not a claim. UI changes need a screenshot or a Playwright run |
 
 ## 7. CI and budgets
@@ -118,8 +118,6 @@ From `PROJECT-STATUS.md` §8:
 ## ⚠ Divergences
 
 1. **ActionResult adoption is partial** (section 2): five feature action files define their own `ActionState`. `AGENTS` and `PROJECT-STATUS.md` §8 state the rule as universal.
-2. **`DEFINITION-OF-DONE.md` is stale on E2E:** it says CI runs three specs and that `mission-06` and `mission-07` do not run in CI. `package.json` `test:e2e:ci` runs six, including both (#37). It also omits the `worker-size` and `audit.yml` jobs.
-3. **Blueprint §18.1 clean-code rules are not written down in the repo**; this file records only observed practice. Module-depth and naming reviews have no tool support.
-4. **Cover images vs CSP:** `isSafeMediaUrl` accepts any `https://` cover URL, but `img-src` allows only same-origin, `data:` and `blob:`, so an external cover would be blocked in the browser. Uploads via `/api/media/` are unaffected.
-5. **`ARCHITECTURE.md`** still lists React 19.2 and migrations 0000-0018; `package.json` has React 19.3.1 and the repo has 0000-0020.
-6. **Pinning is mixed:** blueprint and Dependabot cooldown imply deliberate versions, but `better-auth`, `drizzle-orm`, `drizzle-kit`, `wrangler`, `playwright`, `@playwright/test` and `@cloudflare/workers-types` use `^` ranges.
+2. **Blueprint §18.1 clean-code rules are not written down in the repo**; this file records only observed practice. Module-depth and naming reviews have no tool support.
+3. **Cover images vs CSP:** `isSafeMediaUrl` accepts any `https://` cover URL, but `img-src` allows only same-origin, `data:` and `blob:`, so an external cover would be blocked in the browser. Uploads via `/api/media/` are unaffected.
+4. **Pinning is mixed:** blueprint and Dependabot cooldown imply deliberate versions, but `better-auth`, `drizzle-orm`, `drizzle-kit`, `wrangler`, `playwright`, `@playwright/test` and `@cloudflare/workers-types` use `^` ranges.

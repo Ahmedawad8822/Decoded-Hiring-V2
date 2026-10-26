@@ -1,14 +1,14 @@
 # Architecture
 
-Blueprint §6, §7, §18.1 (clean-code rules) and §18.6 (repository knowledge contract). Status: **living document**, written against `main` at 0347047. Nothing is deployed yet; production values in `wrangler.jsonc` are placeholders. If code and this file disagree, the code wins; fix this file. Vocabulary lives in `Docs/CONTEXT.md`; delivery state in `Docs/PROJECT-STATUS.md`.
+Blueprint §6, §7, §18.1 (clean-code rules) and §18.6 (repository knowledge contract). Status: **living document**, written against `main` at `8351e55` (2026-10-26). Nothing is deployed yet; production values in `wrangler.jsonc` are placeholders. If code and this file disagree, the code wins; fix this file. Vocabulary lives in `Docs/CONTEXT.md`; delivery state in `Docs/PROJECT-STATUS.md`.
 
 ## 1. Runtime
 
 ```
 Browser
   |
-Cloudflare Worker  (.open-next/worker.js, built by @opennextjs/cloudflare 1.20.12)
-  |  Next 16.4.2 App Router, React 19.2, server components + server actions + route handlers
+Cloudflare Worker  (.open-next/worker.js, built by @opennextjs/cloudflare 1.20.12; wrangler ^4.151.1)
+  |  Next 16.4.2 App Router, React 19.3.1, server components + server actions + route handlers
   |-- ASSETS            static files (.open-next/assets)
   |-- DB                D1 (SQLite) via Drizzle
   |-- MEDIA_BUCKET      R2: public editorial media, private course PDFs, knowledge sources
@@ -19,7 +19,17 @@ Cloudflare Worker  (.open-next/worker.js, built by @opennextjs/cloudflare 1.20.1
 - **Build:** `next build --webpack`, then `opennextjs-cloudflare build`. Config: `open-next.config.ts` (R2 incremental cache only), `wrangler.jsonc`, `next.config.ts` (security headers, `serverExternalPackages: wrangler, miniflare, esbuild`).
 - **Flags:** `nodejs_compat`, `global_fetch_strictly_public`; compatibility date 2026-09-15.
 - **Bindings seam:** `src/lib/cloudflare/bindings.ts` `getCloudflareBindings()` resolves, in order: a test-only D1 override, the Worker request context (`getCloudflareContext()`), then a local `getPlatformProxy` from wrangler (Miniflare state in `DH_LOCAL_STATE_DIR` or `.wrangler/state/v3`). wrangler is imported through a computed specifier so it is never bundled. Everything else calls `getD1Database()` / `getR2Bucket()` / `getDb()`.
-- **Rendering:** server-first. Public marketing and legal pages are static (○); Studio, classroom, offer pages and article pages are dynamic (ƒ). Detail in `Docs/PERFORMANCE-BUDGET.md`.
+- **Rendering:** server-first, four modes (detail and route list in `Docs/PERFORMANCE-BUDGET.md` section 3):
+
+| Mode | Routes |
+|---|---|
+| Static (○) | Marketing and legal pages, `/guides` and `/field-notes` indexes (prerendered from D1, refreshed by `revalidatePath()` on publish) |
+| Timed ISR (`revalidate = 300`) | `/mission-01`, `/ai-recruiter-os`; `refreshCommerce()` revalidates them on Studio offer or booking-type changes |
+| ISR on demand (`generateStaticParams` returns `[]`, `revalidate = 3600` as safety net) | `/guides/[slug]`, `/field-notes/[slug]`: published article only, no `searchParams`, cached in the R2 incremental cache, revalidated by Studio actions and editorial-AI publish; slug redirects (308) and 404s resolve inside the render |
+| Dynamic (ƒ) | `/coaching`, `/workshop` (live availability), `/preview/guides/[slug]` and `/preview/field-notes/[slug]`, `/admin/*`, `/learn/*`, `/api/*`, `/sitemap.xml` |
+
+- **Staff preview:** `?preview=true` on an article URL is rewritten in `next.config.ts` (`beforeFiles`) to the `force-dynamic`, `noindex`, admin-only routes under `src/app/(site)/preview/`; the browser URL does not change.
+- **CSP:** static `Content-Security-Policy` header in `next.config.ts` (no nonce, so ISR stays cacheable); directives in `Docs/ENGINEERING-STANDARDS.md` section 9, verified by `e2e/csp.spec.ts`.
 - **No middleware/proxy file.** Access control is in server code (section 4).
 
 ## 2. Data
@@ -30,17 +40,17 @@ Cloudflare Worker  (.open-next/worker.js, built by @opennextjs/cloudflare 1.20.1
 | R2 `MEDIA_BUCKET` | `guides/`, `field-notes/` (public images), `course-resources/<courseId>/` (private PDFs), knowledge sources (private) | `lib/media/service.ts`, `lib/course-resources/service.ts`, `editorial-ai/knowledge/storage.ts` |
 | R2 `NEXT_INC_CACHE_R2_BUCKET` | OpenNext incremental cache | OpenNext only |
 
-**Migrations:** SQL files in `drizzle/migrations` (0000-0018, generated with `drizzle-kit generate`; some hand-written, e.g. 0012 booking overlap trigger). Local: `npm run db:migrate:local` (`scripts/migrate-local.ts` -> `src/lib/db/migrate.ts`), which records applied files in wrangler's `d1_migrations` table and fails loudly on non-idempotent errors (`tests/migrations-tracking.test.ts`). Remote: `npm run db:migrate:remote` (`wrangler d1 migrations apply DB --env production --remote`). Schema changes are a high-risk change (`Docs/SECURITY-THREAT-MODEL.md` section 6).
+**Migrations:** SQL files in `drizzle/migrations` (0000-0022, generated with `drizzle-kit generate`; some hand-written, e.g. 0012 booking overlap trigger; latest: 0020 `slug_redirects`, 0021 `admin_audit_log`, 0022 `two_factor` plus `user.two_factor_enabled`). Local: `npm run db:migrate:local` (`scripts/migrate-local.ts` -> `src/lib/db/migrate.ts`), which records applied files in wrangler's `d1_migrations` table and fails loudly on non-idempotent errors (`tests/migrations-tracking.test.ts`). Remote: `npm run db:migrate:remote` (`wrangler d1 migrations apply DB --env production --remote`). Schema changes are a high-risk change (`Docs/SECURITY-THREAT-MODEL.md` section 6).
 
-**Table groups:** identity (`user`, `session`, `account`, `verification`); content (`guides`, `field_notes`, `field_note_revisions`, `media`); learning (`courses`, `course_sections`, `lessons`, `lesson_resources`, `enrollments`, `lesson_progress`); editorial AI (`knowledge_*`, `editorial_*`); scheduling (`booking_types`, `booking_availability_windows`, `slot_holds`, `bookings`, `booking_history`); commerce (`offers`, `orders`, `order_history`, `payment_events`, `orchestration_effects`, `orchestration_history`); intake and operations (`lead_submissions`, `public_rate_limits`, `business_events`).
+**Table groups:** identity (`user`, `session`, `account`, `verification`); content (`guides`, `field_notes`, `field_note_revisions`, `media`); learning (`courses`, `course_sections`, `lessons`, `lesson_resources`, `enrollments`, `lesson_progress`); editorial AI (`knowledge_*`, `editorial_*`); scheduling (`booking_types`, `booking_availability_windows`, `slot_holds`, `bookings`, `booking_history`); commerce (`offers`, `orders`, `order_history`, `payment_events`, `orchestration_effects`, `orchestration_history`); intake and operations (`lead_submissions`, `public_rate_limits`, `business_events`); security and routing (`two_factor`, `admin_audit_log`, `slug_redirects`).
 
 ## 3. Auth
 
-- **Better Auth** with the `admin` plugin (`defaultRole: "user"`, `adminRole: "admin"`), Drizzle adapter over D1, email and password, no email verification. Code: `src/lib/auth/index.ts`; browser client: `src/lib/auth/client.ts`; HTTP: `src/app/api/auth/[...all]/route.ts`.
+- **Better Auth** (^1.7.10) with the `admin` plugin (`defaultRole: "user"`, `adminRole: "admin"`) and the `twoFactor` plugin (TOTP plus single-use backup codes, issuer "Decoded Hiring"), Drizzle adapter over D1, email and password, no email verification. Code: `src/lib/auth/index.ts`; browser client: `src/lib/auth/client.ts`; HTTP: `src/app/api/auth/[...all]/route.ts`.
 - **Request-cached:** `getAuth` and `getServerSession` use React `cache()`; there is no process-lifetime singleton, so each request resolves its own D1 binding and secret.
 - **Fail closed:** `BETTER_AUTH_SECRET` is required in every environment.
-- **Guards:** `requireAdmin()` and `requireUser()` throw `AppError` (actions, routes); `requireAdminPage()` redirects (pages). Learner access to a course goes through `features/enrollments` and `lib/course-resources/access.ts`.
-- **Rate limiting:** Better Auth `customStorage.consume` is backed by the D1 fixed-window primitive in `features/public-intake/rate-limit.ts`.
+- **Guards:** `requireAdmin()` and `requireUser()` throw `AppError` (actions, routes); `requireAdminPage()` redirects (pages). Both admin guards also enforce **2FA**: an admin without `twoFactorEnabled` is redirected to `/admin/security` (pages) or rejected (actions) unless `ADMIN_REQUIRE_2FA` is exactly `"false"` (`isAdmin2faRequired()`; set only in `.env.example` and the Playwright web server, never in production). Only `/admin/security` passes `allowWithout2fa`. Pure decision functions `checkAdminPage` / `checkAdmin` are exported for tests. Learner access to a course goes through `features/enrollments` and `lib/course-resources/access.ts`.
+- **Rate limiting:** Better Auth `customStorage.consume` is backed by the D1 fixed-window primitive in `features/public-intake/rate-limit.ts`. Per client IP per path: sign-in, sign-up and `/two-factor/verify-*` 5/min; password flows and password-confirming 2FA management 5/min; default 120/min; `/get-session` unthrottled (`src/lib/auth/rate-limit.ts`).
 - First admin: `npm run admin:create` (`scripts/create-admin.ts`, credentials from env).
 
 ## 4. Module map (`src/features/*`)
@@ -59,10 +69,12 @@ Cloudflare Worker  (.open-next/worker.js, built by @opennextjs/cloudflare 1.20.1
 | `scheduling` | Booking types, availability, holds, bookings, policy, time, provider contracts, public booking | `index.ts`, `bookings.ts`, `holds.ts`, `availability.ts`, `public-actions.ts`, `providers.ts` |
 | `commerce` | Orders, orchestration effects, admin operations and read models | `index.ts`, `orders.ts`, `orchestration.ts`, `admin-operations.ts`, `admin-actions.ts` |
 | `leads` | Public enquiry capture with idempotency and fallback | `service.ts`, `actions.ts` (public), `lead-form.tsx` |
-| `public-intake` | Shared D1 fixed-window rate-limit primitive | `rate-limit.ts` |
+| `public-intake` | Shared D1 fixed-window rate-limit primitive, salted per-IP buckets (`PUBLIC_IP_LIMITS`), opportunistic pruning of expired rows (24 h retention, 1% of consumes, 500 rows) | `rate-limit.ts` |
+| `audit` | Admin audit trail: `recordAdminAudit()` / `buildAdminAuditStatement()` write `admin_audit_log` rows (actor, action, entity, small JSON details); read-only viewer at `/admin/audit` | `service.ts` |
+| `slug-redirects` | Records a redirect when an ever-published Guide, Field Note, Course or Lesson slug is renamed, in the same D1 batch; target resolved at request time (A to B to C resolves A to C); a live entity reusing a slug deletes its redirect row | `service.ts` |
 | `analytics` | Business events (best-effort, no PII), public funnel events | `service.ts`, `public-actions.ts`, `types.ts` |
 
-Outside features: `src/lib` (cross-cutting infra: `auth`, `db`, `cloudflare`, `media`, `course-resources`, `errors.ts`, `action-result.ts`, `safe-redirect.ts`, `upload-limits.ts`, `seo.tsx`, `sitemap-entries.ts`); `src/app` (routes: `(site)` public, `admin` Studio, `learn` classroom, `api`); `src/components` (`home`, `learner`, `products`, `publishing`, `site`). Note: `src/lib/media` and `src/lib/course-resources` hold domain logic that has not been moved into `features/` (candidate cleanup, blueprint §18.1).
+Outside features: `src/lib` (cross-cutting infra: `auth`, `db`, `cloudflare`, `media`, `course-resources`, `uploads/sniff.ts`, `errors.ts`, `action-result.ts`, `safe-redirect.ts`, `upload-limits.ts`, `seo.tsx`, `sitemap-entries.ts`); `src/app` (routes: `(site)` public incl. `preview/`, `admin` Studio incl. `security` (2FA enrolment) and `audit`, `learn` classroom, `api`); `src/components` (`home`, `learner`, `products`, `publishing`, `site`). Note: `src/lib/media` and `src/lib/course-resources` hold domain logic that has not been moved into `features/` (candidate cleanup, blueprint §18.1).
 
 ## 5. Cross-cutting conventions
 
@@ -73,13 +85,14 @@ Outside features: `src/lib` (cross-cutting infra: `auth`, `db`, `cloudflare`, `m
 | Domain errors | Modules define typed errors with codes (`LeadDomainError`, scheduling `errors.ts`, `SchedulingProviderError`) | per feature |
 | Validation | Zod at every boundary (actions, routes, analytics metadata) | per feature `*-schemas.ts` |
 | Authorization | Server-side only, in the action or route; role never read from input | `src/lib/auth` |
-| Rate limiting | Atomic D1 upsert (`consumePublicFixedWindowLimit`, `consumeFixedWindowMs`); scope keys hash PII | `public-intake/rate-limit.ts` |
+| Rate limiting | Atomic D1 upsert (`consumePublicFixedWindowLimit`, `consumeFixedWindowMs`); scope keys hash PII. Public intake checks a salted per-IP bucket first (`consumePublicIpLimit`: lead 10, booking 8, analytics 20 per 15 min), then the shared email/kind/global counters; the IP check is skipped when there is no request context (tests, scripts) | `public-intake/rate-limit.ts` |
 | Race safety | Conditional-WHERE updates, unique indexes and a DB trigger, rather than read-then-write | `scheduling`, `commerce`, `enrollments`, migrations |
 | Business events | `recordBusinessEventBestEffort()` with a dedupe key; never blocks the main path; forbids PII-looking metadata keys | `features/analytics/service.ts` |
-| Audit | `logAudit()` for editorial actions; history tables for bookings and orders | `editorial-ai/audit`, `booking_history`, `order_history` |
+| Audit | `recordAdminAudit()` for admin mutations (guide, field note, course, section, lesson, lesson resource, media, offer, booking type, availability window), awaited after the mutation, failures logged not surfaced; `logAudit()` for editorial AI (best-effort); history tables for bookings and orders | `features/audit`, `editorial-ai/audit`, `booking_history`, `order_history` |
 | Test seams | Opt-in env flags (`DH_*_TEST_SEAM`) and `setD1DatabaseForTest`; never set in production code | see threat model T19 |
 | Safe redirects | `safeRedirectPath()` for any `?redirect=` | `src/lib/safe-redirect.ts` |
-| Uploads | Size guard in three layers, server-minted keys, MIME and magic checks | `src/lib/upload-limits.ts`, services |
+| Uploads | Size guard in three layers, server-minted keys; images: MIME allowlist plus magic-byte sniffing, the sniffed type is stored; PDFs: `%PDF-` check | `src/lib/upload-limits.ts`, `src/lib/uploads/sniff.ts`, services |
+| Slug changes | Rename plus redirect row in one `db.batch`; article routes revalidate old and new slug | `features/slug-redirects`, `guides`, `field-notes`, `courses` |
 
 ## 6. Provider adapters (dormant)
 
@@ -89,13 +102,17 @@ Outside features: `src/lib` (cross-cutting infra: `auth`, `db`, `cloudflare`, `m
 
 ## 7. CI/CD
 
-`.github/workflows/ci.yml`, on pull requests and pushes to `main`, Node 22, fake CI-only secrets, local Miniflare only.
+`.github/workflows/ci.yml` and `audit.yml`, on pull requests and pushes to `main`, Node 22, fake CI-only secrets, local Miniflare only.
 
 | Job | Steps | Notes |
 |---|---|---|
 | `verify` | `npm ci`, `lint` (`--max-warnings=0`), `typecheck` (`next typegen && tsc`), `npm test` (tsx suites in `tests/`), `db:migrate:local`, `build` | Migrations first because `/guides` and `/field-notes` prerender from D1 |
-| `e2e` (needs verify) | Playwright Chromium; `test:e2e:ci` runs `mission-08-final-certification`, `field-notes`, `smoke` specs | Uploads report artifacts on failure. Other specs in `e2e/` (`mission-06`, `mission-07`) are not in the CI script |
-| `worker-size` (needs verify) | `db:migrate:local`, `cf:build`, `cf:size` | Fails above 2950 KiB gzip |
+| `e2e` (needs verify) | Playwright Chromium, 40-minute timeout; `test:e2e:ci` runs all seven specs: `mission-08-final-certification`, `field-notes`, `smoke`, `mission-06-learning-platform`, `mission-07-editorial-ai`, `csp`, `admin-security` | Uploads report artifacts on failure. Web server sets `ADMIN_REQUIRE_2FA=false`; shared `e2e/helpers/actions.ts` (`clickAction`, `waitForHydration`) |
+| `worker-size` (needs verify) | `db:migrate:local`, `cf:build`, `cf:size` | Fails above 2950 KiB gzip (`scripts/check-worker-size.ts`, override `WORKER_GZIP_BUDGET_KIB`) |
+| `audit.yml` `npm-audit` | `npm audit --omit=dev --audit-level=high`; PRs, `main`, weekly (Monday) | Dev-only moderates are documented in `Docs/Engineering/DEPENDENCY-AUDIT.md` |
+| `codeql.yml` | CodeQL javascript-typescript | `workflow_dispatch` only until code scanning is enabled on the private repo |
+
+`.github/dependabot.yml`: weekly npm and GitHub Actions updates, 7-day cooldown, minor/patch grouped, semver-major ignored for `next`, `react`, `react-dom`, `@opennextjs/cloudflare`, `wrangler`, `better-auth`, `drizzle-orm`, `typescript`, `eslint`, `eslint-config-next`.
 
 There is **no deploy job** and no preview deployments yet (`Docs/Engineering/DEPLOYMENT.md` follow-ups). Deploy is manual: `npm run deploy`.
 
@@ -125,7 +142,8 @@ Follows blueprint §18.1: modular monolith, organise by business capability, dee
 | UI components | `src/components/<area>/`; one-off feature UI may live next to its feature (as `leads/lead-form.tsx`) |
 | Cross-cutting infrastructure used by many domains | `src/lib/` (auth, db, cloudflare, errors, safe redirect, upload limits) |
 | An external provider | Behind a contract in the owning feature (as `scheduling/providers.ts`), failing closed when unconfigured; add an adapter only when variation is real |
-| A schema change | Edit `src/lib/db/schema.ts`, `npm run db:generate`, review the SQL, commit the migration; add a regression test. High-risk: needs Ahmed's approval |
+| A schema change | Edit `src/lib/db/schema.ts`, `npm run db:generate`, review the SQL, commit the migration and `meta/`; add a regression test. High-risk: needs Ahmed's approval |
+| An admin mutation | Guard with `requireAdmin()`, then call `recordAdminAudit()` (add the entity to `AUDIT_ENTITY_TYPES` if new). Renaming a published slug goes through `slug-redirects` |
 | A rate limit on a public path | `consumePublicFixedWindowLimit` with a hashed scope key; remember each consume is a D1 write (`Docs/PERFORMANCE-BUDGET.md`) |
-| A test | `tests/<name>.test.ts` and add it to the `npm test` script (it is an explicit `&&` chain, not a glob); E2E in `e2e/` |
+| A test | `tests/<name>.test.ts` and add it to the `npm test` script (it is an explicit `&&` chain, not a glob); E2E in `e2e/`, added to `test:e2e:ci`, using `clickAction` / `waitForHydration`. A suite using a real admin session sets `ADMIN_REQUIRE_2FA=false` |
 | A new Cloudflare binding | `wrangler.jsonc` top level **and** `env.production`; extend `CloudflareEnv` in `bindings.ts`; update `DEPLOYMENT.md` |
