@@ -287,7 +287,7 @@ export async function discardFieldNoteDraft(id: string): Promise<void> {
   const current = await getAdminFieldNoteById(id);
   if (!current) return;
   if (current.status !== "draft") {
-    throw new Error(`Cannot discard field note "${id}" in "${current.status}" status.`);
+    throw new AppError("conflict", `Cannot discard field note "${id}" in "${current.status}" status.`);
   }
   await db.delete(fieldNotes).where(and(eq(fieldNotes.id, id), eq(fieldNotes.status, "draft")));
 }

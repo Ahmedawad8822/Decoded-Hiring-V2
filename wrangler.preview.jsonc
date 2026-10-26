@@ -1,0 +1,39 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  // Used only by `npm run preview` (wrangler dev on the OpenNext build). Same
+  // as the top-level wrangler.jsonc plus the OpenNext self-reference service
+  // binding that ISR revalidation needs. Keep the two in sync (no automated check).
+  "name": "decoded-hiring-v2",
+  "main": ".open-next/worker.js",
+  "compatibility_date": "2026-09-15",
+  "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
+  "assets": {
+    "directory": ".open-next/assets",
+    "binding": "ASSETS"
+  },
+  "services": [
+    {
+      // OpenNext self-reference (cache revalidation); must match the worker name.
+      "binding": "WORKER_SELF_REFERENCE",
+      "service": "decoded-hiring-v2"
+    }
+  ],
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "decoded-hiring-local-db",
+      "database_id": "local-db-placeholder",
+      "migrations_dir": "drizzle/migrations"
+    }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "MEDIA_BUCKET",
+      "bucket_name": "decoded-hiring-local-media"
+    },
+    {
+      "binding": "NEXT_INC_CACHE_R2_BUCKET",
+      "bucket_name": "decoded-hiring-local-next-cache"
+    }
+  ]
+}

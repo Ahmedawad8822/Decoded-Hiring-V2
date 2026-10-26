@@ -318,9 +318,6 @@ test("FN-11: Narrow media URL boundary accepts safe covers, rejects unsafe schem
   for (const good of [
     "/api/media/field-notes/cover-abc123.png",
     "/api/media/guides/cover.jpg",
-    "https://cdn.decodedhiring.com/covers/note.webp",
-    "https://decodedhiring.com/c.png",
-    "HTTPS://EXAMPLE.COM/UPPER.PNG",
   ]) {
     assert.equal(isSafeMediaUrl(good), true, `expected ACCEPT: ${good}`);
   }
@@ -338,6 +335,11 @@ test("FN-11: Narrow media URL boundary accepts safe covers, rejects unsafe schem
     "file:///etc/passwd",
     "mailto:ahmed@decodedhiring.com",
     "tel:+15551234567",
+    "https://cdn.decodedhiring.com/covers/note.webp",
+    "HTTPS://EXAMPLE.COM/UPPER.PNG",
+    "/api/media/../secret.png",
+    "/api/media//evil.example/x.png",
+    "/api/media/a\\b.png",
     "ftp://example.com/cover.png",
     "http://example.com/cover.png",
     "http://localhost:3000/api/media/x.png",
@@ -368,16 +370,13 @@ test("FN-12: coverImage schemas enforce the media boundary without breaking vali
     createFieldNoteSchema.safeParse({ ...base, coverImage: "/api/media/field-notes/c.png" }).success,
     true
   );
-  assert.equal(
-    createFieldNoteSchema.safeParse({ ...base, coverImage: "https://cdn.example.com/c.png" }).success,
-    true
-  );
 
   // Invalid: dangerous scheme, protocol-relative, http, non-media relative path
   for (const coverImage of [
     "javascript:alert(1)",
     "data:image/png;base64,xxx",
     "//cdn.example.com/c.png",
+    "https://cdn.example.com/c.png",
     "http://example.com/c.png",
     "/guides/some-guide",
   ]) {
@@ -388,10 +387,6 @@ test("FN-12: coverImage schemas enforce the media boundary without breaking vali
   // Guides reuse the same boundary with identical outcomes
   assert.equal(
     createGuideSchema.safeParse({ ...base, coverImage: "/api/media/guides/c.png" }).success,
-    true
-  );
-  assert.equal(
-    createGuideSchema.safeParse({ ...base, coverImage: "https://cdn.example.com/c.png" }).success,
     true
   );
   const guideBad = createGuideSchema.safeParse({ ...base, coverImage: "javascript:alert(1)" });
