@@ -1,6 +1,7 @@
 import { test, expect } from "@playwright/test";
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { clickAction } from "./helpers/actions";
 
 // G3: /admin/security renders for a signed-in admin (e2e runs with
 // ADMIN_REQUIRE_2FA=false, so the rest of the Studio is not gated).
@@ -26,13 +27,11 @@ test("admin security page renders the 2FA status and enable button", async ({ pa
   test.skip(!email || !password, "needs ADMIN_INITIAL_EMAIL/ADMIN_INITIAL_PASSWORD (npm run test:e2e bootstraps them)");
 
   await page.goto("/admin/login", { waitUntil: "domcontentloaded" });
-  // A click before React hydrates is lost (cold dev server): refill and retry until the sign-in lands.
-  await expect(async () => {
-    await page.getByLabel(/Admin Email/).fill(email);
-    await page.getByLabel(/^Password/).fill(password);
-    await page.getByRole("button", { name: "Sign in to Studio" }).click();
-    await expect(page).toHaveURL(/\/admin\/content/, { timeout: 8_000 });
-  }).toPass({ timeout: 90_000 });
+  await page.getByLabel(/Admin Email/).fill(email);
+  await page.getByLabel(/^Password/).fill(password);
+  // One hydration-aware click: retrying sign-in would trip the 5/min sign-in rate limit.
+  await clickAction(page, page.getByRole("button", { name: "Sign in to Studio" }));
+  await expect(page).toHaveURL(/\/admin\/content/, { timeout: 90_000 });
 
   await page.goto("/admin/security", { waitUntil: "domcontentloaded" });
   await expect(page.getByRole("heading", { name: "Security" })).toBeVisible({ timeout: 30_000 });
