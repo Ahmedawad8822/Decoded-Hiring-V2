@@ -231,7 +231,7 @@ export async function discardGuideDraft(id: string): Promise<void> {
   const current = await getAdminGuideById(id);
   if (!current) return;
   if (current.status !== "draft") {
-    throw new Error(`Cannot discard guide "${id}" in "${current.status}" status.`);
+    throw new AppError("conflict", `Cannot discard guide "${id}" in "${current.status}" status.`);
   }
   await db.delete(guides).where(and(eq(guides.id, id), eq(guides.status, "draft")));
 }
