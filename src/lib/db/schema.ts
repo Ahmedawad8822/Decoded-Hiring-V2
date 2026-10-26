@@ -1122,3 +1122,32 @@ export const slugRedirects = sqliteTable(
     index("slug_redirects_entity_idx").on(table.entityType, table.entityId),
   ]
 );
+
+// ============================================================================
+// ADMIN AUDIT LOG (threat-model G4)
+// ----------------------------------------------------------------------------
+// Uniform, append-only trail of admin mutations across Guides, Field Notes,
+// Courses, Lessons, media, Offers and Booking Types. `details` is a small JSON
+// object (old/new slug, status change...) and never holds secrets or PII.
+// `actor_id` is a plain text user id (no FK) so the trail outlives the user.
+// The editorial AI audit stays in `editorial_audit_log`.
+// ============================================================================
+
+export const adminAuditLog = sqliteTable(
+  "admin_audit_log",
+  {
+    id: text("id").primaryKey(),
+    actorId: text("actor_id").notNull(),
+    action: text("action").notNull(), // e.g. "guide.publish"
+    entityType: text("entity_type").notNull(), // e.g. "guide"
+    entityId: text("entity_id").notNull(),
+    details: text("details"), // small JSON object, nullable
+    createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+  },
+  (table) => [
+    index("admin_audit_log_entity_idx").on(table.entityType, table.entityId),
+    index("admin_audit_log_created_idx").on(table.createdAt),
+  ]
+);
+
+export type AdminAuditLogRow = typeof adminAuditLog.$inferSelect;

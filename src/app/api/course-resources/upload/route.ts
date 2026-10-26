@@ -1,4 +1,5 @@
 import { requireAdmin } from "@/lib/auth";
+import { recordAdminAudit } from "@/features/audit/service";
 import { httpStatusFor, publicErrorMessage } from "@/lib/errors";
 import { MAX_COURSE_RESOURCE_SIZE, uploadCourseResource } from "@/lib/course-resources/service";
 import { isRequestBodyOverLimit } from "@/lib/upload-limits";
@@ -72,7 +73,13 @@ export async function POST(request: Request) {
       title: typeof rawTitle === "string" ? rawTitle : filename,
     });
 
-    void session;
+    await recordAdminAudit({
+      actorId: session.user.id,
+      action: "lesson_resource.upload",
+      entityType: "lesson_resource",
+      entityId: result.id,
+      details: { courseId, lessonId },
+    });
     return NextResponse.json(result, { status: 201 });
   } catch (error: unknown) {
     return NextResponse.json(

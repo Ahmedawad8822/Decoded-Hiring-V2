@@ -51,6 +51,13 @@ export function AdminStudioShell({ children }: { children: React.ReactNode }) {
         >
           ◇ Scheduling & Commerce
         </Link>
+        <Link
+          className="sr-link"
+          href="/admin/audit"
+          aria-current={pathname.startsWith("/admin/audit") ? "page" : undefined}
+        >
+          ▦ Audit log
+        </Link>
 
         <div className="sr-section">Editorial AI</div>
         <Link
@@ -101,7 +108,9 @@ export function AdminStudioShell({ children }: { children: React.ReactNode }) {
                       ? "Courses"
                       : pathname.startsWith("/admin/commerce")
                         ? "Scheduling & Commerce"
-                        : "Content"}
+                        : pathname.startsWith("/admin/audit")
+                          ? "Audit log"
+                          : "Content"}
             </b>
           </span>
           <span className="st-spacer"></span>

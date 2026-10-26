@@ -2,6 +2,7 @@
 
 import { publicErrorMessage } from "@/lib/errors";
 import { requireAdmin } from "@/lib/auth";
+import { recordAdminAudit } from "@/features/audit/service";
 import { revalidatePath } from "next/cache";
 import * as fieldNoteService from "./service";
 import { createFieldNoteSchema, updateFieldNoteSchema, CreateFieldNoteInput, UpdateFieldNoteInput } from "./types";
@@ -28,7 +29,7 @@ export async function createFieldNoteAction(
   input: CreateFieldNoteInput
 ): Promise<ActionState<{ id: string; slug: string }>> {
   try {
-    await requireAdmin();
+    const session = await requireAdmin();
 
     const parsed = createFieldNoteSchema.safeParse(input);
     if (!parsed.success) {
@@ -41,6 +42,7 @@ export async function createFieldNoteAction(
     const created = await fieldNoteService.createFieldNote(parsed.data);
 
     revalidateFieldNotes(created.slug);
+    await recordAdminAudit({ actorId: session.user.id, action: "field_note.create", entityType: "field_note", entityId: created.id, details: { slug: created.slug } });
 
     return {
       ok: true,
@@ -74,6 +76,7 @@ export async function updateFieldNoteAction(
     });
 
     revalidateFieldNotes(updated.slug, before?.slug);
+    await recordAdminAudit({ actorId: session.user.id, action: "field_note.update", entityType: "field_note", entityId: updated.id, details: { oldSlug: before?.slug ?? null, newSlug: updated.slug } });
 
     return {
       ok: true,
@@ -96,6 +99,7 @@ export async function publishFieldNoteAction(id: string): Promise<ActionState<{ 
     });
 
     revalidateFieldNotes(published.slug);
+    await recordAdminAudit({ actorId: session.user.id, action: "field_note.publish", entityType: "field_note", entityId: id, details: { slug: published.slug, status: "published" } });
 
     return {
       ok: true,
@@ -118,6 +122,7 @@ export async function unpublishFieldNoteAction(id: string): Promise<ActionState<
     });
 
     revalidateFieldNotes(draft.slug);
+    await recordAdminAudit({ actorId: session.user.id, action: "field_note.unpublish", entityType: "field_note", entityId: id, details: { slug: draft.slug, status: "draft" } });
 
     return {
       ok: true,
@@ -140,6 +145,7 @@ export async function archiveFieldNoteAction(id: string): Promise<ActionState<{ 
     });
 
     revalidateFieldNotes(archived.slug);
+    await recordAdminAudit({ actorId: session.user.id, action: "field_note.archive", entityType: "field_note", entityId: id, details: { slug: archived.slug, status: "archived" } });
 
     return {
       ok: true,
