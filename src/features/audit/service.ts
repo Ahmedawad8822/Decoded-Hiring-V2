@@ -30,6 +30,7 @@ export const AUDIT_ENTITY_TYPES = [
   "offer",
   "booking_type",
   "availability_window",
+  "lead",
 ] as const;
 
 export type AuditEntityType = (typeof AUDIT_ENTITY_TYPES)[number];
