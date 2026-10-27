@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+import { test, expect, type Page } from "@playwright/test";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { clickAction, waitForHydration } from "./helpers/actions";
@@ -92,6 +92,19 @@ test.beforeAll(async ({ browser }) => {
 // without inflating timeouts or weakening any assertion.
 // FIXED: Warm the cold route explicitly in test setup instead of retrying
 // the user action inside the test.
+// The first completion compiles the progress server action on the dev server
+// and writes to D1, which can take well over the 5 s default on a slow CI
+// runner. Wait longer, but fail fast with the button's own error if it shows one.
+async function markLessonComplete(page: Page) {
+  await clickAction(page, page.getByRole("button", { name: "Mark lesson complete" }).first());
+  const done = page.getByText("✓ Completed").first();
+  const failure = page.getByRole("alert").filter({ hasText: /lesson complete|could not/i });
+  await expect(done.or(failure)).toBeVisible({ timeout: 30_000 });
+  if (await failure.isVisible()) {
+    throw new Error(`Mark lesson complete failed: ${await failure.innerText()}`);
+  }
+}
+
 async function signInAdmin(page: import("@playwright/test").Page, email: string, password: string) {
   await page.goto("/admin/login");
   await waitForHydration(page, page.getByLabel(/Admin Email/));
@@ -203,15 +216,13 @@ test.describe("mission 06 learning platform lifecycle", () => {
         dlLink.click(),
       ]);
       expect(download.suggestedFilename()).toMatch(/\.pdf$/i);
-      await clickAction(page, page.getByRole("button", { name: "Mark lesson complete" }).first());
-      await expect(page.getByText("✓ Completed").first()).toBeVisible();
+      await markLessonComplete(page);
     });
 
     await test.step("next lesson, complete course", async () => {
       await page.getByRole("link", { name: /^Next/ }).first().click();
       await expect(page.getByRole("heading", { name: "Second Lesson E2E" })).toBeVisible();
-      await clickAction(page, page.getByRole("button", { name: "Mark lesson complete" }).first());
-      await expect(page.getByText("✓ Completed").first()).toBeVisible();
+      await markLessonComplete(page);
       await page.goto(`/learn/courses/${courseSlug}`);
       await expect(page.getByText("Course complete")).toBeVisible();
       await expect(page.getByText("100%").first()).toBeVisible();

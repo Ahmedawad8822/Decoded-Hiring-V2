@@ -11,6 +11,7 @@
 // silently merge). See Docs/Engineering/MISSION-08-COMMERCE-SCHEDULING.md.
 // ============================================================================
 
+import { AppError } from "@/lib/errors";
 import { eq, and } from "drizzle-orm";
 import { getDb } from "@/lib/db";
 import { bookingTypes, bookingAvailabilityWindows } from "@/lib/db";
@@ -127,7 +128,8 @@ export async function updateBookingType(data: UpdateBookingTypeInput): Promise<B
   ) {
     const linkedOffer = await getOfferForBookingType(current.id);
     if (linkedOffer) {
-      throw new Error(
+      throw new AppError(
+        "conflict",
         `Booking access is owned by linked Offer "${linkedOffer.slug}". Update the Offer instead of the legacy Booking Type fallback.`,
       );
     }
@@ -277,10 +279,10 @@ export async function createAvailabilityWindow(
     .where(eq(bookingTypes.id, parsed.bookingTypeId))
     .get();
   if (!bookingType) {
-    throw new Error("Booking type not found.");
+    throw new AppError("not_found", "Booking type not found.");
   }
   if (!bookingType.active) {
-    throw new Error("Cannot add availability windows to an inactive booking type.");
+    throw new AppError("conflict", "Cannot add availability windows to an inactive booking type.");
   }
 
   const duplicate = await db
@@ -296,7 +298,8 @@ export async function createAvailabilityWindow(
     )
     .get();
   if (duplicate) {
-    throw new Error(
+    throw new AppError(
+      "conflict",
       `Duplicate window: weekday ${parsed.weekday} (${parsed.startMinute}-${parsed.endMinute}) already exists for this booking type.`,
     );
   }
@@ -308,7 +311,8 @@ export async function createAvailabilityWindow(
     parsed.endMinute,
   );
   if (overlap) {
-    throw new Error(
+    throw new AppError(
+      "conflict",
       `Overlapping window detected for weekday ${parsed.weekday} (${parsed.startMinute}-${parsed.endMinute}). ` +
         "This scheduling policy rejects overlapping availability windows.",
     );
@@ -327,7 +331,7 @@ export async function createAvailabilityWindow(
     });
   } catch (error: unknown) {
     if (isUniqueConstraintError(error)) {
-      throw new Error("Window already exists (concurrent insert detected).");
+      throw new AppError("conflict", "Window already exists (concurrent insert detected).");
     }
     throw error;
   }

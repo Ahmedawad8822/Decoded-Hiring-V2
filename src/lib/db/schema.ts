@@ -827,6 +827,8 @@ export const bookingHistory = sqliteTable(
   (table) => [
     index("booking_history_booking_idx").on(table.bookingId),
     index("booking_history_created_at_idx").on(table.createdAt),
+    // Created by migration 0018 (business-event reconciliation).
+    index("booking_history_action_created_idx").on(table.action, table.createdAt),
   ]
 );
 
@@ -973,6 +975,8 @@ export const orderHistory = sqliteTable(
   (table) => [
     index("order_history_order_idx").on(table.orderId),
     index("order_history_created_idx").on(table.createdAt),
+    // Created by migration 0018 (business-event reconciliation).
+    index("order_history_status_created_idx").on(table.toStatus, table.createdAt),
   ],
 );
 
@@ -1151,3 +1155,43 @@ export const adminAuditLog = sqliteTable(
 );
 
 export type AdminAuditLogRow = typeof adminAuditLog.$inferSelect;
+
+// ============================================================================
+// BUSINESS EVENT LEDGER (Mission 08.8, src/features/analytics)
+// ----------------------------------------------------------------------------
+// First-party observability projection; business truth stays in bookings,
+// orders and their *_history tables. The table was created by hand-written
+// migration 0018; this definition mirrors it exactly. occurred_at gets a
+// standalone index in 0023 to serve retention pruning.
+// ============================================================================
+
+export const businessEvents = sqliteTable(
+  "business_events",
+  {
+    id: text("id").primaryKey(),
+    dedupeKey: text("dedupe_key").notNull(),
+    eventName: text("event_name").notNull(),
+    subjectType: text("subject_type"),
+    subjectId: text("subject_id"),
+    offerId: text("offer_id"),
+    bookingTypeId: text("booking_type_id"),
+    bookingId: text("booking_id"),
+    orderId: text("order_id"),
+    route: text("route"),
+    surface: text("surface"),
+    metadata: text("metadata").notNull().default("{}"),
+    occurredAt: integer("occurred_at").notNull(),
+    createdAt: integer("created_at").notNull(),
+  },
+  (table) => [
+    uniqueIndex("business_events_dedupe_unique").on(table.dedupeKey),
+    index("business_events_name_occurred_idx").on(table.eventName, table.occurredAt),
+    index("business_events_booking_idx").on(table.bookingId),
+    index("business_events_order_idx").on(table.orderId),
+    index("business_events_offer_idx").on(table.offerId),
+    // Serves retention pruning (ordered range scan on occurred_at); 0023.
+    index("business_events_occurred_idx").on(table.occurredAt),
+  ],
+);
+
+export type BusinessEventRow = typeof businessEvents.$inferSelect;

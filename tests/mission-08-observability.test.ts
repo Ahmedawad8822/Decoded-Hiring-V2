@@ -317,6 +317,11 @@ test("OBS 08.8: durable histories reconstruct missing analytics after crash-like
   assert.equal((await rawEvents("booking_id", booking.id)).length, 0);
   assert.equal((await rawEvents("order_id", order.id)).length, 0);
 
+  // Reads never repair: the summary leaves the lost rows missing.
+  await getBusinessEventSummary({ windowDays: 30, now: NOW });
+  assert.equal((await rawEvents("booking_id", booking.id)).length, 0);
+  assert.equal((await rawEvents("order_id", order.id)).length, 0);
+
   await reconcileDurableBusinessEvents();
 
   const bookingRows = await rawEvents("booking_id", booking.id);
@@ -410,8 +415,11 @@ test("OBS 08.8: anonymous front-funnel telemetry keeps D1 write headroom", async
   assert.equal(PUBLIC_ANALYTICS_BUDGET.scopeKey, "analytics:public-funnel");
   assert.equal(PUBLIC_ANALYTICS_BUDGET.windowMinutes, 15);
   assert.equal(PUBLIC_ANALYTICS_BUDGET.maxCount, 50);
+  // Raised 50_000 -> 60_000 when business_events gained the occurred_at
+  // retention index (migration 0023): one more billed row per admission
+  // (53,350/day at saturation). Still well under the 100k/day D1 free cap.
   assert.ok(
-    worstCaseRowsWritten < 50_000,
+    worstCaseRowsWritten < 60_000,
     `front-funnel telemetry budget would consume ${worstCaseRowsWritten} D1 row writes/day at saturation (estimated ${conservativeRowsWrittenPerAdmission} billed rows/admission)`,
   );
 });

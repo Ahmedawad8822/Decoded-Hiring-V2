@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ContentBlock, estimateReadingTime } from "@/features/publishing/types";
+import { ContentBlock, estimateReadingTime, isSafeMediaUrl } from "@/features/publishing/types";
 import { ContentBlockRenderer } from "@/components/publishing/ContentBlockRenderer";
 import { JsonLd, breadcrumbSchema, buildContentJsonLd } from "@/lib/seo";
 import type { FieldNote } from "@/lib/db";
@@ -102,11 +102,11 @@ export function FieldNoteArticle({ note, slug }: { note: FieldNote; slug: string
           </div>
         </header>
 
-        {note.coverImage && (
+        {isSafeMediaUrl(note.coverImage) && (
           <figure style={{ margin: "0 0 32px" }}>
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
-              src={note.coverImage}
+              src={note.coverImage ?? undefined}
               alt={note.title}
               style={{ width: "100%", height: "auto", borderRadius: "12px", display: "block" }}
             />
