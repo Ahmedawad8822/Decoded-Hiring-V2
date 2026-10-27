@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 
+import { reconcileDurableBusinessEvents } from "@/features/analytics/service";
 import { requireAdmin } from "@/lib/auth";
 import { createCommerceAdminOperations } from "./admin-operations";
 import {
@@ -85,5 +86,24 @@ export async function getOrderAuditAdminAction(
     return { ok: true, data: await getOrderAuditForAdmin(safeId) };
   } catch {
     return { ok: false, error: "Could not load Order audit history." };
+  }
+}
+
+/**
+ * Explicit admin recovery: re-derives missing business events from the
+ * booking/order histories. Idempotent (shared dedupe keys). The Studio
+ * summary read never does this itself.
+ */
+export async function reconcileBusinessEventsAdminAction(windowDays?: unknown) {
+  try {
+    await requireAdmin();
+    const days = z.coerce.number().int().min(1).max(365).catch(30).parse(windowDays);
+    await reconcileDurableBusinessEvents({
+      since: new Date(Date.now() - days * 24 * 60 * 60 * 1000),
+    });
+    revalidatePath("/admin/commerce");
+    return { ok: true as const };
+  } catch {
+    return { ok: false as const, error: "Could not reconcile business events." };
   }
 }

@@ -1,6 +1,8 @@
+import { count, eq, gte, inArray, lt, max } from "drizzle-orm";
 import { z } from "zod";
 
 import { getD1Database } from "@/lib/cloudflare/bindings";
+import { businessEvents, getDb } from "@/lib/db";
 import {
   BUSINESS_EVENT_NAMES,
   type BusinessEventCounts,
@@ -8,6 +10,38 @@ import {
   type BusinessEventName,
   type BusinessEventSummary,
 } from "./types";
+
+/**
+ * Retention for the business-event ledger, measured on `occurred_at`.
+ * POLICY DEFAULT pending the analytics/consent decision (PROJECT-STATUS.md
+ * section 7): 400 days keeps a full year of year-over-year comparison plus a
+ * margin. Must stay >= the 365-day maximum summary window. Change it here
+ * once the retention policy is decided.
+ */
+export const BUSINESS_EVENT_RETENTION_DAYS = 400;
+
+/** Upper bound on rows deleted by one pruning call (bounded D1 write work). */
+export const BUSINESS_EVENT_PRUNE_BATCH = 500;
+
+/** Chance that a successful event write also runs one bounded pruning pass. */
+export const BUSINESS_EVENT_PRUNE_PROBABILITY = 0.01;
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+function randomUnitInterval(): number {
+  const buffer = new Uint32Array(1);
+  crypto.getRandomValues(buffer);
+  return buffer[0] / 2 ** 32;
+}
+
+// TEST-ONLY seam: forces (or suppresses) the opportunistic pruning pass.
+let pruneSampler: () => number = randomUnitInterval;
+
+export function setBusinessEventPruneSamplerForTest(
+  sampler: (() => number) | null,
+): void {
+  pruneSampler = sampler ?? randomUnitInterval;
+}
 
 const eventNameSchema = z.enum(BUSINESS_EVENT_NAMES);
 const metadataValueSchema = z.union([
@@ -63,32 +97,80 @@ export async function recordBusinessEvent(
 ): Promise<void> {
   const parsed = inputSchema.parse(input);
   const occurredAt = parsed.occurredAt ?? new Date();
-  const d1 = await getD1Database();
-  await d1
-    .prepare(
-      `INSERT OR IGNORE INTO business_events
-       (id, dedupe_key, event_name, subject_type, subject_id, offer_id,
-        booking_type_id, booking_id, order_id, route, surface, metadata,
-        occurred_at, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    )
-    .bind(
-      eventId(),
-      parsed.dedupeKey,
-      parsed.eventName,
-      parsed.subjectType ?? null,
-      parsed.subjectId ?? null,
-      parsed.offerId ?? null,
-      parsed.bookingTypeId ?? null,
-      parsed.bookingId ?? null,
-      parsed.orderId ?? null,
-      parsed.route ?? null,
-      parsed.surface ?? null,
-      safeMetadata(parsed.metadata),
-      unixSeconds(occurredAt),
-      unixSeconds(new Date()),
-    )
+  const db = await getDb();
+  await db
+    .insert(businessEvents)
+    .values({
+      id: eventId(),
+      dedupeKey: parsed.dedupeKey,
+      eventName: parsed.eventName,
+      subjectType: parsed.subjectType ?? null,
+      subjectId: parsed.subjectId ?? null,
+      offerId: parsed.offerId ?? null,
+      bookingTypeId: parsed.bookingTypeId ?? null,
+      bookingId: parsed.bookingId ?? null,
+      orderId: parsed.orderId ?? null,
+      route: parsed.route ?? null,
+      surface: parsed.surface ?? null,
+      metadata: safeMetadata(parsed.metadata),
+      occurredAt: unixSeconds(occurredAt),
+      createdAt: unixSeconds(new Date()),
+    })
+    .onConflictDoNothing({ target: businessEvents.dedupeKey })
     .run();
+
+  if (pruneSampler() < BUSINESS_EVENT_PRUNE_PROBABILITY) {
+    await pruneAfterWrite(new Date());
+  }
+}
+
+/** Best-effort pruning; a failure is logged and never reaches the writer. */
+async function pruneAfterWrite(now: Date): Promise<void> {
+  try {
+    await pruneExpiredBusinessEvents(now);
+  } catch (error) {
+    console.error(
+      "[analytics] business-event pruning failed; write unaffected:",
+      (error as Error)?.message ?? String(error),
+    );
+  }
+}
+
+/**
+ * Deletes up to `limit` events whose `occurred_at` is older than the
+ * retention. One statement touching at most `limit` rows, so the write cost
+ * per call is bounded; a bigger backlog drains over later calls. Uses the
+ * occurred_at index (migration 0023). The DELETE is keyed by primary key
+ * through IN (subquery) because D1 does not enable DELETE ... LIMIT.
+ * Returns the rows deleted.
+ */
+export async function pruneExpiredBusinessEvents(
+  now: Date,
+  opts?: { limit?: number; retentionDays?: number },
+): Promise<number> {
+  const limit = Math.max(
+    1,
+    Math.min(1000, Math.trunc(opts?.limit ?? BUSINESS_EVENT_PRUNE_BATCH)),
+  );
+  const retentionDays = Math.max(
+    1,
+    Math.trunc(opts?.retentionDays ?? BUSINESS_EVENT_RETENTION_DAYS),
+  );
+  const cutoffSeconds = unixSeconds(
+    new Date(now.getTime() - retentionDays * DAY_MS),
+  );
+  const db = await getDb();
+  const expired = db
+    .select({ id: businessEvents.id })
+    .from(businessEvents)
+    .where(lt(businessEvents.occurredAt, cutoffSeconds))
+    .orderBy(businessEvents.occurredAt)
+    .limit(limit);
+  const result = await db
+    .delete(businessEvents)
+    .where(inArray(businessEvents.id, expired))
+    .run();
+  return result.meta.changes ?? 0;
 }
 
 export async function recordBusinessEventBestEffort(
@@ -308,12 +390,47 @@ async function reconcileOrderEvents(sinceSeconds: number): Promise<void> {
     .run();
 }
 
+/**
+ * Re-derives business events from booking_history and order_history with
+ * INSERT OR IGNORE on the shared history-based dedupe keys, so it never
+ * duplicates a live row. This WRITES: call it only from write paths (when a
+ * live event write failed) or the admin action, never from a read.
+ * `since` is clamped to the retention horizon so pruned rows are not
+ * resurrected; it defaults to that horizon.
+ */
 export async function reconcileDurableBusinessEvents(params?: {
   since?: Date;
 }): Promise<void> {
-  const sinceSeconds = params?.since ? unixSeconds(params.since) : 0;
+  const horizonSeconds = unixSeconds(
+    new Date(Date.now() - BUSINESS_EVENT_RETENTION_DAYS * DAY_MS),
+  );
+  const sinceSeconds = Math.max(
+    horizonSeconds,
+    params?.since ? unixSeconds(params.since) : 0,
+  );
   await reconcileBookingEvents(sinceSeconds);
   await reconcileOrderEvents(sinceSeconds);
+}
+
+/**
+ * Recovery hook for write paths: after a live event write failed, re-derive
+ * the recent window from the durable histories. Never throws.
+ */
+export async function reconcileRecentBusinessEventsBestEffort(
+  windowDays = 2,
+): Promise<boolean> {
+  try {
+    await reconcileDurableBusinessEvents({
+      since: new Date(Date.now() - windowDays * DAY_MS),
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function isBusinessEventName(value: string): value is BusinessEventName {
+  return (BUSINESS_EVENT_NAMES as readonly string[]).includes(value);
 }
 
 function emptyCounts(): BusinessEventCounts {
@@ -331,28 +448,25 @@ export async function getBusinessEventSummary(params?: {
   const windowStart = new Date(
     now.getTime() - windowDays * 24 * 60 * 60 * 1000,
   );
-  await reconcileDurableBusinessEvents({ since: windowStart });
-  const d1 = await getD1Database();
-  const result = await d1
-    .prepare(
-      `SELECT event_name AS eventName, COUNT(*) AS total,
-              MAX(occurred_at) AS lastOccurredAt
-       FROM business_events
-       WHERE occurred_at >= ?
-       GROUP BY event_name`,
-    )
-    .bind(unixSeconds(windowStart))
-    .all<{
-      eventName: BusinessEventName;
-      total: number;
-      lastOccurredAt: number | null;
-    }>();
+  // Read-only: reconciliation is an explicit write (see
+  // reconcileDurableBusinessEvents), never run here.
+  const db = await getDb();
+  const rows = await db
+    .select({
+      eventName: businessEvents.eventName,
+      total: count(),
+      lastOccurredAt: max(businessEvents.occurredAt),
+    })
+    .from(businessEvents)
+    .where(gte(businessEvents.occurredAt, unixSeconds(windowStart)))
+    .groupBy(businessEvents.eventName)
+    .all();
 
   const counts = emptyCounts();
   let total = 0;
   let lastEventSeconds: number | null = null;
-  for (const row of result.results ?? []) {
-    if (!BUSINESS_EVENT_NAMES.includes(row.eventName)) continue;
+  for (const row of rows) {
+    if (!isBusinessEventName(row.eventName)) continue;
     const value = Number(row.total ?? 0);
     counts[row.eventName] = value;
     total += value;
@@ -378,12 +492,11 @@ export async function getBusinessEventSummary(params?: {
 export async function countBusinessEvents(
   eventName: BusinessEventName,
 ): Promise<number> {
-  const d1 = await getD1Database();
-  const row = await d1
-    .prepare(
-      `SELECT COUNT(*) AS total FROM business_events WHERE event_name = ?`,
-    )
-    .bind(eventName)
-    .first<{ total: number }>();
+  const db = await getDb();
+  const row = await db
+    .select({ total: count() })
+    .from(businessEvents)
+    .where(eq(businessEvents.eventName, eventName))
+    .get();
   return Number(row?.total ?? 0);
 }
