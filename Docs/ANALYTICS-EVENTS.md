@@ -4,7 +4,7 @@ Blueprint §16.4 and §18.6. Status: **inventory of what the code records today,
 
 ## 1. What exists
 
-Only one mechanism: the first-party **business-event ledger**, table `business_events` (migration `0018_business_events.sql`). It is a projection for observability and the Studio commerce panel; business truth stays in `bookings`, `orders`, `*_history`. No browser analytics, tag layer, consent banner, page-view tracking or third-party script exists in `src` (the only `<script>` is JSON-LD in `src/lib/seo.tsx`), and the CSP `connect-src 'self'` would block one.
+Only one mechanism: the first-party **business-event ledger**, table `business_events` (migration `0018_business_events.sql`; Drizzle table `businessEvents` in `schema.ts`). It is a projection for observability and the Studio commerce panel; business truth stays in `bookings`, `orders`, `*_history`. No browser analytics, tag layer, consent banner, page-view tracking or third-party script exists in `src` (the only `<script>` is JSON-LD in `src/lib/seo.tsx`), and the CSP `connect-src 'self'` would block one.
 
 | Piece | Code |
 |---|---|
@@ -12,7 +12,7 @@ Only one mechanism: the first-party **business-event ledger**, table `business_e
 | Write path | `src/features/analytics/service.ts`: `recordBusinessEvent` (throws) and `recordBusinessEventBestEffort` (swallows failure, returns boolean). Production call sites use only the best-effort one |
 | Public browser-to-server entry points | `src/features/analytics/public-actions.ts`: `recordPublicOfferCta`, `recordPublicBookingStarted` (server actions called from `components/products/tracked-offer-link.tsx` and `components/products/public-scheduler.tsx`) |
 | Read path | `getBusinessEventSummary({ windowDays })` (default 30, clamped 1 to 365) feeds the Studio commerce read model (`features/commerce/admin.ts`, page `/admin/commerce`). `countBusinessEvents(name)` is used by tests |
-| Reconstruction | `reconcileDurableBusinessEvents({ since })` re-derives events from `booking_history` and `order_history` with `INSERT OR IGNORE`; it runs inside every `getBusinessEventSummary` call |
+| Reconstruction | `reconcileDurableBusinessEvents({ since })` re-derives events from `booking_history` and `order_history` with `INSERT OR IGNORE`; it is **not** run by reads. It is called from the booking/order event helpers only when the live write failed (recent 2-day window), and by the admin action `reconcileBusinessEventsAdminAction` (`commerce/admin-actions.ts`). `since` is clamped to the retention horizon |
 | Tests | `tests/mission-08-observability.test.ts` |
 
 ## 2. Storage
@@ -26,7 +26,7 @@ Only one mechanism: the first-party **business-event ledger**, table `business_e
 | `offer_id`, `booking_type_id`, `booking_id`, `order_id` | Denormalised links (indexed except `booking_type_id`) |
 | `route`, `surface` | Page and UI placement (max 180 and 120 chars) |
 | `metadata` | JSON text, default `{}`. Values are string (max 80), number, boolean or null |
-| `occurred_at`, `created_at` | Unix seconds. Index on (`event_name`, `occurred_at`) |
+| `occurred_at`, `created_at` | Unix seconds. Indexes on (`event_name`, `occurred_at`) and on `occurred_at` alone (migration 0023, serves pruning) |
 
 Privacy guard (`safeMetadata`): a metadata **key** matching `email|name|phone|note|answer|message|description|reason|candidate|company|title|text|content` (case-insensitive) throws. Rows carry ids only; no email, IP or free text. Guard only checks keys, so a value under an innocent key is not inspected.
 
@@ -93,14 +93,15 @@ Other missing pieces named by the blueprint (§16, §18.6):
 - Consent policy, cookie behaviour and regional rules (`/cookies` is a static page only).
 - Tag layer (Cloudflare Zaraz), PostHog, GA4, Google Ads, LinkedIn, Meta, Search Console, Bing/IndexNow, Cloudflare analytics ingestion.
 - Daily aggregates and KPI definitions for the Command Center, source-of-truth ownership per metric, and the anomaly rules in §17.
-- Retention: `business_events` has no pruning or archiving (unlike `public_rate_limits`).
+- Retention is a **policy default**: `BUSINESS_EVENT_RETENTION_DAYS = 400` (on `occurred_at`), pending the analytics/consent decision. Pruning is bounded (500 rows per call, ~1% of successful event writes). No archiving.
 - A conformance test that fails on unknown or near-duplicate event names (the zod enum is the only guard).
 
 ## ⚠ Divergences
 
 1. **Naming:** code `payment_confirmed` versus blueprint `checkout_completed`; code `offer_cta_clicked` versus blueprint `primary_cta_click`; code-only `booking_declined`.
 2. **Blueprint says D1 stores aggregates and raw data stays in specialist platforms.** Today D1 holds raw first-party events and nothing is aggregated.
-3. **`business_events` is not in `schema.ts`:** it exists only as raw SQL in migration 0018 and raw D1 statements (`Docs/CONTENT-MODEL.md` divergence 3).
+3. ~~`business_events` is not in `schema.ts`~~ **Fixed:** `businessEvents` (plus the two 0018 history indexes) is now in `schema.ts`; the 0023 snapshot carries the full state, and 0023 itself only adds `business_events_occurred_idx` (the `CREATE TABLE` drizzle-kit emitted was removed because 0018 already created it). `tests/business-events-hardening.test.ts` checks the parity against the migrated DB.
 4. **Reconstructed rows lose detail:** reconstruction writes `{}` (bookings) or `{source}` (orders) metadata, whereas live rows also carry `actor_role`, `confirmation_policy`, `offer_kind`, `access_mode`, `state`. Whichever insert wins the dedupe key sets the stored metadata.
-5. **Summary reads write:** `getBusinessEventSummary` runs the reconciliation inserts on every call (every Studio commerce page render), which conflicts with the "reads do not write" direction taken for learner pages in #30.
+5. ~~Summary reads write~~ **Fixed:** `getBusinessEventSummary` is read-only; reconciliation is explicit (see section 1).
 6. **`ARCHITECTURE.md` and `PERFORMANCE-BUDGET.md`** describe events as written "on order transitions"; only `checkout_started`, `payment_confirmed` and `payment_failed` are recorded, never `FULFILLED`, `CANCELLED` or `REFUNDED`.
+7. **Write cost of the retention index:** the extra `occurred_at` index adds one billed row per admitted public event; the saturation estimate in `mission-08-observability.test.ts` moved from under 50,000 to 53,350 D1 writes per day, so the test threshold became 60,000.

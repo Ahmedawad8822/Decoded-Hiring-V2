@@ -12,6 +12,7 @@ import {
   type OfferAccessMode,
 } from "@/lib/db";
 import { getDb } from "@/lib/db";
+import { AppError } from "@/lib/errors";
 import { isUniqueConstraintError } from "@/lib/db/sqlite-errors";
 import {
   createOfferSchema,
@@ -67,51 +68,51 @@ function normalizeOfferInput(input: {
 
   if (value.kind === "COURSE") {
     if (!value.courseId) {
-      throw new Error("COURSE offers must link to a course.");
+      throw new AppError("invalid", "COURSE offers must link to a course.");
     }
     if (value.bookingTypeId) {
-      throw new Error("COURSE offers cannot also link to a booking type.");
+      throw new AppError("invalid", "COURSE offers cannot also link to a booking type.");
     }
     if (value.accessMode === "PAID_SESSION") {
-      throw new Error("COURSE offers cannot use PAID_SESSION access.");
+      throw new AppError("invalid", "COURSE offers cannot use PAID_SESSION access.");
     }
   } else if (value.kind === "COACHING" || value.kind === "WORKSHOP") {
     if (value.courseId) {
-      throw new Error(`${value.kind} offers cannot link to a course.`);
+      throw new AppError("invalid", `${value.kind} offers cannot link to a course.`);
     }
   } else if (value.courseId || value.bookingTypeId) {
-    throw new Error("Standalone PRODUCT offers cannot link to a course or booking type.");
+    throw new AppError("invalid", "Standalone PRODUCT offers cannot link to a course or booking type.");
   }
 
   const isProviderPaid =
     value.accessMode === "PAID_ONE_TIME" || value.accessMode === "PAID_SESSION";
   if (isProviderPaid) {
     if (!value.currency || value.amountMinor == null || value.amountMinor <= 0) {
-      throw new Error(
+      throw new AppError("invalid", 
         `${value.accessMode} offers require a currency and a positive amountMinor.`,
       );
     }
   }
 
   if (value.amountMinor != null && value.amountMinor > 0 && !value.currency) {
-    throw new Error("An offer with an amount requires a currency.");
+    throw new AppError("invalid", "An offer with an amount requires a currency.");
   }
 
   if (value.accessMode === "FREE" && value.amountMinor != null && value.amountMinor !== 0) {
-    throw new Error("FREE offers cannot carry a non-zero amount.");
+    throw new AppError("invalid", "FREE offers cannot carry a non-zero amount.");
   }
 
   const hasAlternativeLabel = Boolean(value.alternativeCtaLabel);
   const hasAlternativeUrl = Boolean(value.alternativeCtaUrl);
   if (hasAlternativeLabel !== hasAlternativeUrl) {
-    throw new Error("Alternative CTA label and URL must be configured together.");
+    throw new AppError("invalid", "Alternative CTA label and URL must be configured together.");
   }
 
   if (
     (value.accessMode === "PAYMENT_DISABLED" || value.accessMode === "COMING_SOON") &&
     (!hasAlternativeLabel || !hasAlternativeUrl)
   ) {
-    throw new Error(
+    throw new AppError("invalid", 
       `${value.accessMode} offers require an alternative CTA label and URL so public pages never render a dead checkout action.`,
     );
   }
@@ -123,7 +124,7 @@ async function assertLinkedEntities(input: ValidatedOfferInput): Promise<void> {
   const db = await getDb();
   if (input.courseId) {
     const course = await db.select({ id: courses.id }).from(courses).where(eq(courses.id, input.courseId)).get();
-    if (!course) throw new Error("Linked course not found.");
+    if (!course) throw new AppError("not_found", "Linked course not found.");
   }
   if (input.bookingTypeId) {
     const bookingType = await db
@@ -131,7 +132,7 @@ async function assertLinkedEntities(input: ValidatedOfferInput): Promise<void> {
       .from(bookingTypes)
       .where(eq(bookingTypes.id, input.bookingTypeId))
       .get();
-    if (!bookingType) throw new Error("Linked booking type not found.");
+    if (!bookingType) throw new AppError("not_found", "Linked booking type not found.");
   }
 }
 
@@ -204,7 +205,7 @@ export async function getAllOffers(): Promise<Offer[]> {
 async function explainExpectedUniqueConflict(
   input: ValidatedOfferInput,
   excludeId?: string,
-): Promise<Error | null> {
+): Promise<AppError | null> {
   const db = await getDb();
   const slugConflict = await db
     .select({ id: offers.id })
@@ -215,7 +216,7 @@ async function explainExpectedUniqueConflict(
         : eq(offers.slug, input.slug),
     )
     .get();
-  if (slugConflict) return new Error(`An offer with slug "${input.slug}" already exists.`);
+  if (slugConflict) return new AppError("conflict", `An offer with slug "${input.slug}" already exists.`);
 
   if (input.courseId) {
     const conflict = await db
@@ -227,7 +228,7 @@ async function explainExpectedUniqueConflict(
           : eq(offers.courseId, input.courseId),
       )
       .get();
-    if (conflict) return new Error("This course already has a primary offer.");
+    if (conflict) return new AppError("conflict", "This course already has a primary offer.");
   }
 
   if (input.bookingTypeId) {
@@ -240,7 +241,7 @@ async function explainExpectedUniqueConflict(
           : eq(offers.bookingTypeId, input.bookingTypeId),
       )
       .get();
-    if (conflict) return new Error("This booking type already has a primary offer.");
+    if (conflict) return new AppError("conflict", "This booking type already has a primary offer.");
   }
 
   return null;
@@ -279,7 +280,7 @@ export async function createOffer(input: CreateOfferInput): Promise<Offer> {
 export async function updateOffer(input: UpdateOfferInput): Promise<Offer> {
   const parsed = updateOfferSchema.parse(input);
   const current = await getOfferById(parsed.id);
-  if (!current) throw new Error("Offer not found.");
+  if (!current) throw new AppError("not_found", "Offer not found.");
 
   const merged = normalizeOfferInput({
     kind: parsed.kind ?? current.kind,

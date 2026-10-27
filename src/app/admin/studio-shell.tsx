@@ -53,6 +53,13 @@ export function AdminStudioShell({ children }: { children: React.ReactNode }) {
         </Link>
         <Link
           className="sr-link"
+          href="/admin/leads"
+          aria-current={pathname.startsWith("/admin/leads") ? "page" : undefined}
+        >
+          ✉ Leads
+        </Link>
+        <Link
+          className="sr-link"
           href="/admin/audit"
           aria-current={pathname.startsWith("/admin/audit") ? "page" : undefined}
         >
@@ -108,6 +115,8 @@ export function AdminStudioShell({ children }: { children: React.ReactNode }) {
                       ? "Courses"
                       : pathname.startsWith("/admin/commerce")
                         ? "Scheduling & Commerce"
+                        : pathname.startsWith("/admin/leads")
+                          ? "Leads"
                         : pathname.startsWith("/admin/audit")
                           ? "Audit log"
                           : "Content"}

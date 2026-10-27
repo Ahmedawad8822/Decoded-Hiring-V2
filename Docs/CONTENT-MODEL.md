@@ -79,7 +79,7 @@ Supporting append-only tables (not content): `booking_history`, `order_history`,
 
 | Entity (table) | Key fields | Statuses | Notes |
 |---|---|---|---|
-| **Lead Submission** (`lead_submissions`) | `idempotencyKey` (unique), `kind` (`workshop`/`coaching`/`ai_os`/`contact`), contact fields, `countryCode`, consent booleans (`privacyAcknowledged`, `researchAccepted`, `emailMarketing`, `whatsapp`, `calls`), `sourceRoute` | `NEW` (default), `REVIEWED`, `CLOSED` | Created by public forms. Same key with different content is an `IDEMPOTENCY_CONFLICT`. **No code ever moves a lead off `NEW`** and no Studio reads them yet. PII: never copy into analytics metadata |
+| **Lead Submission** (`lead_submissions`) | `idempotencyKey` (unique), `kind` (`workshop`/`coaching`/`ai_os`/`contact`), contact fields, `countryCode`, consent booleans (`privacyAcknowledged`, `researchAccepted`, `emailMarketing`, `whatsapp`, `calls`), `sourceRoute` | `NEW` (default), `REVIEWED`, `CLOSED` | Created by public forms. Same key with different content is an `IDEMPOTENCY_CONFLICT`. Studio inbox at `/admin/leads` (+ `/admin/leads/[id]`, `features/leads/admin.ts`): `NEW` to `REVIEWED`/`CLOSED`, `REVIEWED` to `CLOSED`/`NEW`, `CLOSED` to `NEW`, enforced by a conditional UPDATE (`WHERE id AND status = expected`; stale expectation is `conflict`, other pairs `invalid`). Actions audit as `lead.review`/`lead.close`/`lead.reopen` with from/to status only. PII: never copy into analytics metadata |
 | **Public Rate Limit** (`public_rate_limits`) | `scopeKey`, `windowStart`, `count` | none | Operational. Scope keys hold hashes only. Pruned after 24 h, 500 rows per pass, about 1% of consumes |
 | **Business Event** (`business_events`) | see `Docs/ANALYTICS-EVENTS.md` | none | Projection, rebuildable from history tables |
 
@@ -109,7 +109,7 @@ Revalidation for drafts is admin-side only (`/admin/editorial`, `/admin/content`
 | **Media delete / usage tracking** | No delete, no "where used"; `media` rows are never referenced by FK |
 | **Enrollment cancellation** | No flow sets `cancelled`; reactivation rule undecided |
 | **Revisions** | Field Notes only. Guides, Lessons and Courses keep none (CONTEXT.md conflict) |
-| **Lead status workflow and inbox** | `REVIEWED` and `CLOSED` are never set; no Studio screen reads `lead_submissions` |
+| **Lead inbox extras** | Inbox and status workflow exist; no search, notes, assignee, export or deletion/retention policy for lead PII |
 | **Offer / Booking Type retirement** | Only an `active` toggle; no archive state or history |
 | **Page types not built** | Standard Pages, Landing Pages, course sales pages, Product pages as managed content. About, legal, contact, programmes and offer pages are hand-built routes |
 | **Scheduled publishing, autosave, categories/tags taxonomy** (blueprint §4.1) | Not built. Guides have free-text `category` and `tags`; Field Notes have none |
@@ -121,7 +121,7 @@ Revalidation for drafts is admin-side only (`/admin/editorial`, `/admin/content`
 3. **`business_events` has no Drizzle table.** It exists only in raw SQL (`drizzle/migrations/0018_business_events.sql`) and is accessed with raw D1 statements. `drizzle-kit generate` therefore does not know it; the unrelated indexes `booking_history_action_created_idx` and `order_history_status_created_idx` are in the same file and also absent from `schema.ts`.
 4. **Lesson `archived` status is declared but unreachable** (no `archiveLesson`); `publishLesson` still guards against it.
 5. **Unused guard:** `assertCourseDeletable` implements the blueprint's course-protection rule but nothing deletes courses.
-6. **Lead inbox:** `PROJECT-STATUS.md` §4 says leads are saved "for Studio review"; no Studio code reads the table.
+6. **Lead inbox (resolved):** the Studio now reads leads and moves them through `NEW`/`REVIEWED`/`CLOSED`. `PROJECT-STATUS.md` §4 wording may still describe the older state. Reopening is allowed from `REVIEWED` and `CLOSED` only; `CLOSED` cannot go straight to `REVIEWED`.
 7. **Offer validation throws plain `Error`**, not `AppError` (`offers/service.ts`), so messages are not guaranteed user-safe under `publicErrorMessage`. See `Docs/ENGINEERING-STANDARDS.md`.
 8. **Slug rules differ by entity:** content and course slugs use `slugSchema` (min 3, max 100, no uppercase); Booking Type slugs allow uppercase (`/i`), min 1, max 120. `ARCHITECTURE.md` still says migrations run 0000-0018; the repo has 0000-0020.
 9. **Blueprint "Product / Workshop page", "Course sales page":** the Offer model carries the commercial data, but no content-managed page type exists for either.

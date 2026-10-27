@@ -10,7 +10,10 @@
 // ============================================================================
 
 import { and, asc, eq } from "drizzle-orm";
-import { recordBusinessEventBestEffort } from "@/features/analytics/service";
+import {
+  recordBusinessEventBestEffort,
+  reconcileRecentBusinessEventsBestEffort,
+} from "@/features/analytics/service";
 import {
   bookings,
   enrollments,
@@ -94,7 +97,7 @@ async function recordOrderBusinessEvent(params: {
   occurredAt: Date;
   source: string;
 }): Promise<void> {
-  await recordBusinessEventBestEffort({
+  const recorded = await recordBusinessEventBestEffort({
     dedupeKey: `order-history:${params.historyId}:${params.eventName}`,
     eventName: params.eventName,
     subjectType: "ORDER",
@@ -111,6 +114,8 @@ async function recordOrderBusinessEvent(params: {
     },
     occurredAt: params.occurredAt,
   });
+  // Live write failed: recover from the durable history (never on reads).
+  if (!recorded) await reconcileRecentBusinessEventsBestEffort();
 }
 
 async function resolveAdminId(): Promise<string> {

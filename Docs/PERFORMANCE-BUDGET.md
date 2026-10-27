@@ -32,7 +32,7 @@ Blueprint §9 ("Flashlight Speed" as a budget) and §18.9 (free-first guardrails
 
 | Writer | Writes per event | Notes |
 |---|---|---|
-| Public rate limits (`public_rate_limits`) | 1 upsert per consume | Leads: 2 (email plus kind). Bookings: 2. Analytics: 1. Rows never pruned (security gap G5) |
+| Public rate limits (`public_rate_limits`) | 1 upsert per consume | Each also adds 1 per-IP upsert (#42), so leads: 3 (IP, email, kind), bookings: 3, analytics: 2. Expired rows are pruned on ~1% of consumes (24 h retention, at most 500 rows per pass; #34) |
 | Auth rate limits | 1 upsert per sign-in/up, password flow, or other non-session auth call | `/get-session` is excluded (`UNLIMITED_PATHS`) so session reads cost no write |
 | Better Auth itself | Session and account rows on sign-in/up | Default behaviour |
 | Business events (`business_events`) | 1 `INSERT OR IGNORE` per event, dedupe key | Written best-effort on offer CTA, booking started/created, order transitions |

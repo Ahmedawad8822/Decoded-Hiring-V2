@@ -17,6 +17,7 @@ import {
   updateBookingTypeSchema,
 } from "@/features/scheduling";
 import { deleteAvailabilityWindow } from "@/features/scheduling/policy";
+import { publicErrorMessage } from "@/lib/errors";
 import { SchedulingDomainError } from "@/features/scheduling/errors";
 import {
   CommerceDomainError,
@@ -48,9 +49,6 @@ const productionDependencies: AdminOperationDependencies = {
   recordManualPayment: recordManualPaymentForAdmin,
 };
 
-const SAFE_BUSINESS_ERROR =
-  /^(An offer|This course|This booking type|Linked course|Linked booking type|COURSE offers|COACHING offers|WORKSHOP offers|Standalone PRODUCT offers|PAID_|An offer with an amount|FREE offers|Alternative CTA|PAYMENT_DISABLED|COMING_SOON|Offer not found|Booking access is owned by linked Offer)/i;
-
 function fail(
   error: unknown,
   fallback: string,
@@ -67,10 +65,7 @@ function fail(
   ) {
     return { ok: false, error: error.message };
   }
-  if (error instanceof Error && SAFE_BUSINESS_ERROR.test(error.message)) {
-    return { ok: false, error: error.message };
-  }
-  return { ok: false, error: fallback };
+  return { ok: false, error: publicErrorMessage(error, fallback) };
 }
 
 const bookingDecisionActionSchema = z.object({

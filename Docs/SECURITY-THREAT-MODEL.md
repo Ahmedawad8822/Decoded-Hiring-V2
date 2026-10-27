@@ -1,6 +1,6 @@
 # Security threat model
 
-Blueprint §8 (security), §17.4 (high-risk changes), §18.6 (repository knowledge contract). Status: **living document**, written against `main` at 0347047. A control is listed only if it was found in code; everything else is a gap. If code and this file disagree, the code wins; fix this file.
+Blueprint §8 (security), §17.4 (high-risk changes), §18.6 (repository knowledge contract). Status: **living document**, written against `main` at `8351e55` (2026-10-26). A control is listed only if it was found in code; everything else is a gap. If code and this file disagree, the code wins; fix this file.
 
 ## 1. Assets
 
@@ -53,7 +53,7 @@ Blueprint §8 (security), §17.4 (high-risk changes), §18.6 (repository knowled
 
 | Route | Method | Auth | Notes |
 |---|---|---|---|
-| `/api/auth/[...all]` | GET, POST | Better Auth | Sign-in/up, session, admin plugin. D1 rate limited |
+| `/api/auth/[...all]` | GET, POST | Better Auth | Sign-in/up, session, admin and twoFactor plugins (TOTP enrol/verify, backup codes). D1 rate limited |
 | `/api/media/[...key]` | GET | None | Only `guides/` and `field-notes/` keys; `public, max-age=31536000, immutable` |
 | `/api/media/upload` | POST | `requireAdmin` | Images, 5 MB, magic bytes |
 | `/api/course-resources/upload` | POST | `requireAdmin` | PDF, 10 MB, magic bytes |
@@ -77,7 +77,7 @@ Page gates: `requireAdminPage()` on admin pages (redirect), session redirect in 
 
 | # | Surface | Threat (STRIDE) | Current control | Where |
 |---|---|---|---|---|
-| T1 | Auth endpoints | Brute force, credential stuffing (S) | Per-IP-per-path fixed window on D1: sign-in/up 5/min, password flows 5/min, default 120/min; `/get-session` unthrottled; bucket key SHA-256 hashed | `src/lib/auth/rate-limit.ts`, `features/public-intake/rate-limit.ts` |
+| T1 | Auth endpoints | Brute force, credential stuffing, 2FA code guessing (S) | Per-IP-per-path fixed window on D1: sign-in/up and `/two-factor/verify-*` 5/min, password flows and password-confirming 2FA management 5/min, default 120/min; `/get-session` unthrottled; bucket key SHA-256 hashed | `src/lib/auth/rate-limit.ts`, `features/public-intake/rate-limit.ts` |
 | T2 | Auth | Weak/missing secret (S) | `resolveAuthSecret()` throws without `BETTER_AUTH_SECRET`, all environments; no committed fallback | `src/lib/auth/index.ts` |
 | T3 | Auth | Limiter disabled in prod (T) | `DH_AUTH_RATE_LIMIT_DISABLED` ignored when `NODE_ENV=production` | `rate-limit.ts` |
 | T4 | Login redirect | Open redirect (T) | `safeRedirectPath()` rejects `//`, backslash, control characters, off-origin | `src/lib/safe-redirect.ts` |
@@ -88,27 +88,29 @@ Page gates: `requireAdminPage()` on admin pages (redirect), session redirect in 
 | T9 | Uploads | Memory exhaustion (D) | Three layers: Content-Length plus 256 KiB envelope, `File.size`, service `byteLength` | `lib/upload-limits.ts`, upload routes |
 | T10 | Uploads | Orphaned R2 object (R) | Best-effort `bucket.delete` when the D1 insert fails | `uploadMedia` |
 | T11 | All actions/routes | Internal detail leak (I) | `AppError` message is user-safe; any other error is logged and replaced by a fallback; actions return `ActionResult` instead of throwing | `src/lib/errors.ts`, `src/lib/action-result.ts` |
-| T12 | Public intake | Spam, flooding (D) | Atomic D1 upsert limits: leads 5 per email and 40 per kind per 15 min; bookings 3 per email and 8 per booking type per 15 min; analytics 50 global per 15 min; honeypot `website`; lead idempotency key | `leads/service.ts`, `scheduling/public-scheduling.ts`, `analytics/types.ts`, `leads/actions.ts` |
+| T12 | Public intake | Spam, flooding (D) | Atomic D1 upsert limits: leads 5 per email and 40 per kind per 15 min; bookings 3 per email and 8 per booking type per 15 min; analytics 50 global per 15 min; **plus a salted per-IP bucket checked first** (`PUBLIC_IP_LIMITS`: leads 10, bookings 8, analytics 20 per 15 min; IP hashed with `BETTER_AUTH_SECRET`; skipped when there is no request context); honeypot `website`; lead idempotency key; expired `public_rate_limits` rows pruned opportunistically (24 h retention) | `public-intake/rate-limit.ts`, `leads/service.ts`, `scheduling/public-scheduling.ts`, `analytics/public-actions.ts`, `leads/actions.ts` |
 | T13 | Bookings | Double booking, races (T) | Overlap trigger (migration 0012), slot holds with CSPRNG tokens, conditional-WHERE state transitions | `drizzle/migrations/0012_*`, `scheduling/holds.ts`, `bookings.ts` |
 | T14 | Orders | Replayed/duplicate effects (T, R) | Orchestration effects keyed by idempotency key; provider calls fail closed while unconfigured | `commerce/orchestration.ts`, `scheduling/providers.ts` |
-| T15 | Browser | Clickjacking, sniffing, referrer leak, downgrade | `X-Frame-Options: SAMEORIGIN`, `nosniff`, `Referrer-Policy`, `Permissions-Policy`, COOP/CORP `same-origin`, HSTS 2 years with preload; `poweredByHeader: false` | `next.config.ts` |
+| T15 | Browser | Clickjacking, sniffing, referrer leak, downgrade | `X-Frame-Options: SAMEORIGIN`, `nosniff`, `Referrer-Policy`, `Permissions-Policy`, COOP/CORP `same-origin`, HSTS 2 years with preload; static `Content-Security-Policy` (`script-src 'self' 'unsafe-inline'`, `connect-src 'self'`, `frame-src` YouTube nocookie only, `object-src 'none'`, `frame-ancestors 'self'`); `poweredByHeader: false` | `next.config.ts`, `e2e/csp.spec.ts` |
 | T16 | Analytics | PII in event metadata (I) | Metadata keys matching email, name, phone, note, message, etc. are rejected | `analytics/service.ts` |
 | T17 | Editorial AI | Prompt injection, unreviewed publish (T) | Provider fail-closed without config; drafts need `IN_REVIEW` then `APPROVED` by an admin; audit log of key steps | `editorial-ai/providers/index.ts`, `drafts/`, `audit/service.ts` |
 | T18 | CI | Real secrets exposed (I) | CI uses clearly fake values and local Miniflare only | `.github/workflows/ci.yml` |
+| T20 | Admin accounts | Takeover via stolen password (S, E) | TOTP 2FA (single-use backup codes) enforced in `requireAdmin()` / `requireAdminPage()`: an admin without 2FA is sent to `/admin/security` and cannot use any other admin page or action. Off only when `ADMIN_REQUIRE_2FA` is exactly `false` (local dev, e2e); production must leave it unset | `src/lib/auth/index.ts`, `admin/security`, `tests/admin-two-factor.test.ts`, `e2e/admin-security.spec.ts` |
+| T21 | Admin mutations | Repudiation of content, commerce-setup and upload changes (R) | `admin_audit_log` row (actor, action, entity, small JSON details; migration 0021) for Guide, Field Note, Course, Section, Lesson, lesson-PDF, media, Offer, Booking Type and availability-window mutations; read-only viewer `/admin/audit` | `features/audit/service.ts`, `tests/admin-audit-trail.test.ts` |
 | T19 | Test seams | Test hooks active in prod (E) | `DH_COMMERCE_TEST_SEAM`, `DH_BOOKING_LIFECYCLE_TEST_SEAM`, `DH_LEADS_TEST_SEAM` are opt-in env flags; `setD1DatabaseForTest` is never set by production code | `commerce/orders.ts`, `scheduling/bookings.ts`, `leads/service.ts`, `bindings.ts` |
 
-Regression tests: `tests/{auth-gates,auth-rate-limit,mission-06-security-hardening,security-quick-fixes,foundation-remediation}.test.ts` and `tests/mission-08-*`.
+Regression tests: `tests/{auth-gates,auth-rate-limit,admin-two-factor,admin-audit-trail,mission-06-security-hardening,security-quick-fixes,foundation-remediation}.test.ts` and `tests/mission-08-*`; e2e `csp` and `admin-security`.
 
 ## 5. Gaps (backlog candidates)
 
 | ID | Gap | Risk | Blueprint |
 |---|---|---|---|
-| G1 | **No Content-Security-Policy** (being added separately) | Larger XSS blast radius | §8 Browser |
+| G1 | ~~**No Content-Security-Policy**~~ Fixed: static CSP header in `next.config.ts` (verified by `e2e/csp.spec.ts`). Residual risk: `script-src` and `style-src` allow `'unsafe-inline'` (no nonce or hash, so ISR pages stay cacheable), which weakens XSS mitigation; no CSP violation reporting; `isSafeMediaUrl` accepts external `https://` cover URLs that `img-src` blocks | Smaller XSS blast radius, not eliminated | §8 Browser |
 | G2 | **Turnstile not wired** on lead, booking, sign-up, sign-in | Bots beyond D1 limits | §8 Edge |
-| G3 | ~~**No 2FA/passkeys for admin**~~ Fixed for 2FA: Better Auth `twoFactor` (TOTP + single-use backup codes, issuer "Decoded Hiring") is enforced for admins via `requireAdminPage()`/`requireAdmin()` (`ADMIN_REQUIRE_2FA`, default enforced); enrollment at `/admin/security`; 2FA verify endpoints are limited to 5/min/IP. Residual risk: passkeys are not offered, no short-session or re-auth for destructive actions, backup-code regeneration needs only the password | Admin takeover is the highest-impact event | §8 Identity |
+| G3 | ~~**No 2FA/passkeys for admin**~~ Fixed for 2FA: Better Auth `twoFactor` (TOTP + single-use backup codes, issuer "Decoded Hiring") is enforced for admins via `requireAdminPage()`/`requireAdmin()` (`ADMIN_REQUIRE_2FA`, default enforced); enrollment at `/admin/security`; 2FA verify endpoints are limited to 5/min/IP. Residual risk: passkeys are not offered, no short-session or re-auth for destructive actions, backup-code regeneration needs only the password; the first admin created by `admin:create` has no 2FA until they enrol at `/admin/security` (password alone reaches only that page) | Admin takeover is the highest-impact event | §8 Identity |
 | G4 | ~~**Audit coverage is partial.**~~ Mostly fixed: `admin_audit_log` (migration `0021_flaky_stature`) records actor, action, entity and a small JSON `details` for Guide, Field Note, Course, Section, Lesson, lesson-PDF upload, media upload, Offer, Booking Type and availability-window admin mutations; read-only viewer at `/admin/audit` (`src/features/audit/`). Residual: rows are written by the action/route right after the mutation (awaited, failures logged, not in the same D1 batch), so a Worker crash in between loses a row; there is no media delete mutation; booking decisions/manual payments rely on their own history tables; `editorial_audit_log` is unchanged and still best-effort; the log is append-only by convention, with no retention or tamper-evidence | Weaker accountability only for the residual items | §8 Admin |
-| G5 | **`public_rate_limits` is never pruned** (no delete path in `src` or `scripts`). Grows with every distinct email/IP fingerprint | D1 storage and write budget | §18.9 |
-| G6 | ~~**Public intake limits are not per-IP.**~~ Fixed: salted per-IP buckets (`PUBLIC_IP_LIMITS`) are checked before the shared counters. Residual risk: an attacker rotating many IPs can still drain the shared budget. Leads and bookings key on an email fingerprint plus a global burst counter; analytics uses one global counter. An attacker can exhaust the shared budget (40 leads per kind, 50 analytics events per 15 min) and block real visitors | Intake denial of service | §8 Edge |
+| G5 | ~~**`public_rate_limits` is never pruned.**~~ Fixed: `consumeFixedWindowMs` runs a bounded pruning pass on about 1% of consumes (rows whose window started over 24 h ago, 500 per pass; `RATE_LIMIT_RETENTION_MS`). Residual risk: pruning is probabilistic and costs extra D1 writes; a window longer than 24 h would need the constant raised first (the primitive throws otherwise) | D1 storage and write budget | §18.9 |
+| G6 | ~~**Public intake limits are not per-IP.**~~ Fixed: salted per-IP buckets (`PUBLIC_IP_LIMITS`) are checked before the shared counters, so one IP exhausts only its own bucket. Residual risk: an attacker rotating many IPs can still drain the shared budgets (40 leads per kind, 8 bookings per booking type, 50 analytics events per 15 min) and block real visitors; the per-IP check is skipped when the client IP is unavailable (`unknown` shares one bucket) | Intake denial of service | §8 Edge |
 | G7 | Auth limiter trusts `cf-connecting-ip`, then `x-forwarded-for`; safe behind Cloudflare, spoofable if the Worker is reachable otherwise (unverified in production) | Limiter bypass | |
 | G8 | No explicit CSRF/origin test; relies on Better Auth and Next server-action defaults (unverified) | CSRF | §8 Browser |
 | G9 | `requireEmailVerification: false`; no password policy beyond Better Auth defaults (unverified) | Fake sign-ups, weak passwords | |
@@ -118,7 +120,7 @@ Regression tests: `tests/{auth-gates,auth-rate-limit,mission-06-security-hardeni
 | G13 | Provider credential storage, rotation and revocation design not specified | Needed before payments/calendar | §8 Commerce |
 | G14 | Single flat `admin` role; no editor vs commerce-operator split | Least privilege | §8 |
 | G15 | No security alerting; `console.error` only | Slow detection | §17 |
-| G16 | No dependency or secret scanning (Dependabot, CodeQL, `npm audit`) in `ci.yml` | Supply chain | |
+| G16 | ~~**No dependency or secret scanning.**~~ Mostly fixed: `.github/dependabot.yml` (weekly, 7-day cooldown, framework majors ignored), `audit.yml` (`npm audit --omit=dev --audit-level=high` on PRs, `main`, weekly), `codeql.yml`. Residual risk: CodeQL is `workflow_dispatch` only until GitHub code scanning is enabled on the private repo; no secret scanning or push protection configured in the repo; 4 dev-only moderate advisories are accepted (`Docs/Engineering/DEPENDENCY-AUDIT.md`); the audit gate does not fail on moderates | Supply chain | |
 
 ## 6. High-risk change list (blueprint §17.4)
 
