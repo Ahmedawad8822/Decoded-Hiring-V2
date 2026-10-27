@@ -16,9 +16,10 @@ Last updated: **2026-10-26**
 
 | | |
 |---|---|
-| `main` | `8a8c9cf` (plus this doc): **Missions 01–08, CI (verify, Playwright E2E with all 6 specs, Worker size budget, npm audit; CodeQL on demand; Dependabot active), security fixes and CSP, hardening batches 1–6, deploy-path prep, Next 16.4.2, React 19.3.1, motion 14.** Unit tests: 34 suites, each on its own throwaway D1/R2. Migrations through `0022_admin_two_factor`. Admin 2FA is enforced unless `ADMIN_REQUIRE_2FA=false`; local, unit tests and e2e set it. |
+| `main` | `ebbd9d4` (plus this doc): **Missions 01–08, CI (verify, Playwright E2E with all 7 specs, Worker size budget, npm audit; CodeQL on demand; Dependabot active), security fixes and CSP, hardening batches 1–7, deploy-path prep, Next 16.4.2, React 19.3.1, motion 14.** Unit tests: 37 suites, each on its own throwaway D1/R2. Migrations through `0023_business_events_retention_index`. Admin 2FA is enforced unless `ADMIN_REQUIRE_2FA=false`. `.env.example` and the Playwright web server set it, and so do the unit suites that sign in admins (`admin-audit-trail`, `admin-two-factor`). `tests/helpers/env.ts` doesn't. |
 | Open PRs to `main` | None |
 | Production | **Not deployed.** The OpenNext adapter and config are prepared and verified locally (`Docs/Engineering/DEPLOYMENT.md`). No real Cloudflare resources exist yet; `wrangler.jsonc → env.production` holds placeholders. |
+| **GitHub Actions** | **Blocked:** jobs won't start ("recent account payments have failed or your spending limit needs to be increased"). The repo is private, so minutes are billed. #62, #59 and this doc were verified with a local mirror of `ci.yml` and `audit.yml` instead (see the session log). Ahmed has to fix billing in GitHub Settings → Billing & plans. |
 | Providers | All dormant by design: no payment, calendar, mailbox, meeting or analytics provider is active. |
 | Blueprint phase | Phases 1–6 built and on `main`. **Phase 7 (Hardening & Growth) is in progress** (CI merged; #14 open), then Phase 8 (Launch). |
 
@@ -58,6 +59,13 @@ Last updated: **2026-10-26**
 | `test/e2e-hydration-clicks` | — | merged ([#56](https://github.com/Ahmedawad8822/Decoded-Hiring-V2/pull/56)) | Shared `e2e/helpers/actions.ts` `clickAction` in mission-06/07/08 |
 | `security/admin-2fa` | — | merged ([#57](https://github.com/Ahmedawad8822/Decoded-Hiring-V2/pull/57)) | Better Auth TOTP and backup codes, `/admin/security`, `ADMIN_REQUIRE_2FA` (enforced unless `"false"`), migration `0022_admin_two_factor` (G3) |
 | `docs/status-batch-6` | — | merged (#58) | Status doc |
+| `docs/refresh-dod-architecture` | — | merged ([#59](https://github.com/Ahmedawad8822/Decoded-Hiring-V2/pull/59)) | DoD, ARCHITECTURE, threat model (G1/G5/G6/G16 fixed, T20/T21), perf budget brought up to date |
+| `feature/leads-inbox` | — | merged ([#60](https://github.com/Ahmedawad8822/Decoded-Hiring-V2/pull/60)) | `/admin/leads` + detail; NEW/REVIEWED/CLOSED transitions with a conditional UPDATE; `lead.*` audit rows with no PII; `ActionResult` |
+| `fix/media-urls-and-offer-errors` | — | merged ([#61](https://github.com/Ahmedawad8822/Decoded-Hiring-V2/pull/61)) | `isSafeMediaUrl` accepts only `/api/media/…`; offers/scheduling validation throws `AppError`; commerce `fail()` uses `publicErrorMessage` |
+| `hardening/business-events` | — | merged ([#62](https://github.com/Ahmedawad8822/Decoded-Hiring-V2/pull/62)) | Drizzle model, summary no longer writes, 400-day pruning, **migration 0023** `occurred_at` index; D1 write-headroom test limit raised from 50k to 60k |
+| `ci/worker-self-ref-noise` | — | merged ([#63](https://github.com/Ahmedawad8822/Decoded-Hiring-V2/pull/63)) | `WORKER_SELF_REFERENCE` removed from the local wrangler config, kept in `env.production`; new `wrangler.preview.jsonc` for `npm run preview` |
+| `test/mission-06-complete-wait` | — | merged ([#64](https://github.com/Ahmedawad8822/Decoded-Hiring-V2/pull/64)) | mission-06 waits up to 30 s for completion and fails fast on the button's error |
+| `docs/status-batch-7` | — | merged (#65) | Status doc |
 | `chore/status-hardening-batch` | — | merged (#23) | Status doc; git/eslint ignore `.claude/` |
 | `deploy/opennext-cloudflare` | — | merged ([#24](https://github.com/Ahmedawad8822/Decoded-Hiring-V2/pull/24)) | `@opennextjs/cloudflare@1.20.9`, `getCloudflareContext()` bindings with local fallback, `wrangler.jsonc` local + `env.production` placeholders, R2 incremental cache, deploy scripts, `DEPLOYMENT.md` |
 | `docs/project-status` | — | merged (#16) | This file + `AGENTS.md` pointer |
@@ -101,7 +109,7 @@ Source of truth: `Docs/Reference/Decoded_Hiring_V2_Master_Blueprint_FINAL_v2.1.d
 | 07 | Website Editorial AI: knowledge upload/FTS5 retrieval, Aha Authority skill, memory, draft lifecycle, publish to Guides/Field Notes | `Docs/Engineering/MISSION-07-WEBSITE-EDITORIAL-AI.md` |
 | 08 | Scheduling core, booking lifecycle and approval, Offers/access, provider-neutral adapters, orders/payment truth and durable orchestration, public coaching/workshop booking, **durable lead capture** (`lead_submissions`), Studio commerce control plane, business-event observability, D1-backed public rate limiting, Next 16.3.8 | `Docs/Engineering/MISSION-08-COMMERCE-SCHEDULING.md`, `Docs/Engineering/COMMERCE-SCHEDULING-SPEC.md` |
 
-Lead forms now save to D1 (`lead_submissions`) for Studio review. No email or CRM
+Lead forms now save to D1 (`lead_submissions`); the Studio inbox is `/admin/leads` (#60). No email or CRM
 notification is sent while mailbox providers stay dormant.
 
 ---
@@ -133,11 +141,8 @@ Take the top unblocked item. Move items, don't delete them silently.
    - ~~22 npm audit advisories~~ (done, #36). 4 moderate dev-only remain; remove the 2 `overrides` when miniflare and `@node-minify/core` update (`Docs/Engineering/DEPENDENCY-AUDIT.md`).
    - **CI stability:**
      - ~~mission-07 e2e slow and flaky~~ (done, #44).
-     - (done, #56; plus `waitForHydration` before form fills, #57) `mission-06-learning-platform` flaked once on #53. "✓ Completed" never appeared after "Mark lesson complete", probably the same lost-click-before-hydration race #44 fixed in mission-07; it passed on `main` with the same code. Apply #44's `clickAction` hydration wait to mission-06's action clicks.
-     - The dev server logs `workerd … Failed to get handler to worker` during e2e, probably the
-       `WORKER_SELF_REFERENCE` service binding that has no running worker locally. Harmless so far.
-       #44 confirmed that only OpenNext's ISR queue calls it, and the log line shows up only on Linux CI. Next step: a
-       throwaway-branch experiment on Linux CI with the top-level binding removed (keep it for `npm run preview`).
+     - `mission-06-learning-platform` "✓ Completed" timeout: the hydration fix (#56) didn't stop it; it failed again on `main` (run 40293257373). #64 (merged) waits up to 30 s for the first server-action compile and D1 write, and surfaces the button's error. Confirm across later CI runs.
+     - `workerd … Failed to get handler to worker` noise: confirmed by a CI experiment, 3 lines per run on `main` and 0 with the local binding removed. Fixed by #63 (merged).
    - Check one lesson with a real YouTube video under the CSP in staging (the seed has none).
    - **From the threat model (#33), not yet scheduled:**
      - ~~Public intake limits aren't per-IP~~ (done, #42).
@@ -148,11 +153,12 @@ Take the top unblocked item. Move items, don't delete them silently.
      - Course PDFs stream with no signed URLs.
    - **From the Phase 0 docs (#54) ⚠ Divergences:**
      - Archive is terminal: nothing restores it, though the blueprint and CONTEXT expect it. No Trash. Lesson `archived` is unreachable.
-     - Leads never leave `NEW`, and no Studio screen lists `lead_submissions`.
-     - `ActionResult` is used only by editorial AI. `offers/service.ts` throws plain `Error`, so users see the generic message.
-     - `isSafeMediaUrl` accepts external `https://` covers, but the CSP `img-src` blocks them.
-     - `business_events` has no Drizzle model and no pruning, and `getBusinessEventSummary` writes on read.
-     - `DEFINITION-OF-DONE.md` and `ARCHITECTURE.md` are stale (spec count, CI jobs, React version, migrations).
+     - ~~Leads never leave `NEW`~~ (done, #60).
+     - `ActionResult` is used only by editorial AI and leads. Other actions still use their own `ActionState`. ~~`offers/service.ts` throws plain `Error`~~ (#61).
+     - ~~`isSafeMediaUrl` accepts external covers~~ (#61).
+     - ~~`business_events` model, pruning and write-on-read~~ (#62). Retention of 400 days is a policy default until the analytics decision.
+     - ~~`DEFINITION-OF-DONE.md` and `ARCHITECTURE.md` are stale~~ (#59).
+   - **CI minutes:** the Playwright job took about 19 min on #64, #63 and #60, against 8–9 min on #61 and 3 min locally. Find out why (runner variance, the 30 s waits, or the cold dev-server compile), and consider running e2e only on PRs that touch `src/` or `e2e/`, to cut billed minutes.
    - **Deferred toolchain majors:**
      - TypeScript 7 (#52): `typescript-eslint` doesn't support it.
      - ESLint 10 (#51): plugins under `eslint-config-next@16.4.2` (`import`, `jsx-a11y`, `react`) peer-depend on ESLint ≤ 9.
@@ -198,6 +204,7 @@ Take the top unblocked item. Move items, don't delete them silently.
 | Enrollment cancellation policy | Cancel flow, `enrollFree` reactivation rule |
 | Enable GitHub code scanning/GHAS (optional; Dependabot is already active) | CodeQL on PRs |
 | Restore semantics for archived content and whether to build Trash (from #54) | Lifecycle work |
+| `business_events` retention (400 days by default) and the D1 write-headroom budget (raised from 50k to 60k/day by #62) | Analytics/consent policy, Workers plan choice |
 
 ---
 
@@ -222,6 +229,21 @@ Take the top unblocked item. Move items, don't delete them silently.
 ## 9. Session log
 
 Newest first. One entry per task: date, what changed, branch/PR, what's next.
+
+- **2026-10-26.** Batch 7: five Sonnet subagents; the coordinator reviewed them and opened #59–#63.
+  - The workerd experiment pushed a throwaway `experiment/worker-self-ref-a` branch, which is now deleted.
+  - That agent also noticed mission-06 failing on `main` after #56, which disproved the hydration theory. The coordinator opened #64, which passed 4/4 locally on fresh state.
+  - None of batch 7 is merged yet.
+  - Corrections in this doc: the spec count is 7 (not 6), and only the admin unit suites set `ADMIN_REQUIRE_2FA`.
+  - Merged in order: #64 (`8f8f272`), #63 (`ad03aa3`), #61 (`0a1a5ab`) and #60 (`d40ed37`), each green on GitHub after being updated from `main`.
+  - GitHub Actions then refused to start jobs (billing or spending limit). On Ahmed's instruction, #62 (`35fd901`), #59 (`ebbd9d4`) and this doc were verified locally and merged.
+    - The local run mirrors `ci.yml` and `audit.yml`: `npm ci`, `npm audit --omit=dev --audit-level=high`, lint, typecheck, `npm test`, `db:migrate:local`, build, `cf:build` + `cf:size` (2858–2860 KiB), and `test:e2e:ci` (7 specs, 21 tests). It uses a fresh `DH_LOCAL_STATE_DIR` for the build, size and e2e stages; the unit tests isolate themselves.
+    - A PR comment on each records the result.
+  - Conflict resolutions:
+    - #59's `ENGINEERING-STANDARDS.md` against #61, keeping both sets of changes.
+    - #59 was updated to describe migrations through 0023.
+  - Worktrees removed. No open PRs.
+  - Next: Ahmed fixes Actions billing. Agent backlog: the CI-minutes item in §5, ActionResult adoption, Trash/restore once decided.
 
 - **2026-10-26.** Batch 6: four Sonnet subagents. The coordinator reviewed them and opened #54–#57; none is merged.
   - #55 and #57 both generated migration `0021`, so the second to merge must be regenerated as `0022` (as with #35).
