@@ -15,8 +15,6 @@
 import { getDb, knowledge_sources, type KnowledgeSource } from "@/lib/db";
 import { getD1Database } from "@/lib/cloudflare/bindings";
 import { and, eq, isNull, ne } from "drizzle-orm";
-import { chunkText } from "./chunker";
-import { getKnowledgeObject } from "./storage";
 import { logAudit } from "../audit/service";
 import type { KnowledgeStatus, RetrievedChunk } from "./types";
 import { AppError, isAppError } from "@/lib/errors";
@@ -173,6 +171,10 @@ export async function ingestKnowledgeSource(
   await opts?.onClaim?.();
 
   try {
+    // Ingestion-only modules are unnecessary for knowledge list/detail reads.
+    const { getKnowledgeObject } = await import("./storage");
+    const { chunkText } = await import("./chunker");
+
     // 2. Read original from R2
     const object = await getKnowledgeObject(source.r2Key);
     if (!object) {

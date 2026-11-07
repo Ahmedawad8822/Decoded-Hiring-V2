@@ -108,7 +108,7 @@ Outside features: `src/lib` (cross-cutting infra: `auth`, `db`, `cloudflare`, `m
 |---|---|---|
 | `verify` | `npm ci`, `lint` (`--max-warnings=0`), `typecheck` (`next typegen && tsc`), `npm test` (tsx suites in `tests/`), `db:migrate:local`, `build` | Migrations first because `/guides` and `/field-notes` prerender from D1 |
 | `e2e` (needs verify) | Playwright Chromium, 40-minute timeout; `test:e2e:ci` runs all seven specs: `mission-08-final-certification`, `field-notes`, `smoke`, `mission-06-learning-platform`, `mission-07-editorial-ai`, `csp`, `admin-security` | Uploads report artifacts on failure. Web server sets `ADMIN_REQUIRE_2FA=false`; shared `e2e/helpers/actions.ts` (`clickAction`, `waitForHydration`) |
-| `worker-size` (needs verify) | `db:migrate:local`, `cf:build`, `cf:size` | Fails above 2950 KiB gzip (`scripts/check-worker-size.ts`, override `WORKER_GZIP_BUDGET_KIB`) |
+| `worker-size` (needs verify) | `db:migrate:local`, `cf:build`, `cf:size` | Fails above 20480 KiB uncompressed (`scripts/check-worker-size.ts`, override `WORKER_UNCOMPRESSED_BUDGET_KIB`); Free/Paid limit 64 MiB, gzip informational only |
 | `audit.yml` `npm-audit` | `npm audit --omit=dev --audit-level=high`; PRs, `main`, weekly (Monday) | Dev-only moderates are documented in `Docs/Engineering/DEPENDENCY-AUDIT.md` |
 | `codeql.yml` | CodeQL javascript-typescript | `workflow_dispatch` only until code scanning is enabled on the private repo |
 
