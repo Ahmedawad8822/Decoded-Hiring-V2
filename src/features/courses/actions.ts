@@ -4,6 +4,7 @@ import { publicErrorMessage } from "@/lib/errors";
 import { requireAdmin } from "@/lib/auth";
 import { recordAdminAudit } from "@/features/audit/service";
 import { revalidatePath } from "next/cache";
+import { invalidateCourseContent } from "./content-invalidation";
 import * as courseService from "./service";
 import {
   createCourseSchema,
@@ -24,6 +25,17 @@ function fail(error: unknown, fallback: string): ActionState<never> {
   return { ok: false, error: publicErrorMessage(error, fallback) };
 }
 
+// Lesson services can commit the edit before enrollment reconciliation fails.
+// Always expire shared data, including that partial-success error path.
+async function writeLessonContent<T>(id: string, write: () => Promise<T>): Promise<T> {
+  const current = await courseService.getAdminLessonById(id);
+  try {
+    return await write();
+  } finally {
+    if (current) invalidateCourseContent(current.courseId, id);
+  }
+}
+
 export async function createCourseAction(
   input: unknown
 ): Promise<ActionState<{ id: string; slug: string }>> {
@@ -34,6 +46,7 @@ export async function createCourseAction(
       return { ok: false, error: parsed.error.issues.map((i) => i.message).join(", ") };
     }
     const created = await courseService.createCourse(parsed.data);
+    invalidateCourseContent(created.id);
     await recordAdminAudit({ actorId: session.user.id, action: "course.create", entityType: "course", entityId: created.id, details: { slug: created.slug } });
     revalidatePath("/admin/courses");
     return { ok: true, data: { id: created.id, slug: created.slug } };
@@ -52,6 +65,7 @@ export async function updateCourseAction(
       return { ok: false, error: parsed.error.issues.map((i) => i.message).join(", ") };
     }
     const updated = await courseService.updateCourse(parsed.data.id, parsed.data);
+    invalidateCourseContent(updated.id);
     await recordAdminAudit({ actorId: session.user.id, action: "course.update", entityType: "course", entityId: updated.id, details: { slug: updated.slug } });
     revalidatePath("/admin/courses");
     revalidatePath(`/learn/courses/${updated.slug}`);
@@ -65,6 +79,7 @@ export async function publishCourseAction(id: string): Promise<ActionState<{ slu
   try {
     const session = await requireAdmin();
     const course = await courseService.publishCourse(id);
+    invalidateCourseContent(course.id);
     await recordAdminAudit({ actorId: session.user.id, action: "course.publish", entityType: "course", entityId: id, details: { slug: course.slug, status: "published" } });
     revalidatePath("/admin/courses");
     revalidatePath(`/learn/courses/${course.slug}`);
@@ -78,6 +93,7 @@ export async function unpublishCourseAction(id: string): Promise<ActionState<{ s
   try {
     const session = await requireAdmin();
     const course = await courseService.unpublishCourse(id);
+    invalidateCourseContent(course.id);
     await recordAdminAudit({ actorId: session.user.id, action: "course.unpublish", entityType: "course", entityId: id, details: { slug: course.slug, status: "draft" } });
     revalidatePath("/admin/courses");
     return { ok: true, data: { slug: course.slug } };
@@ -90,6 +106,7 @@ export async function archiveCourseAction(id: string): Promise<ActionState<{ slu
   try {
     const session = await requireAdmin();
     const course = await courseService.archiveCourse(id);
+    invalidateCourseContent(course.id);
     await recordAdminAudit({ actorId: session.user.id, action: "course.archive", entityType: "course", entityId: id, details: { slug: course.slug, status: "archived" } });
     revalidatePath("/admin/courses");
     return { ok: true, data: { slug: course.slug } };
@@ -108,6 +125,7 @@ export async function createSectionAction(
       return { ok: false, error: parsed.error.issues.map((i) => i.message).join(", ") };
     }
     const section = await courseService.createSection(parsed.data);
+    invalidateCourseContent(section.courseId);
     await recordAdminAudit({ actorId: session.user.id, action: "course_section.create", entityType: "course_section", entityId: section.id, details: { courseId: section.courseId } });
     revalidatePath(`/admin/courses/${section.courseId}/curriculum`);
     return { ok: true, data: { id: section.id } };
@@ -126,6 +144,7 @@ export async function renameSectionAction(
       return { ok: false, error: parsed.error.issues.map((i) => i.message).join(", ") };
     }
     const section = await courseService.renameSection(parsed.data.id, parsed.data.title);
+    invalidateCourseContent(section.courseId);
     await recordAdminAudit({ actorId: session.user.id, action: "course_section.rename", entityType: "course_section", entityId: section.id, details: { courseId: section.courseId } });
     revalidatePath(`/admin/courses/${section.courseId}/curriculum`);
     return { ok: true, data: { id: section.id } };
@@ -143,8 +162,10 @@ export async function moveSectionAction(
     if (direction !== "up" && direction !== "down") {
       return { ok: false, error: "Direction must be 'up' or 'down'." };
     }
-    await courseService.moveSection(id, direction);
+    const [section] = await courseService.moveSection(id, direction);
+    invalidateCourseContent(section.courseId);
     await recordAdminAudit({ actorId: session.user.id, action: "course_section.move", entityType: "course_section", entityId: id, details: { direction } });
+    revalidatePath(`/admin/courses/${section.courseId}/curriculum`);
     return { ok: true, data: null };
   } catch (err: unknown) {
     return fail(err, "Failed to move section");
@@ -161,6 +182,7 @@ export async function createLessonAction(
       return { ok: false, error: parsed.error.issues.map((i) => i.message).join(", ") };
     }
     const lesson = await courseService.createLesson(parsed.data);
+    invalidateCourseContent(lesson.courseId, lesson.id);
     await recordAdminAudit({ actorId: session.user.id, action: "lesson.create", entityType: "lesson", entityId: lesson.id, details: { courseId: lesson.courseId, slug: lesson.slug } });
     revalidatePath(`/admin/courses/${lesson.courseId}/curriculum`);
     return { ok: true, data: { id: lesson.id, slug: lesson.slug } };
@@ -178,7 +200,7 @@ export async function updateLessonAction(
     if (!parsed.success) {
       return { ok: false, error: parsed.error.issues.map((i) => i.message).join(", ") };
     }
-    const lesson = await courseService.updateLesson(parsed.data.id, parsed.data);
+    const lesson = await writeLessonContent(parsed.data.id, () => courseService.updateLesson(parsed.data.id, parsed.data));
     await recordAdminAudit({ actorId: session.user.id, action: "lesson.update", entityType: "lesson", entityId: lesson.id, details: { courseId: lesson.courseId, slug: lesson.slug } });
     revalidatePath(`/admin/courses/${lesson.courseId}/curriculum`);
     return { ok: true, data: { id: lesson.id, slug: lesson.slug } };
@@ -190,7 +212,7 @@ export async function updateLessonAction(
 export async function publishLessonAction(id: string): Promise<ActionState<{ slug: string }>> {
   try {
     const session = await requireAdmin();
-    const lesson = await courseService.publishLesson(id);
+    const lesson = await writeLessonContent(id, () => courseService.publishLesson(id));
     await recordAdminAudit({ actorId: session.user.id, action: "lesson.publish", entityType: "lesson", entityId: id, details: { courseId: lesson.courseId, slug: lesson.slug, status: "published" } });
     revalidatePath(`/admin/courses/${lesson.courseId}/curriculum`);
     return { ok: true, data: { slug: lesson.slug } };
@@ -202,7 +224,7 @@ export async function publishLessonAction(id: string): Promise<ActionState<{ slu
 export async function unpublishLessonAction(id: string): Promise<ActionState<{ slug: string }>> {
   try {
     const session = await requireAdmin();
-    const lesson = await courseService.unpublishLesson(id);
+    const lesson = await writeLessonContent(id, () => courseService.unpublishLesson(id));
     await recordAdminAudit({ actorId: session.user.id, action: "lesson.unpublish", entityType: "lesson", entityId: id, details: { courseId: lesson.courseId, slug: lesson.slug, status: "draft" } });
     revalidatePath(`/admin/courses/${lesson.courseId}/curriculum`);
     return { ok: true, data: { slug: lesson.slug } };
@@ -220,8 +242,9 @@ export async function moveLessonAction(
     if (direction !== "up" && direction !== "down") {
       return { ok: false, error: "Direction must be 'up' or 'down'." };
     }
-    await courseService.moveLesson(id, direction);
+    const [lesson] = await writeLessonContent(id, () => courseService.moveLesson(id, direction));
     await recordAdminAudit({ actorId: session.user.id, action: "lesson.move", entityType: "lesson", entityId: id, details: { direction } });
+    revalidatePath(`/admin/courses/${lesson.courseId}/curriculum`);
     return { ok: true, data: null };
   } catch (err: unknown) {
     return fail(err, "Failed to move lesson");

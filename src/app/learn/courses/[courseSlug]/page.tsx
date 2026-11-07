@@ -3,10 +3,10 @@ import { notFound, permanentRedirect } from "next/navigation";
 import { resolveCourseRedirect } from "@/features/slug-redirects/service";
 import { getServerSession } from "@/lib/auth";
 import {
-  getCourseCurriculum,
   getLearnerCourseBySlug,
   getPublishedCourseBySlug,
 } from "@/features/courses/service";
+import { getCachedCourseContent } from "@/features/courses/content-cache";
 import { getEnrollment } from "@/features/enrollments/service";
 import { hasLearnerAccess } from "@/features/enrollments/access";
 import { getEnrollmentProgress } from "@/features/progress/service";
@@ -72,8 +72,8 @@ export default async function CourseOverviewPage(props: {
   // Cancelled enrollments see the page as strangers: no progress card, no
   // resume link — just the enroll CTA (re-enroll reactivates, correction C).
   const activeEnrollment = hasLearnerAccess(enrollment) ? enrollment : null;
-  const curriculum = await getCourseCurriculum(course.id);
-  const progress = activeEnrollment ? await getEnrollmentProgress(activeEnrollment) : null;
+  const { curriculum, publishedLessons } = await getCachedCourseContent(course.id);
+  const progress = activeEnrollment ? await getEnrollmentProgress(activeEnrollment, publishedLessons) : null;
   const completedSet = new Set(progress?.completedLessonIds ?? []);
 
   const resumeHref =

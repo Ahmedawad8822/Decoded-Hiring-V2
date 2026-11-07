@@ -6,13 +6,13 @@ import {
   courses,
   courseSections,
   type Enrollment,
-  type Lesson,
 } from "@/lib/db";
 import { and, asc, eq, inArray } from "drizzle-orm";
 import {
   getAdminLessonById,
   getPublishedCourseLessons,
 } from "@/features/courses/service";
+import type { PublishedLessonSummary } from "@/features/courses/content-data";
 import { hasLearnerAccess } from "@/features/enrollments/access";
 import { isUniqueConstraintError } from "@/lib/db/sqlite-errors";
 import { AppError } from "@/lib/errors";
@@ -42,8 +42,8 @@ export interface CourseProgress {
    *  collection reads never re-fetch the curriculum just for a lesson total. */
   totalPublished: number;
   completedLessonIds: string[];
-  resumeLesson: Lesson | null;
-  nextAfterLessonId: Record<string, Lesson | null>;
+  resumeLesson: PublishedLessonSummary | null;
+  nextAfterLessonId: Record<string, PublishedLessonSummary | null>;
 }
 
 /** Shape of the shared progress maths (everything derivable from the curriculum + completions). */
@@ -54,7 +54,7 @@ export interface ComputedCourseProgress {
   completed: boolean;
   /** Completed ids restricted to currently-published lessons (required + optional). */
   completedLessonIds: string[];
-  resumeLesson: Lesson | null;
+  resumeLesson: PublishedLessonSummary | null;
 }
 
 /**
@@ -68,7 +68,7 @@ export interface ComputedCourseProgress {
  * percent 0, completed false.
  */
 export function computeCourseProgress(
-  publishedLessons: Lesson[],
+  publishedLessons: PublishedLessonSummary[],
   completedLessonIds: Iterable<string>
 ): ComputedCourseProgress {
   const publishedIds = new Set(publishedLessons.map((l) => l.id));
@@ -89,12 +89,14 @@ export function computeCourseProgress(
   return { totalRequired, completedRequired, percent, completed, completedLessonIds: completedIds, resumeLesson };
 }
 
-export async function getEnrollmentProgress(enrollment: Enrollment): Promise<CourseProgress> {
+export async function getEnrollmentProgress(
+  enrollment: Enrollment,
+  publishedLessons?: PublishedLessonSummary[],
+): Promise<CourseProgress> {
   const db = await getDb();
-  // PERFORMANCE (review correction F): ONE published-lessons fetch. The
-  // previous code called getPublishedCourseLessons twice (required set +
-  // next-map) — 2x the curriculum queries per progress read.
-  const publishedAll = await getPublishedCourseLessons(enrollment.courseId);
+  // Pages reuse the shared prepared curriculum; completions are always read
+  // fresh below. Other callers (including completion writes) keep live reads.
+  const publishedAll = publishedLessons ?? await getPublishedCourseLessons(enrollment.courseId);
 
   const rows = await db
     .select()
@@ -104,7 +106,7 @@ export async function getEnrollmentProgress(enrollment: Enrollment): Promise<Cou
   const { totalRequired, completedRequired, percent, completed, completedLessonIds, resumeLesson } =
     computeCourseProgress(publishedAll, rows.map((r) => r.lessonId));
 
-  const nextAfterLessonId: Record<string, Lesson | null> = {};
+  const nextAfterLessonId: Record<string, PublishedLessonSummary | null> = {};
   for (let i = 0; i < publishedAll.length; i++) {
     nextAfterLessonId[publishedAll[i].id] = publishedAll[i + 1] ?? null;
   }

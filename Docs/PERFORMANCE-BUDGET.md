@@ -20,8 +20,8 @@ Blueprint §9 ("Flashlight Speed" as a budget) and §18.9 (free-first guardrails
 
 | Budget | Limit | Current | Enforcement |
 |---|---|---|---|
-| Worker size (gzip) | Workers Free 3072 KiB; CI budget **2950 KiB** | 2.82 MiB (about 2888 KiB) gzipped, 12.57 MiB total, per `Docs/Engineering/DEPLOYMENT.md` (2026-10-24) | CI job `worker-size` (`npm run cf:build`, `npm run cf:size`, `scripts/check-worker-size.ts`); fails the PR |
-| Worker CPU | Workers Free: **10 ms per request** | Not measured. Dynamic SSR (learner, Studio, booking) likely exceeds it | None. Expect Workers Paid or measure first (DEPLOYMENT.md risks) |
+| Worker size (gzip) | Workers Free 3072 KiB; CI budget **2950 KiB** | 2867.94 KiB gzipped, 12795.73 KiB total upload, local `npm run cf:build && npm run cf:size` (2026-11-08) | CI job `worker-size` (`npm run cf:build`, `npm run cf:size`, `scripts/check-worker-size.ts`); fails the PR |
+| Worker CPU | Workers Free: **10 ms per request** | Not measured. Learner content preparation now uses the shared Data Cache; session gates, progress and React SSR still run per request. Studio and booking remain dynamic | None. Expect Workers Paid or measure first (DEPLOYMENT.md risks) |
 | Workers requests | 100,000/day (Free) | Not measured | None |
 | D1 reads | 5 M rows/day (Free) | Not measured | None |
 | D1 writes | 100 k rows/day (Free) | Not measured | None; writes are designed down (below) |
@@ -59,6 +59,76 @@ Observations:
 - `/contact` reads `?reason=` in a client component (`useSearchParams` inside `<Suspense>`), which only selects the form variant and the `audiencePath` bound into the `submitLead` action (server-validated, max 80 chars). The static fallback is the generic contact form.
 - `/mission-01` and `/ai-recruiter-os` were `force-dynamic` only because they read the offer row; there is no per-request input, so they are ISR (`revalidate = 300`) and `refreshCommerce()` revalidates them on every Studio offer or booking-type change.
 - `/coaching` and `/workshop` stay `force-dynamic` on purpose: `resolvePublicSchedulingModel()` reads live availability windows, bookings and slot holds relative to the current time and (when a calendar provider is configured) checks provider availability. A cached copy would show stale or taken slots. Making them cacheable would mean moving the slot picker into a client component that fetches slots from an API route (proposal, not built).
+
+### Learner content Data Cache (2026-11-08)
+
+The course overview and lesson player remain dynamic routes. They use
+`unstable_cache` from the installed Next 16.4.2 without enabling Cache Components
+or changing app-wide rendering. `use cache` / `cacheTag` require that opt-in in
+this version. Cache entries have no timed expiry (`revalidate: false`); every
+live content-write entry point expires their tags with
+`revalidateTag(tag, { expire: 0 })`, so the next read blocks for fresh data rather
+than serving stale-while-revalidate content.
+
+| Work | Before | Now |
+|---|---|---|
+| Session, course visibility/status and enrollment/access checks | Every request | Every request, outside the cache; archived courses still require an entitled learner |
+| Lesson publication/slug lookup | Full lesson row on each request (also metadata) | Live identity/title/slug projection only, before any protected cache read; draft/archived lessons still 404 |
+| Body preparation | JSON parse on each lesson render | Parsed `ContentBlock[]` per lesson, tagged `lesson:<id>` and `course:<id>`; no raw body retained in the prepared entry |
+| Video and resources | YouTube URL normalization, resource query and display sizing on every render | Prepared embed URL and resource id/title/size labels in the lesson entry; no storage keys or PDF bytes cached |
+| Curriculum and navigation | Two curriculum queries plus grouping per page, then two more through progress | Published lesson summaries grouped by ordered section, flat list and previous/next positions cached per course under `course:<id>`; no draft bodies or summaries included |
+| Progress/completion and resume UI | Per enrollment | Completion rows and progress calculations remain per request; pages reuse the shared curriculum input without querying it again |
+| Course overview metadata and offer/access policy | Per request | Per request, preserving live lifecycle/access behavior and avoiding a second invalidation dependency on Offers |
+| JSX / inline formatting / response rendering | Per request | Still per request; prepared data is cached, not HTML or React elements |
+
+The course loader queries sections and published lesson summaries only; the
+lesson loader queries the published body and its resources only on a miss.
+Lesson cache keys contain course/lesson ids, and curriculum keys contain the
+course id, never learner/session identifiers. Dynamic course and lesson slug
+checks stay live, so renames still use the existing redirect service.
+
+Invalidation coverage (all application entry points; services stay usable by
+offline scripts and isolated DB tests):
+
+| Entry point | Service write | Tags expired |
+|---|---|---|
+| `createCourseAction`, `updateCourseAction` | `createCourse`, `updateCourse` (including title/description/access mode/slug/cover) | `course:<id>` |
+| `publishCourseAction`, `unpublishCourseAction`, `archiveCourseAction` | Corresponding course lifecycle services | `course:<id>` |
+| `createSectionAction`, `renameSectionAction`, `moveSectionAction` | `createSection`, `renameSection`, `moveSection` | Parent `course:<id>` |
+| `createLessonAction`, `updateLessonAction` | `createLesson`, `updateLesson` (including body/title/slug/video/required) | `lesson:<id>` and parent `course:<id>` |
+| `publishLessonAction`, `unpublishLessonAction`, `moveLessonAction` | `publishLesson`, `unpublishLesson`, `moveLesson` | `lesson:<id>` and parent `course:<id>` |
+| `POST /api/course-resources/upload` | `uploadCourseResource` (the only resource write; delete/replace/reorder do not exist) | `lesson:<id>` and parent `course:<id>` |
+
+Lesson edits/lifecycle/moves invalidate in a `finally` boundary: a service can
+commit a lesson change and then fail enrollment reconciliation, and that error
+must not leave the old shared entry valid. Course-wide invalidation also covers
+the other lesson affected by a move. There is no lesson archive/delete or
+section delete service today; future write paths must use the same invalidator.
+Direct DB edits/offline scripts bypass Next revalidation and need an explicit
+invalidation or cache reset before serving traffic.
+
+**Cloudflare backing:** R2 remains the incremental data store. OpenNext's
+installed `d1-next-tag-cache` replaces the previous dummy tag cache. Both Wrangler
+configs (and the production environment) bind `NEXT_TAG_CACHE_D1` to the same
+D1 database as `DB`. OpenNext `populateCache` (used by preview/deploy) owns and
+creates the `revalidations` table; it is not an application Drizzle migration.
+Production placeholders must resolve both bindings to the same database.
+Tag lookups add D1 reads, and invalidations add writes only on content changes;
+a cache hit does **not** mean zero D1 reads for these protected routes.
+
+**Evidence and remaining measurement:** `tests/lesson-content-cache.test.ts`
+uses the isolated D1/R2 bootstrap, real authenticated actions and page functions,
+and direct data-preparation checks. Plain `tsx` reports `incrementalCache missing`
+for the real Next cache API, so the suite uses a deterministic cache double to
+check keys/tags, warm reads and edit/publish/unpublish/upload invalidation. It
+also exercises the installed OpenNext D1 tag adapter against the local binding.
+These are wiring/data/security checks, not browser or deployed cache-hit proof.
+The local production Next/OpenNext build passes and both learner routes remain
+ƒ dynamic; the Worker passes the 2950 KiB gzip size gate at 2867.94 KiB.
+No deployed Worker CPU measurement exists: this change removes repeated shared
+preparation but does **not establish** compliance with the Free plan's 10 ms
+budget. Measure warm and cold requests (including auth, tag lookups and React
+SSR) on the built/deployed Worker before claiming that budget is met.
 
 ## 4. Client JavaScript (approximate, gzip)
 

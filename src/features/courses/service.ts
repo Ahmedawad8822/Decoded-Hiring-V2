@@ -626,6 +626,15 @@ export async function getPublishedLessonBySlug(
   return lesson;
 }
 
+/** Live publication gate and metadata without fetching the body on every hit. */
+export async function getPublishedLessonIdentityBySlug(courseId: string, lessonSlug: string) {
+  const db = await getDb();
+  return (await db.select({ id: lessons.id, title: lessons.title, slug: lessons.slug })
+    .from(lessons).where(and(
+      eq(lessons.courseId, courseId), eq(lessons.slug, lessonSlug), eq(lessons.status, "published"),
+    )).get()) ?? null;
+}
+
 export function parseLessonBody(lesson: Lesson): ContentBlock[] {
   try {
     const parsed = JSON.parse(lesson.body) as ContentBlock[];

@@ -3,18 +3,15 @@ import { notFound, permanentRedirect } from "next/navigation";
 import { resolveLessonRedirect } from "@/features/slug-redirects/service";
 import { getServerSession } from "@/lib/auth";
 import {
-  getCourseCurriculum,
   getLearnerCourseBySlug,
   getPublishedCourseBySlug,
-  getPublishedLessonBySlug,
-  parseLessonBody,
+  getPublishedLessonIdentityBySlug,
 } from "@/features/courses/service";
 import { getEnrollment } from "@/features/enrollments/service";
 import { hasLearnerAccess } from "@/features/enrollments/access";
 import { getEnrollmentProgress } from "@/features/progress/service";
-import { getLessonResources } from "@/features/courses/service";
+import { getCachedCourseContent, getCachedLessonContent } from "@/features/courses/content-cache";
 import { ContentBlockRenderer } from "@/components/publishing/ContentBlockRenderer";
-import { buildYouTubeEmbedUrl } from "@/features/courses/youtube";
 import { CompleteButton } from "@/components/learner/complete-button";
 import { LessonPlayerShell } from "@/components/learner/lesson-player-shell";
 
@@ -23,7 +20,7 @@ export async function generateMetadata(props: {
 }) {
   const { courseSlug, lessonSlug } = await props.params;
   const course = await getPublishedCourseBySlug(courseSlug);
-  const lesson = course ? await getPublishedLessonBySlug(course.id, lessonSlug) : null;
+  const lesson = course ? await getPublishedLessonIdentityBySlug(course.id, lessonSlug) : null;
   return {
     title: lesson && course ? `${lesson.title} · ${course.title} | Decoded Hiring` : "Lesson | Decoded Hiring",
   };
@@ -38,7 +35,7 @@ export default async function LessonPlayerPage(props: {
   const session = await getServerSession();
   const course = await getLearnerCourseBySlug(courseSlug, session?.user?.id);
   // Stale course and/or lesson slug: one permanent redirect to the current URL.
-  const lesson = course ? await getPublishedLessonBySlug(course.id, lessonSlug) : null;
+  const lesson = course ? await getPublishedLessonIdentityBySlug(course.id, lessonSlug) : null;
   if (!course || !lesson) {
     const target = await resolveLessonRedirect(courseSlug, lessonSlug);
     if (target) permanentRedirect(target);
@@ -72,19 +69,17 @@ export default async function LessonPlayerPage(props: {
     );
   }
 
-  const curriculum = await getCourseCurriculum(course.id);
-  const progress = await getEnrollmentProgress(enrollment);
+  const [content, courseContent] = await Promise.all([
+    getCachedLessonContent(course.id, lesson.id),
+    getCachedCourseContent(course.id),
+  ]);
+  if (!content) notFound();
+  const { blocks, embedUrl, resources } = content;
+  const { curriculum, publishedLessons, navigation } = courseContent;
+  const progress = await getEnrollmentProgress(enrollment, publishedLessons);
   const completedSet = new Set(progress.completedLessonIds);
-  const resources = await getLessonResources(lesson.id);
-  const blocks = parseLessonBody(lesson);
-  const embedUrl = lesson.videoUrl ? buildYouTubeEmbedUrl(lesson.videoUrl) : null;
-
-  const flat = curriculum.flatMap((c) => c.publishedLessons);
-  const idx = flat.findIndex((l) => l.id === lesson.id);
-  const prev = idx > 0 ? flat[idx - 1] : null;
-  const next = idx >= 0 && idx < flat.length - 1 ? flat[idx + 1] : null;
-
-  const positionLabel = `LESSON ${idx + 1} OF ${flat.length}`;
+  const { prev, next, position } = navigation[lesson.id] ?? { prev: null, next: null, position: 0 };
+  const positionLabel = `LESSON ${position} OF ${publishedLessons.length}`;
 
   const curriculumNav = (
     <nav className="curriculum" aria-label="Curriculum">
@@ -149,7 +144,7 @@ export default async function LessonPlayerPage(props: {
                   <span className="rr-ico" aria-hidden="true">▼</span>
                   <span className="rr-main">
                     <b>{r.title}</b>
-                    <span>PDF · {(r.size / 1024).toFixed(0)} KB · INCLUDED WITH COURSE</span>
+                    <span>PDF · {r.sizeLabel} KB · INCLUDED WITH COURSE</span>
                   </span>
                   <span className="rr-dl">Download</span>
                 </a>

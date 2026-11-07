@@ -4,6 +4,8 @@ import { httpStatusFor, publicErrorMessage } from "@/lib/errors";
 import { MAX_COURSE_RESOURCE_SIZE, uploadCourseResource } from "@/lib/course-resources/service";
 import { isRequestBodyOverLimit } from "@/lib/upload-limits";
 import { getAdminCourseById, getAdminLessonById } from "@/features/courses/service";
+import { invalidateCourseContent } from "@/features/courses/content-invalidation";
+import { revalidatePath } from "next/cache";
 import { NextResponse } from "next/server";
 
 /** Admin-only PDF upload for a lesson. Never trust client keys — minted server-side. */
@@ -73,6 +75,8 @@ export async function POST(request: Request) {
       title: typeof rawTitle === "string" ? rawTitle : filename,
     });
 
+    invalidateCourseContent(courseId, lessonId);
+    revalidatePath(`/admin/courses/${courseId}/curriculum`);
     await recordAdminAudit({
       actorId: session.user.id,
       action: "lesson_resource.upload",
