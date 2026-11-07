@@ -44,33 +44,44 @@ export type PublicSchedulingSlot = {
   slotKey: string;
 };
 
+export type PublicSchedulingDisabledReason =
+  | "OFFER_MISSING"
+  | "OFFER_INACTIVE"
+  | "BOOKING_TYPE_MISSING"
+  | "BOOKING_TYPE_INACTIVE"
+  | "PROVIDER_UNAVAILABLE"
+  | "PAID_OR_MANUAL"
+  | "APPROVAL_REQUIRED"
+  | "REQUEST_ONLY";
+
+type PublicSchedulingEnabledBase = {
+  enabled: true;
+  offerSlug: string;
+  offerKind: PublicSchedulingKind;
+  bookingTypeId: string;
+  bookingTitle: string;
+  durationMinutes: number;
+  timezone: string;
+  meetingMethod: BookingType["meetingMethod"];
+  confirmationPolicy: "AUTO_CONFIRM";
+  accessMode: "FREE";
+};
+
+/**
+ * Configuration-only projection (no slots, no availability reads). Safe to
+ * render into a cached/ISR page shell: it changes only when Studio edits the
+ * Offer or BookingType (which revalidates the page).
+ */
+export type PublicSchedulingConfig =
+  | PublicSchedulingEnabledBase
+  | { enabled: false; reason: Exclude<PublicSchedulingDisabledReason, "PROVIDER_UNAVAILABLE"> };
+
 export type PublicSchedulingModel =
-  | {
-      enabled: true;
-      offerSlug: string;
-      offerKind: PublicSchedulingKind;
-      bookingTypeId: string;
-      bookingTitle: string;
-      durationMinutes: number;
-      timezone: string;
-      meetingMethod: BookingType["meetingMethod"];
-      confirmationPolicy: "AUTO_CONFIRM";
-      accessMode: "FREE";
+  | (PublicSchedulingEnabledBase & {
       slots: PublicSchedulingSlot[];
       rangeEnd: string;
-    }
-  | {
-      enabled: false;
-      reason:
-        | "OFFER_MISSING"
-        | "OFFER_INACTIVE"
-        | "BOOKING_TYPE_MISSING"
-        | "BOOKING_TYPE_INACTIVE"
-        | "PROVIDER_UNAVAILABLE"
-        | "PAID_OR_MANUAL"
-        | "APPROVAL_REQUIRED"
-        | "REQUEST_ONLY";
-    };
+    })
+  | { enabled: false; reason: PublicSchedulingDisabledReason };
 
 class PublicAvailabilityProviderError extends Error {
   constructor() {
@@ -271,13 +282,15 @@ export async function consumePublicBookingAdmission(params: {
   });
 }
 
-export async function resolvePublicSchedulingModel(params: {
+/**
+ * Offer/BookingType eligibility for self-service scheduling. Reads only the
+ * configuration rows (no availability windows, holds or bookings), so the
+ * public pages can cache it.
+ */
+export async function resolvePublicSchedulingConfig(params: {
   offerSlug: string;
   kind: PublicSchedulingKind;
-  now?: Date;
-  rangeDays?: number;
-  providers?: CommerceSchedulingProviders;
-}): Promise<PublicSchedulingModel> {
+}): Promise<PublicSchedulingConfig> {
   const offer = await getOfferBySlugForKind(params.offerSlug, params.kind);
   if (!offer) return { enabled: false, reason: "OFFER_MISSING" };
   if (!offer.active) return { enabled: false, reason: "OFFER_INACTIVE" };
@@ -303,13 +316,37 @@ export async function resolvePublicSchedulingModel(params: {
     return { enabled: false, reason: "REQUEST_ONLY" };
   }
 
+  return {
+    enabled: true,
+    offerSlug: offer.slug,
+    offerKind: params.kind,
+    bookingTypeId: bookingType.id,
+    bookingTitle: bookingType.title,
+    durationMinutes: bookingType.durationMinutes,
+    timezone: bookingType.timezone,
+    meetingMethod: bookingType.meetingMethod,
+    confirmationPolicy: "AUTO_CONFIRM",
+    accessMode: "FREE",
+  };
+}
+
+export async function resolvePublicSchedulingModel(params: {
+  offerSlug: string;
+  kind: PublicSchedulingKind;
+  now?: Date;
+  rangeDays?: number;
+  providers?: CommerceSchedulingProviders;
+}): Promise<PublicSchedulingModel> {
+  const config = await resolvePublicSchedulingConfig(params);
+  if (!config.enabled) return config;
+
   const now = params.now ?? new Date();
   const rangeDays = Math.max(1, Math.min(params.rangeDays ?? 21, 31));
   const rangeEnd = new Date(now.getTime() + rangeDays * DAY_MS);
   let slots: PublicSchedulingSlot[];
   try {
     slots = await listAvailableSlots({
-      bookingTypeId: bookingType.id,
+      bookingTypeId: config.bookingTypeId,
       rangeStart: now,
       rangeEnd,
       now,
@@ -322,20 +359,7 @@ export async function resolvePublicSchedulingModel(params: {
     throw error;
   }
 
-  return {
-    enabled: true,
-    offerSlug: offer.slug,
-    offerKind: params.kind,
-    bookingTypeId: bookingType.id,
-    bookingTitle: bookingType.title,
-    durationMinutes: bookingType.durationMinutes,
-    timezone: bookingType.timezone,
-    meetingMethod: bookingType.meetingMethod,
-    confirmationPolicy: "AUTO_CONFIRM",
-    accessMode: "FREE",
-    slots,
-    rangeEnd: rangeEnd.toISOString(),
-  };
+  return { ...config, slots, rangeEnd: rangeEnd.toISOString() };
 }
 
 export async function resolvePublicBookableSlot(params: {

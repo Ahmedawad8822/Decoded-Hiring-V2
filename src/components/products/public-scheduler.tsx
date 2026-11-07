@@ -2,7 +2,6 @@
 
 import { CalendarDays, CheckCircle2, Clock3, RefreshCw } from "lucide-react";
 import { useActionState, useEffect, useMemo, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
 
 import { recordPublicBookingStarted } from "@/features/analytics/public-actions";
 import {
@@ -10,11 +9,39 @@ import {
   type PublicBookingActionState,
 } from "@/features/scheduling/public-actions";
 import type {
-  PublicSchedulingModel,
+  PublicSchedulingConfig,
   PublicSchedulingSlot,
 } from "@/features/scheduling/public-scheduling";
+import type { PublicBookingSlotsResponse } from "@/features/scheduling/public-slots-handler";
 
-type EnabledModel = Extract<PublicSchedulingModel, { enabled: true }>;
+type EnabledConfig = Extract<PublicSchedulingConfig, { enabled: true }>;
+
+type SlotsState =
+  | { status: "loading" }
+  | { status: "error" }
+  | { status: "unavailable" }
+  | { status: "ready"; slots: PublicSchedulingSlot[] };
+
+// Fetches live availability from the cached page's companion route handler.
+// Same-origin, never cached. The server re-validates the slot on submit.
+async function fetchSlots(
+  config: EnabledConfig,
+  signal: AbortSignal,
+): Promise<SlotsState> {
+  const response = await fetch(
+    "/api/public/booking-slots?offer=" + encodeURIComponent(config.offerSlug),
+    { cache: "no-store", signal, headers: { Accept: "application/json" } },
+  );
+  if (!response.ok) return { status: "error" };
+  const body = (await response.json()) as PublicBookingSlotsResponse;
+  if (!body.enabled) return { status: "unavailable" };
+  // The cached shell is older than the Studio config: refuse to book against
+  // a different booking type than the form was rendered for.
+  if (body.bookingTypeId !== config.bookingTypeId) {
+    return { status: "unavailable" };
+  }
+  return { status: "ready", slots: body.slots };
+}
 
 function fieldError(
   state: PublicBookingActionState,
@@ -72,15 +99,22 @@ function groupSlots(
 }
 
 export function PublicScheduler({
-  model,
+  config: model,
   fallbackHref,
   fallbackLabel,
 }: {
-  model: EnabledModel;
+  config: EnabledConfig;
   fallbackHref: string;
   fallbackLabel: string;
 }) {
-  const router = useRouter();
+  const [slotsState, setSlotsState] = useState<SlotsState>({
+    status: "loading",
+  });
+  const [reloadCount, setReloadCount] = useState(0);
+  const slots = useMemo(
+    () => (slotsState.status === "ready" ? slotsState.slots : []),
+    [slotsState],
+  );
   const [state, formAction, pending] = useActionState<
     PublicBookingActionState,
     FormData
@@ -88,25 +122,39 @@ export function PublicScheduler({
   const [requestKey] = useState(() => crypto.randomUUID());
   const [acquisitionKey] = useState(() => crypto.randomUUID());
   const startedRef = useRef(false);
-  const [selectedStartAt, setSelectedStartAt] = useState(
-    model.slots[0]?.startAt ?? "",
-  );
+  const [selectedStartAt, setSelectedStartAt] = useState("");
 
   const groups = useMemo(
-    () => groupSlots(model.slots, model.timezone),
-    [model.slots, model.timezone],
+    () => groupSlots(slots, model.timezone),
+    [slots, model.timezone],
   );
-  const effectiveSelectedStartAt = model.slots.some(
+  const effectiveSelectedStartAt = slots.some(
     (slot) => slot.startAt === selectedStartAt,
   )
     ? selectedStartAt
-    : model.slots[0]?.startAt ?? "";
+    : slots[0]?.startAt ?? "";
+
+  // A rejected submit with SLOT_UNAVAILABLE means another person reached the
+  // slot first: `slotTaken` changes identity per result, so the effect below
+  // reloads the live list in place (replaces the old router.refresh()).
+  const slotTaken =
+    state && !state.ok && state.code === "SLOT_UNAVAILABLE" ? state : null;
 
   useEffect(() => {
-    if (state && !state.ok && state.code === "SLOT_UNAVAILABLE") {
-      router.refresh();
-    }
-  }, [router, state]);
+    const controller = new AbortController();
+    fetchSlots(model, controller.signal).then(
+      (next) => setSlotsState(next),
+      () => {
+        if (!controller.signal.aborted) setSlotsState({ status: "error" });
+      },
+    );
+    return () => controller.abort();
+  }, [model, reloadCount, slotTaken]);
+
+  function retryLoad() {
+    setSlotsState({ status: "loading" });
+    setReloadCount((count) => count + 1);
+  }
 
   function noteBookingStarted() {
     if (startedRef.current) return;
@@ -137,7 +185,52 @@ export function PublicScheduler({
     );
   }
 
-  if (model.slots.length === 0) {
+  if (slotsState.status === "loading") {
+    return (
+      <div
+        className="hg-scheduler-empty"
+        role="status"
+        aria-live="polite"
+        aria-busy="true"
+      >
+        <RefreshCw aria-hidden="true" />
+        <div>
+          <h3>Loading open times…</h3>
+          <p>Checking live availability for {model.bookingTitle}.</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (slotsState.status === "error" || slotsState.status === "unavailable") {
+    return (
+      <div className="hg-scheduler-empty" role="status">
+        <CalendarDays aria-hidden="true" />
+        <div>
+          <h3>
+            {slotsState.status === "error"
+              ? "Open times could not be loaded."
+              : "Online scheduling is not available right now."}
+          </h3>
+          <p>
+            {slotsState.status === "error"
+              ? "Please try again. The enquiry route is still available."
+              : "Please use the enquiry route instead."}
+          </p>
+          {slotsState.status === "error" && (
+            <button type="button" className="hg-secondary" onClick={retryLoad}>
+              Try again
+            </button>
+          )}{" "}
+          <a className="hg-secondary" href={fallbackHref}>
+            {fallbackLabel}
+          </a>
+        </div>
+      </div>
+    );
+  }
+
+  if (slots.length === 0) {
     return (
       <div className="hg-scheduler-empty">
         <CalendarDays aria-hidden="true" />
