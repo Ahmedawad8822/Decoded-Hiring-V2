@@ -18,7 +18,7 @@ Cloudflare. Every production value in `wrangler.jsonc → env.production` is a
 | Script | Use |
 |---|---|
 | `npm run cf:build` | OpenNext build (runs `next build` first). Needs `BETTER_AUTH_SECRET` set and a migrated local DB (`npm run db:migrate:local`), because `/guides` and `/field-notes` prerender from D1. |
-| `npm run cf:size` | Runs `wrangler deploy --dry-run` (no credentials), parses the gzip size and fails above `WORKER_GZIP_BUDGET_KIB` (default 2950; Free limit 3072). Run after `cf:build`. Runs in CI as the `worker-size` job. |
+| `npm run cf:size` | Runs `wrangler deploy --dry-run` (no credentials), parses the uncompressed `Total Upload` size and fails above `WORKER_UNCOMPRESSED_BUDGET_KIB` (default 20480 KiB / 20 MiB; Free and Paid limit 64 MiB). Gzip is printed for information only. Run after `cf:build`. Runs in CI as the `worker-size` job. |
 | `npm run preview` | Build, then run the real Worker locally in `wrangler dev` against local D1/R2. Put local-only secrets in `.dev.vars` (git-ignored), e.g. `BETTER_AUTH_SECRET=...`. |
 | `npm run db:migrate:remote` | `wrangler d1 migrations apply DB --env production --remote` |
 | `npm run deploy` | Build and deploy with `--env production`. **Fails until the placeholders are filled.** |
@@ -36,7 +36,7 @@ Cloudflare. Every production value in `wrangler.jsonc → env.production` is a
 
 ## First deploy checklist (needs Ahmed's decisions)
 
-1. **Account and plan.** Choose the Cloudflare account. See the risks below about the free plan's script size and CPU limits.
+1. **Account and plan.** Choose the Cloudflare account. See the risks below about script size, startup time and request CPU limits.
 2. **Provision:**
    - `wrangler d1 create <name>`
    - `wrangler r2 bucket create <media>`
@@ -61,7 +61,8 @@ Cloudflare. Every production value in `wrangler.jsonc → env.production` is a
 
 ## Risks and open decisions
 
-- **Script size.** 2.82 MiB gzipped against the Workers **Free 3 MiB** limit, so about 6% headroom (it grew about 0.04 MiB with the Next 16.4 / adapter upgrade). Paid allows 10 MiB. The `worker-size` CI job enforces a 2950 KiB gzip budget (`npm run cf:size`, override with `WORKER_GZIP_BUDGET_KIB`), so a PR cannot silently cross the limit. It parses wrangler's `Total Upload` line, so a wrangler output format change fails the job loudly (exit 2) rather than passing.
+- **Script size.** Workers Free and Paid both allow **64 MiB uncompressed** (65536 KiB); there is no compressed size limit. Per the [Workers limits page](https://developers.cloudflare.com/workers/platform/limits/) updated 2026-10-29. The historical 12.57 MiB total upload above uses about 20% of that limit; its 2.82 MiB gzip size is informational. CI enforces an early-growth budget of **20480 KiB (20 MiB) uncompressed** (`npm run cf:size`, override `WORKER_UNCOMPRESSED_BUDGET_KIB`). It parses wrangler's `Total Upload` line, so a format change fails loudly (exit 2). The script warns above 90% of the platform's 64 MiB uncompressed limit.
+- **Startup time.** Both plans limit global-scope startup to **1 second**. Imported module initialization counts toward startup CPU; load admin-only providers, ingestion code and validation inside the functions that need them. Bundle size checks do not measure startup time; verify it separately with the built Worker before deploying.
 - **CPU time.** Workers Free allows **10 ms CPU** per request. SSR of dynamic pages (learner, Studio, booking) is likely to exceed that. Expect to need Workers Paid, or measure before deciding.
 - **Build-time data.** `/guides` and `/field-notes` are statically prerendered from the build machine's local D1, so the first deploy ships whatever that DB contains (usually nothing). They refresh when a publish action calls `revalidatePath()`. Before launch, decide between:
   - `export const revalidate = <seconds>`

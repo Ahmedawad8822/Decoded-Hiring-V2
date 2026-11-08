@@ -1,25 +1,25 @@
 /**
- * Enforces a gzip size budget on the OpenNext Worker.
+ * Enforces an uncompressed size budget on the OpenNext Worker.
  *
  * Runs `wrangler deploy --dry-run` (no Cloudflare credentials needed) against
  * the top-level wrangler.jsonc and parses its
  * "Total Upload: X KiB / gzip: Y KiB" line. Run `npm run cf:build` first.
  *
- * Env: WORKER_GZIP_BUDGET_KIB (default 2950; the Workers Free limit is 3072).
+ * Env: WORKER_UNCOMPRESSED_BUDGET_KIB (default 20480; Workers limit is 65536).
  */
 import { spawnSync } from "node:child_process";
 import { appendFileSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-const LIMIT_KIB = 3072; // Workers Free plan: 3 MiB gzipped
+const LIMIT_KIB = 64 * 1024; // Workers Free and Paid: 64 MiB uncompressed
 const WARN_KIB = LIMIT_KIB * 0.9;
-const DEFAULT_BUDGET_KIB = 2950;
+const DEFAULT_BUDGET_KIB = 20480;
 
-const budgetRaw = process.env.WORKER_GZIP_BUDGET_KIB;
+const budgetRaw = process.env.WORKER_UNCOMPRESSED_BUDGET_KIB;
 const budget = budgetRaw ? Number(budgetRaw) : DEFAULT_BUDGET_KIB;
 if (!Number.isFinite(budget) || budget <= 0) {
-  console.error(`Invalid WORKER_GZIP_BUDGET_KIB: "${budgetRaw}"`);
+  console.error(`Invalid WORKER_UNCOMPRESSED_BUDGET_KIB: "${budgetRaw}"`);
   process.exit(2);
 }
 
@@ -50,22 +50,22 @@ const toKiB = (v: string, unit: string) =>
 const totalKiB = toKiB(match[1], match[2]);
 const gzipKiB = toKiB(match[3], match[4]);
 
-const pct = (gzipKiB / LIMIT_KIB) * 100;
-const ok = gzipKiB <= budget;
+const pct = (totalKiB / LIMIT_KIB) * 100;
+const ok = totalKiB <= budget;
 console.log(
-  `Worker size: ${gzipKiB.toFixed(2)} KiB gzip (${pct.toFixed(1)}% of ${LIMIT_KIB} KiB Free limit), budget ${budget} KiB, total upload ${totalKiB.toFixed(2)} KiB - ${ok ? "OK" : "OVER BUDGET"}`,
+  `Worker size: ${totalKiB.toFixed(2)} KiB uncompressed (${pct.toFixed(1)}% of ${LIMIT_KIB} KiB Free/Paid limit), budget ${budget} KiB, gzip ${gzipKiB.toFixed(2)} KiB (informational only) - ${ok ? "OK" : "OVER BUDGET"}`,
 );
 
-if (gzipKiB > WARN_KIB) {
+if (totalKiB > WARN_KIB) {
   console.warn(
-    `::warning::Worker is above 90% of the ${LIMIT_KIB} KiB Workers Free limit (${gzipKiB.toFixed(2)} KiB).`,
+    `::warning::Worker is above 90% of the ${LIMIT_KIB} KiB uncompressed Workers Free/Paid limit (${totalKiB.toFixed(2)} KiB).`,
   );
 }
 
 if (process.env.GITHUB_STEP_SUMMARY) {
   appendFileSync(
     process.env.GITHUB_STEP_SUMMARY,
-    `### Worker size\n\n| gzip | budget | Free limit | total upload |\n|---|---|---|---|\n| ${gzipKiB.toFixed(2)} KiB | ${budget} KiB | ${LIMIT_KIB} KiB | ${totalKiB.toFixed(2)} KiB |\n\n${ok ? "Within budget." : "**Over budget.**"}\n`,
+    `### Worker size\n\n| uncompressed total upload | budget (uncompressed) | Free/Paid limit (uncompressed) | gzip (info only) |\n|---|---|---|---|\n| ${totalKiB.toFixed(2)} KiB | ${budget} KiB | ${LIMIT_KIB} KiB | ${gzipKiB.toFixed(2)} KiB |\n\n${ok ? "Within budget." : "**Over budget.**"}\n`,
   );
 }
 
