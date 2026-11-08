@@ -9,12 +9,14 @@ import { publicMetadata } from "@/lib/seo";
 import { PUBLIC_OFFER_SLUGS } from "@/features/offers/catalog";
 import { resolveOfferPublicPresentation } from "@/features/offers/presentation";
 import { getOfferBySlugForKind } from "@/features/offers/service";
-import { resolvePublicSchedulingModel } from "@/features/scheduling/public-scheduling";
+import { resolvePublicSchedulingConfig } from "@/features/scheduling/public-scheduling";
 
-// force-dynamic is required: resolvePublicSchedulingModel() reads live
-// availability, bookings and slot holds relative to "now". Caching it would
-// show stale or already-taken slots.
-export const dynamic = "force-dynamic";
+// Cached shell (ISR). Only offer/booking-type configuration is read here;
+// the live slot list is fetched by <PublicScheduler> from
+// /api/public/booking-slots. Studio offer/booking-type edits call
+// revalidatePath() (features/commerce/admin-actions.ts refreshCommerce); the
+// time-based revalidate is the safety net.
+export const revalidate = 300;
 
 export const metadata = publicMetadata({
   title: "Recruitment Decision Coaching | Ahmed Awad",
@@ -33,7 +35,7 @@ export default async function CoachingPage() {
         contactLabel: "Open a decision brief",
       })
     : null;
-  const scheduling = await resolvePublicSchedulingModel({
+  const scheduling = await resolvePublicSchedulingConfig({
     offerSlug: PUBLIC_OFFER_SLUGS.coaching,
     kind: "COACHING",
   });
@@ -193,7 +195,7 @@ export default async function CoachingPage() {
             </p>
           </div>
           <PublicScheduler
-            model={scheduling}
+            config={scheduling}
             fallbackHref="#hg-coaching-brief"
             fallbackLabel="Send a decision brief instead"
           />

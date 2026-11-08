@@ -33,6 +33,20 @@ const WEEKDAY_NAMES = ["sunday", "monday", "tuesday", "wednesday", "thursday", "
 
 const MS_PER_HOUR = 60 * 60_000;
 
+// Bound formatter memory independently of user-configured timezone names. These
+// contain only Intl configuration, never availability or request data.
+const formatterCache = new Map<string, Intl.DateTimeFormat>();
+function formatter(tz: string, kind: string, options: Intl.DateTimeFormatOptions) {
+  const key = `${tz}:${kind}`;
+  let value = formatterCache.get(key);
+  if (!value) {
+    value = new Intl.DateTimeFormat("en-US", { timeZone: tz, ...options });
+    if (formatterCache.size >= 64) formatterCache.delete(formatterCache.keys().next().value!);
+    formatterCache.set(key, value);
+  }
+  return value;
+}
+
 /**
  * Error thrown when a requested local wall-clock time does not exist because
  * it falls inside a DST spring-forward gap (e.g. America/New_York
@@ -101,8 +115,7 @@ export function isValidIanaTimezone(tz: string): boolean {
  * for a UTC instant in the given timezone.
  */
 export function getLocalDateParts(date: Date, tz: string): { year: number; month: number; day: number } {
-  const dtf = new Intl.DateTimeFormat("en-US", {
-    timeZone: tz,
+  const dtf = formatter(tz, "date", {
     year: "numeric",
     month: "numeric",
     day: "numeric",
@@ -128,8 +141,7 @@ export function getLocalWallClock(date: Date, tz: string): {
   hour: number;
   minute: number;
 } {
-  const dtf = new Intl.DateTimeFormat("en-US", {
-    timeZone: tz,
+  const dtf = formatter(tz, "wall", {
     year: "numeric",
     month: "numeric",
     day: "numeric",
@@ -153,7 +165,7 @@ export function getLocalWallClock(date: Date, tz: string): {
  * Return the local weekday (0=Sunday .. 6=Saturday) for a UTC instant in tz.
  */
 export function getWeekdayInTz(date: Date, tz: string): number {
-  const dtf = new Intl.DateTimeFormat("en-US", { timeZone: tz, weekday: "long" });
+  const dtf = formatter(tz, "weekday", { weekday: "long" });
   const str = dtf.format(date).toLowerCase();
   return WEEKDAY_NAMES.indexOf(str);
 }
@@ -172,7 +184,7 @@ export function getTimezoneOffsetMs(date: Date, tz: string): number {
   // Fall back to "shortOffset" which is supported in more runtimes.
   let offsetStr: string | undefined;
   try {
-    const dtf = new Intl.DateTimeFormat("en-US", { timeZone: tz, timeZoneName: "longOffset" });
+    const dtf = formatter(tz, "longOffset", { timeZoneName: "longOffset" });
     const parts = dtf.formatToParts(date);
     offsetStr = parts.find((p) => p.type === "timeZoneName")?.value;
   } catch {
@@ -180,7 +192,7 @@ export function getTimezoneOffsetMs(date: Date, tz: string): number {
   }
   if (!offsetStr) {
     try {
-      const dtf = new Intl.DateTimeFormat("en-US", { timeZone: tz, timeZoneName: "shortOffset" });
+      const dtf = formatter(tz, "shortOffset", { timeZoneName: "shortOffset" });
       const parts = dtf.formatToParts(date);
       offsetStr = parts.find((p) => p.type === "timeZoneName")?.value;
     } catch {
@@ -219,7 +231,38 @@ export function getTimezoneOffsetMs(date: Date, tz: string): number {
  * Round-trip guarantee: requested local date/time -> UTC -> same local date/time.
  */
 export function localTimeToUtc(reference: Date, tz: string, localMinutes: number): Date {
-  const { year, month, day } = getLocalDateParts(reference, tz);
+  return resolveLocalTime(reference, tz, localMinutes, (epoch) => getTimezoneOffsetMs(new Date(epoch), tz));
+}
+
+/** Reuse exact offset probes and local dates only within one generation pass. */
+export function createLocalTimeResolver(tz: string): (reference: Date, localMinutes: number) => Date {
+  const offsets = new Map<number, number>();
+  const dates = new Map<number, ReturnType<typeof getLocalDateParts>>();
+  function offsetAt(epoch: number) {
+    let offset = offsets.get(epoch);
+    if (offset === undefined) {
+      offset = getTimezoneOffsetMs(new Date(epoch), tz);
+      offsets.set(epoch, offset);
+    }
+    return offset;
+  }
+  return (reference, localMinutes) => {
+    const epoch = reference.getTime();
+    let date = dates.get(epoch);
+    if (!date) {
+      date = getLocalDateParts(reference, tz);
+      dates.set(epoch, date);
+    }
+    return resolveLocalTime(reference, tz, localMinutes, offsetAt, date);
+  };
+}
+
+function resolveLocalTime(
+  reference: Date, tz: string, localMinutes: number,
+  offsetAt: (epoch: number) => number,
+  date = getLocalDateParts(reference, tz),
+): Date {
+  const { year, month, day } = date;
   // Wall-clock epoch: the UTC instant IF the offset were zero.
   const wallClockEpoch = Date.UTC(year, month - 1, day, 0, 0, 0, 0) + localMinutes * 60_000;
 
@@ -236,7 +279,7 @@ export function localTimeToUtc(reference: Date, tz: string, localMinutes: number
     wallClockEpoch + 24 * MS_PER_HOUR,
     wallClockEpoch - 24 * MS_PER_HOUR,
   ]) {
-    const offset = getTimezoneOffsetMs(new Date(probe), tz);
+    const offset = offsetAt(probe);
     if (!probeOffsets.includes(offset)) probeOffsets.push(offset);
   }
 
