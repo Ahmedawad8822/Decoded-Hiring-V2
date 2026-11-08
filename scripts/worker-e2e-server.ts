@@ -4,7 +4,7 @@ import { randomBytes } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { previewConfig, WORKER_ADMIN, WORKER_RUNTIME_GUIDE_SLUG, workerDevArgs, workerPaths, workerPort } from "./worker-e2e-setup";
+import { previewConfig, WORKER_ADMIN, WORKER_RUNTIME_GUIDE_SLUG, WORKER_RUNTIME_NOTE_SLUG, workerDevArgs, workerFixtureEntry, workerPaths, workerPort } from "./worker-e2e-setup";
 
 const root = process.cwd();
 const work = fs.mkdtempSync(path.join(os.tmpdir(), "dh-worker-e2e-"));
@@ -16,6 +16,7 @@ const fixtureEnv = {
   BETTER_AUTH_URL: origin,
   NEXT_PUBLIC_SITE_URL: origin,
   ADMIN_REQUIRE_2FA: "false",
+  WORKER_E2E_CONTROL: "local-fixture",
 };
 Object.assign(process.env, fixtureEnv, {
   DH_LOCAL_STATE_DIR: state,
@@ -72,6 +73,10 @@ async function main() {
   if (process.env.CF_PAGES || process.env.CLOUDFLARE === "1") throw new Error("Worker E2E is local-only");
   console.log(`[worker-e2e] Throwaway state: ${state}`);
   const config = previewConfig(fs.readFileSync(path.join(root, "wrangler.preview.jsonc"), "utf8"), root);
+  // Compile fixture controls only into a temporary local Worker entry. The
+  // production entry and build artifacts never import these controls.
+  config.main = path.join(work, "worker-fixture.ts");
+  fs.writeFileSync(config.main, workerFixtureEntry(root));
   const configPath = path.join(work, "wrangler.json");
   fs.writeFileSync(configPath, JSON.stringify(config));
   fs.writeFileSync(path.join(work, ".dev.vars"), Object.entries(fixtureEnv).map(([k, v]) => `${k}=${v}`).join("\n") + "\n", { mode: 0o600 });
@@ -116,11 +121,14 @@ export default { ...config, dangerous: { ...config.dangerous, enableCacheInterce
   // The first sitemap GET must discover this article, not build-local content.
   await run("tsx", ["-e", `
     import { createGuide, publishGuide } from "./src/features/guides/service";
+    import { createFieldNote, publishFieldNote } from "./src/features/field-notes/service";
     import { disposeCloudflareBindings } from "./src/lib/cloudflare/bindings";
     (async () => {
       try {
         const guide = await createGuide({ title: "Runtime sitemap fixture", slug: ${JSON.stringify(WORKER_RUNTIME_GUIDE_SLUG)}, author: "Worker fixture", body: [] });
         await publishGuide(guide.id);
+        const note = await createFieldNote({ title: "Runtime ISR note", slug: ${JSON.stringify(WORKER_RUNTIME_NOTE_SLUG)}, body: [] });
+        await publishFieldNote(note.id);
       } finally { await disposeCloudflareBindings(); }
     })().catch(error => { console.error(error); process.exitCode = 1; });
   `]);
@@ -133,6 +141,11 @@ export default { ...config, dangerous: { ...config.dangerous, enableCacheInterce
   const compiled = await retrieveCompiledConfig();
   const options = getNormalizedOptions(compiled.config);
   if (!compiled.config.dangerous?.enableCacheInterception && !interceptionOff) throw new Error("Built Worker must enable cache interception");
+  const queue = compiled.config.default.override?.queue;
+  const resolvedQueue = typeof queue === "function" ? await queue() : queue;
+  if (typeof resolvedQueue !== "object" || resolvedQueue?.name !== "durable-queue") {
+    throw new Error("Worker E2E must exercise the production Durable Object queue");
+  }
   console.log(`[worker-e2e] Cache interception: ${compiled.config.dangerous?.enableCacheInterception}`);
   process.chdir(work);
   // The adapter types every Cloudflare binding as required here; population

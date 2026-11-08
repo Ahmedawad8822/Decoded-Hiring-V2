@@ -7,6 +7,24 @@ export const WORKER_ADMIN = {
 };
 
 export const WORKER_RUNTIME_GUIDE_SLUG = "worker-runtime-only-sitemap-guide";
+export const WORKER_RUNTIME_NOTE_SLUG = "worker-runtime-isr-note";
+
+export function workerFixtureEntry(root: string) {
+  // Only the disposable config points here. Production always uses worker.ts.
+  return `
+import handler from ${JSON.stringify(path.join(root, "worker.ts"))};
+export { DOQueueHandler } from ${JSON.stringify(path.join(root, "worker.ts"))};
+import { fixtureControl, recordRevalidation } from ${JSON.stringify(path.join(root, "scripts/worker-e2e-control.ts"))};
+export default {
+  async fetch(request, env, ctx) {
+    const control = await fixtureControl(request, env);
+    if (control) return control;
+    recordRevalidation(request);
+    return handler.fetch(request, env, ctx);
+  }
+};
+`;
+}
 
 export function workerPort(value = process.env.E2E_WORKER_PORT ?? "3107") {
   const port = Number(value);
@@ -28,14 +46,14 @@ export function previewConfig(source: string, root: string) {
   const config = JSON.parse(source.replace(/^\s*\/\/.*$/gm, ""));
   delete config.$schema;
   // Fail closed if the shared preview configuration ever gains remote bindings.
-  for (const group of [config.d1_databases, config.r2_buckets, config.services]) {
+  for (const group of [config.d1_databases, config.r2_buckets, config.services, config.durable_objects?.bindings]) {
     for (const binding of group ?? []) {
       if (binding.remote) throw new Error("Worker E2E refuses remote bindings");
     }
   }
   delete config.env;
   delete config.vars;
-  config.main = path.join(root, ".open-next/worker.js");
+  config.main = path.join(root, "worker.ts");
   config.assets.directory = path.join(root, ".open-next/assets");
   for (const db of config.d1_databases) delete db.migrations_dir;
   return config;

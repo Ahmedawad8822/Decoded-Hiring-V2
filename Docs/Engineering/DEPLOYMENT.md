@@ -12,6 +12,7 @@ follow [Workers Builds](WORKERS-BUILDS.md). Do not use the production scripts fo
 | `open-next.config.ts` | `enableCacheInterception: true` serves ISR/SSG hits in the routing layer after rewrites, bypassing server actions and draft-mode cookies. R2 incremental cache (`NEXT_INC_CACHE_R2_BUCKET`) uses our render-timestamp wrapper so an old render uploaded after a mutation cannot undo its invalidation. D1 persists tag expiry (`NEXT_TAG_CACHE_D1`, same database as `DB`); without it, `revalidatePath()`/`revalidateTag()` would do nothing on Workers. OpenNext population creates its own `revalidations` table; it is not a Drizzle migration. See [cache race analysis](CACHE-INTERCEPTION.md). |
 | `src/lib/cloudflare/bindings.ts` | On Workers, bindings come from `getCloudflareContext().env`. In local Node (`next dev`, `next build`, tests, scripts), it falls back to wrangler's `getPlatformProxy` with persist path `DH_LOCAL_STATE_DIR` or `.wrangler/state/v3`. wrangler is imported with a computed specifier, so it is never bundled. |
 | `wrangler.jsonc` | Top level = **local** config (dev, tests, `npm run preview`). `env.production` = real resources (placeholders). Bindings: `DB` (D1), `MEDIA_BUCKET` (R2), `NEXT_INC_CACHE_R2_BUCKET` (R2), `WORKER_SELF_REFERENCE` (service), `ASSETS`. |
+| `worker.ts` / ISR queue | Custom entry delegates to the generated Worker, re-exports `DOQueueHandler` and establishes the render-start clock, including background HEADs. Preview/production bind `NEXT_CACHE_DO_QUEUE` and the self service; each includes the `isr-queue-v1` migration creating a **SQLite** DO class supported on Workers Free. See [ISR queue analysis](ISR-QUEUE.md). |
 
 ## Scripts
 
@@ -215,3 +216,103 @@ Worker shutdown and throwaway-state removal were verified after HTTP runs.
 
 - Use `npm run admin:create -- --remote --env <name>` for admin provisioning; public fixture passwords are rejected for every remote target.
 - Test Git integration is documented in [Workers Builds](WORKERS-BUILDS.md); production and non-production branch builds are not connected.
+
+## ISR queue: first deploy and disposable edge check
+
+Keep `main: "worker.ts"` and include the migration below in each hosted environment. Wrangler applies it
+on the first deploy to each Worker; there is no separate DO create command.
+The class must be **SQLite-backed** for Workers Free. Keep the tag immutable
+after it has been applied. This is a DO class migration, not a D1/Drizzle
+migration; the existing D1/R2 provisioning and OpenNext population still apply.
+
+```json
+"migrations": [
+  { "tag": "isr-queue-v1", "new_sqlite_classes": ["DOQueueHandler"] }
+]
+```
+
+Before first deploy, ensure each hosted environment has both
+`NEXT_CACHE_DO_QUEUE → DOQueueHandler` and
+`WORKER_SELF_REFERENCE → <that environment's worker name>`. Binding arrays are
+not inherited. The custom entry is inherited;
+`wrangler.preview.jsonc` separately repeats the migration and bindings for local
+Worker previews. Ordinary Next dev/build/getPlatformProxy deliberately omits
+the service, internal DO bindings and migrations (a migration alone also causes
+the proxy to emulate an unimplemented class). Do not deploy the top-level local config.
+
+For the existing disposable CPU test resources, add the following member under
+`wrangler.jsonc → env` in the coordinator's deployment checkout. The resource
+identities were read from the local `tmp/cputest` worktree config on 2026-11-08;
+no remote existence check was performed. Verify them in the coordinator's
+environment before use. No production identifiers are involved.
+
+```json
+"cputest": {
+  "name": "dh-cputest",
+  "workers_dev": true,
+  "migrations": [
+    { "tag": "isr-queue-v1", "new_sqlite_classes": ["DOQueueHandler"] }
+  ],
+  "services": [
+    { "binding": "WORKER_SELF_REFERENCE", "service": "dh-cputest" }
+  ],
+  "durable_objects": {
+    "bindings": [
+      { "name": "NEXT_CACHE_DO_QUEUE", "class_name": "DOQueueHandler" }
+    ]
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "dh-cputest-db",
+      "database_id": "48a2e827-8d37-4041-a311-4642aa5a2d76",
+      "migrations_dir": "drizzle/migrations"
+    },
+    {
+      "binding": "NEXT_TAG_CACHE_D1",
+      "database_name": "dh-cputest-db",
+      "database_id": "48a2e827-8d37-4041-a311-4642aa5a2d76"
+    }
+  ],
+  "r2_buckets": [
+    { "binding": "MEDIA_BUCKET", "bucket_name": "dh-cputest-media" },
+    { "binding": "NEXT_INC_CACHE_R2_BUCKET", "bucket_name": "dh-cputest-next-cache" }
+  ],
+  "vars": {
+    "BETTER_AUTH_URL": "https://dh-cputest.hdv2.workers.dev",
+    "NEXT_PUBLIC_SITE_URL": "https://dh-cputest.hdv2.workers.dev"
+  }
+}
+```
+
+Coordinator-only steps **outside the sandbox** (not performed by this change):
+
+```sh
+# In the checkout with env.cputest above and its existing auth secret:
+npx opennextjs-cloudflare build --env cputest
+npx opennextjs-cloudflare deploy --env cputest
+npm run prewarm -- --base-url https://dh-cputest.hdv2.workers.dev
+# In a separate terminal, record edge CPU/outcomes and queue errors:
+npx wrangler tail --env cputest --format json > /tmp/dh-cputest-isr-tail.jsonl
+```
+
+Confirm a routing HIT before testing expiry. For a disposable coaching/workshop
+offer only, snapshot its D1 row, change `active` directly in **dh-cputest-db**
+(not through a Server Action, which immediately invalidates the path), and
+confirm the pre-expiry shell still contains the old availability. At the real
+300s boundary, issue one GET: expect STALE with the old body, then poll at most
+20 times / 15s for HIT with the changed availability. Confirm two more HITs and
+one signed revalidation HEAD, no repeated queue failure, and no exceededCpu
+outcome. Restore the exact fixture row and verify its availability returns on
+the next natural refresh or through the existing approved admin path. Repeat
+an hourly article/metadata sample at its natural boundary when practical.
+The local tests already accelerate all eight route windows without adding a
+test route or shorter lifetime to this deployment. Never deploy the temporary
+fixture entry from `scripts/worker-e2e-server.ts`.
+
+Edge CPU must be reported separately for HIT, STALE, and the background
+regeneration request, plus DO request/duration usage. The queue fixes stale
+loops but does not make full SSR fit the Workers Free 10ms CPU allowance.
+No test-only control path should exist on the edge:
+`POST /__worker-e2e/control` must return 404. See [ISR-QUEUE.md](ISR-QUEUE.md)
+for installed-source evidence, alternatives and quota calculations.

@@ -3,12 +3,13 @@
   // Top level = LOCAL config: `next dev`, tests, `db:migrate:local` (via
   // getPlatformProxy) and the base for wrangler.preview.jsonc.
   // Resource IDs here are never used remotely.
-  // No WORKER_SELF_REFERENCE here on purpose: getPlatformProxy has no running
-  // worker to resolve it, and on Linux workerd logs "Failed to get handler to
-  // worker" (CI e2e noise). `npm run preview` uses wrangler.preview.jsonc,
-  // which adds the binding; production gets it from env.production below.
+  // No WORKER_SELF_REFERENCE or internal DO binding here: getPlatformProxy
+  // has no running Worker/DO implementation (Next dev/build only needs D1/R2).
+  // Preview and Worker E2E use wrangler.preview.jsonc with BOTH bindings;
+  // production repeats them below. DO migrations also stay out of this proxy
+  // config: Wrangler emulates migrated classes even without a binding.
   "name": "decoded-hiring-v2",
-  "main": ".open-next/worker.js",
+  "main": "worker.ts",
   "compatibility_date": "2026-09-15",
   "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
   "assets": {
@@ -50,6 +51,14 @@
     "cputest": {
       "name": "dh-cputest",
       "workers_dev": true,
+      "migrations": [
+        { "tag": "isr-queue-v1", "new_sqlite_classes": ["DOQueueHandler"] }
+      ],
+      "durable_objects": {
+        "bindings": [
+          { "name": "NEXT_CACHE_DO_QUEUE", "class_name": "DOQueueHandler" }
+        ]
+      },
       "services": [
         { "binding": "WORKER_SELF_REFERENCE", "service": "dh-cputest" }
       ],
@@ -77,6 +86,14 @@
     },
     "production": {
       "name": "decoded-hiring-v2",
+      "migrations": [
+        { "tag": "isr-queue-v1", "new_sqlite_classes": ["DOQueueHandler"] }
+      ],
+      "durable_objects": {
+        "bindings": [
+          { "name": "NEXT_CACHE_DO_QUEUE", "class_name": "DOQueueHandler" }
+        ]
+      },
       "services": [
         {
           "binding": "WORKER_SELF_REFERENCE",
