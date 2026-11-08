@@ -1,5 +1,43 @@
 # Dependency audit triage
 
+## Development-tool fixes (2026-11-08)
+
+Scoped npm overrides address minimatch's globparts amplification
+([GHSA-g3hv-75wg-m249](https://github.com/advisories/GHSA-g3hv-75wg-m249),
+`>=7.0.0 <11.0.1`) and esbuild's development-server request exposure
+([GHSA-67mh-4wv8-2f99](https://github.com/advisories/GHSA-67mh-4wv8-2f99),
+`<=0.24.2`). These dependencies are development/build tools.
+
+| Consumer | Before | After | Reason |
+|---|---|---|---|
+| `@node-minify/core@9.0.2` (OpenNext AWS) | glob 10.5.0 / minimatch 9.0.9 | glob 14.0.3 / minimatch 11.0.3 | Glob 10's processor checks `instanceof RegExp`; minimatch 11 returns matcher objects. Overriding only minimatch silently loses wildcard matches. Glob 14 supports the new matchers and already requires patched minimatch (`^11.0.2`). |
+| `@opennextjs/cloudflare@1.20.15` | glob 13.0.6 / minimatch 10.2.6 | glob 14.0.3 / minimatch 11.0.3 | Move to the parent release supporting minimatch 11. This also fixes glob's AbortSignal cancellation advisory (GHSA-3g3m-2fjr-6pw4, affected through 14.0.1). |
+| `@typescript-eslint/typescript-estree@8.70.0` | minimatch 10.2.6 | minimatch 11.0.3 | Latest typescript-eslint 8.72.1 still requires minimatch `^10.2.2`; its named `minimatch(filePath, pattern, { dot: true })` call is compatible with v11. |
+| `@esbuild-kit/core-utils@3.3.2` (drizzle-kit) | esbuild 0.18.20 | esbuild 0.25.12 (shared with drizzle-kit) | Latest stable drizzle-kit 0.31.11 still depends on the deprecated loader. Core-utils uses `version`, `transformSync` and `transform`, which remain compatible. |
+
+Minimatch 3.1.5 used by ESLint is outside the advisory range and is unchanged.
+Next 16.4.3, OpenNext Cloudflare 1.20.15 / AWS 4.1.14, wrangler 4.156.0,
+Better Auth 1.7.15 and drizzle-kit 0.31.11 remain unchanged.
+
+The pins respect the seven-day publication rule: glob 14.0.3 was published
+2026-10-28, minimatch 11.0.3 on 2026-10-28, and esbuild 0.25.12 on 2025-11-01.
+The new minimatch dependency `@isaacs/nonrecursive-glob-match` is constrained to
+1.0.3 (2026-10-28); 1.1.0 was published 2026-11-05 and is too recent.
+
+Compatibility checks exercise both consumers' glob CJS/ESM entry points, sync
+and async traversal, streams/iterators, brace expansion, extglobs, ignore rules,
+dotfiles and basename matching. TypeScript ESLint's project-service default
+project path and core-utils' CJS/ESM transforms and source maps are also checked.
+These checks supplement the application lint, typecheck, tests, Next/OpenNext
+builds, Worker size gate, Drizzle generation and local Worker HTTP tests.
+
+Full `npm audit` reports zero vulnerabilities with this dependency tree. The
+overrides cross declared dependency ranges and need maintenance: remove them
+when the pinned parents adopt compatible patched dependencies. Recheck the
+publication dates when relaxing the exact pins.
+
+## Historical triage (2026-10-24)
+
 Date: 2026-10-24 (branch `security/npm-audit`)
 
 | | Total | Critical | High | Moderate |
@@ -38,5 +76,5 @@ for copies nested under `@better-auth/cli` (better-auth 1.4.22, drizzle-orm 0.41
 
 - **Dependabot** (`.github/dependabot.yml`): weekly `npm` and `github-actions` updates. Minor/patch bumps are grouped into one PR per ecosystem, max 5 open PRs, and `cooldown.default-days: 7` enforces the "only adopt versions at least 7 days old" rule. Major bumps of `next`, `react`, `react-dom`, `@opennextjs/cloudflare`, `wrangler`, `better-auth` and `drizzle-orm` are ignored; upgrade those manually.
 - **CodeQL** (`.github/workflows/codeql.yml`): `javascript-typescript` analysis on manual `workflow_dispatch` runs. Results appear under Security -> Code scanning.
-- **npm audit gate** (`.github/workflows/audit.yml`): `npm audit --omit=dev --audit-level=high` on PRs, pushes to `main` and weekly. Fails on high/critical production advisories. The 4 known moderates (esbuild / drizzle-kit chain above) are below the threshold and pass. Note `--omit=dev` still reports drizzle-kit's chain because it is listed in `dependencies`.
+- **npm audit gate** (`.github/workflows/audit.yml`): `npm audit --omit=dev --audit-level=high` on PRs, pushes to `main` and weekly. Fails on high/critical production advisories. The historical esbuild / drizzle-kit findings above are now resolved by the scoped override; drizzle-kit is a development dependency.
 - Dependabot is enabled; changes still pass the normal pull-request checks.
