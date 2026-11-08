@@ -2,9 +2,17 @@
   "$schema": "node_modules/wrangler/config-schema.json",
   // Used only by `npm run preview` (wrangler dev on the OpenNext build). Same
   // as the top-level wrangler.jsonc plus the OpenNext self-reference service
-  // binding that ISR revalidation needs. Keep the two in sync (no automated check).
+  // and SQLite DO queue that ISR needs. Verified by worker-e2e-tooling.test.ts.
   "name": "decoded-hiring-v2",
-  "main": ".open-next/worker.js",
+  "main": "worker.ts",
+  "durable_objects": {
+    "bindings": [
+      { "name": "NEXT_CACHE_DO_QUEUE", "class_name": "DOQueueHandler" }
+    ]
+  },
+  "migrations": [
+    { "tag": "isr-queue-v1", "new_sqlite_classes": ["DOQueueHandler"] }
+  ],
   "compatibility_date": "2026-09-15",
   "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
   "assets": {

@@ -1,5 +1,6 @@
 import type { CacheEntryType, CacheValue, IncrementalCache } from "@opennextjs/aws/types/overrides";
 import type {} from "@opennextjs/aws/types/global";
+import { renderStartedAt } from "./render-clock.ts";
 
 const GENERATED_AT = "__dhRenderStartedAt";
 
@@ -23,7 +24,7 @@ export function withRenderTimestamp(
         const times = requestTimes();
         // D1 compares expiry > lastModified. Treat same-millisecond overlap as
         // expired too; an unnecessary miss is safer than resurrecting a draft.
-        if (times && !times.has(key)) times.set(key, now() - 1);
+        if (times && !times.has(key)) times.set(key, renderStartedAt() ?? now() - 1);
       }
       const entry = await cache.get(key, kind);
       if (!entry?.value || (kind !== undefined && kind !== "cache")) return entry;
@@ -46,7 +47,7 @@ export function withRenderTimestamp(
     },
     async set<Kind extends CacheEntryType = "cache">(key: string, value: CacheValue<Kind>, kind?: Kind) {
       if (kind !== undefined && kind !== "cache") return cache.set(key, value, kind);
-      const generatedAt = requestTimes()?.get(key) ?? now() - 1;
+      const generatedAt = requestTimes()?.get(key) ?? renderStartedAt() ?? now() - 1;
       const stamped = { ...value, [GENERATED_AT]: generatedAt } as CacheValue<Kind>;
       await cache.set(key, stamped, kind);
     },

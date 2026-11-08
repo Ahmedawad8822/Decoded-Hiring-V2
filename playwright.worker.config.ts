@@ -18,6 +18,8 @@ export default defineConfig({
     screenshot: "only-on-failure",
     trace: "retain-on-failure",
   },
+  // HTTP/ISR tests use APIRequestContext only, so they also work where Chromium
+  // cannot launch. All projects use the same built Worker + SQLite DO queue.
   projects: [{ name: "worker-chromium", use: { ...devices["Desktop Chrome"] } }],
   webServer: {
     // Avoid the tsx CLI signal-forwarding parent: the harness must finish
