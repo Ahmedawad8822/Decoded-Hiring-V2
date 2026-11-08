@@ -180,7 +180,14 @@ test.describe("Mission 08 final integrated certification", () => {
       await expect(cta).toBeFocused();
       await page.keyboard.press("Enter");
       await expect(page).toHaveURL(/#hg-coaching-schedule$/);
-      await expect(page.locator(".hg-scheduler")).toBeVisible();
+      // The page is a cached shell: slots load client-side from
+      // /api/public/booking-slots, so wait for the live form, not just the section.
+      await expect(page.locator(".hg-scheduler")).toBeVisible({
+        timeout: 60_000,
+      });
+      await expect(
+        page.locator(".hg-scheduler .hg-slot").first(),
+      ).toBeVisible();
     });
 
     const run = Date.now().toString(36);
