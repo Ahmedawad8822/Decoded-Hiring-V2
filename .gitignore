@@ -19,3 +19,11 @@ test-results/
 .claude/worktrees/
 .open-next/
 .dev.vars
+
+# Local CPU profiling artifacts (the engineering report stays tracked)
+.cpu-profile/
+*.cpuprofile
+*.heapsnapshot
+tail.jsonl
+cpu-results*.json
+cpu-results*.md
