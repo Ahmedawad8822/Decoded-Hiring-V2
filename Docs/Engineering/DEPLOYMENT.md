@@ -22,7 +22,94 @@ Cloudflare. Every production value in `wrangler.jsonc → env.production` is a
 | `npm run preview` | Build, then run the real Worker locally in `wrangler dev` against local D1/R2. Put local-only secrets in `.dev.vars` (git-ignored), e.g. `BETTER_AUTH_SECRET=...`. |
 | `npm run test:e2e:worker` | Builds and tests the real local Worker with cache interception; fresh disposable D1/R2 and test-only admin credentials. See below. |
 | `npm run db:migrate:remote` | `wrangler d1 migrations apply DB --env production --remote` |
-| `npm run deploy` | Build and deploy with `--env production`. **Fails until the placeholders are filled.** |
+| `npm run deploy` | Validate `PREWARM_BASE_URL`, build and deploy with `--env production`, then run anonymous GET prewarming. **Fails until the placeholders are filled.** A failed prewarm exits nonzero after deployment; it does not roll the deployment back. |
+| `npm run prewarm -- --base-url https://deployment.example` | GET the public sitemap, published articles, static marketing paths and robots, with concurrency 2 and up to 2 retries. No credentials, content writes or Cloudflare APIs. |
+
+## Cold article prewarming (2026-11-08)
+
+Use prewarming after **every deployment**, before directing visitors to the new
+build, and optionally after an editorial batch. A new build ID creates a fresh R2
+namespace, so runtime ISR article entries cannot survive deployment. We retain
+`generateStaticParams() => []` on articles: a build-local D1 snapshot cannot
+safely represent production publication state. Existing publish/edit/rename and
+unpublish invalidation remains authoritative.
+
+For the production deploy command, supply the origin explicitly in the environment
+(the preflight validates it before any build/deploy command):
+
+```sh
+PREWARM_BASE_URL=https://deployment.example npm run deploy
+```
+
+For a deployment performed separately, or to retry incomplete prewarming:
+
+```sh
+npm run prewarm -- --base-url https://deployment.example
+# Equivalent:
+PREWARM_BASE_URL=https://deployment.example npm run prewarm
+```
+
+`scripts/prewarm.ts` GETs `/sitemap.xml` first, takes the primary `<loc>` from each
+entry, and adds the shared static marketing paths plus `/robots.txt`. Canonical
+sitemap hosts may differ from a workers.dev/custom deployment origin: only the
+allowlisted public **paths** are rebased onto the supplied origin. It skips query
+strings (including `?preview`), fragments, credentials, private paths and nested
+article paths. Redirects are reported without following them. It sends no cookies
+or authorization, consumes every response body, and never issues a method other
+than GET. It writes no files or content; ordinary server-side cache fills are the
+intended effect of these GETs.
+
+Defaults: concurrency **2**, **30 s** timeout per attempt, **2** retries after
+**500/1000 ms** backoff for network/body errors, invalid sitemap responses, 429
+or 5xx. Other HTTP errors, including redirects/404, fail without retry. The reusable
+function accepts bounded options; the CLI deliberately keeps the conservative
+defaults. A bad sitemap still permits static-route warming but fails the run.
+The summary lists each URL, status/error, attempts and cache header, plus totals;
+exit status is nonzero if any URL remains failed. A 200 is a successful GET, not
+proof that a background R2 upload has finished or that every edge location is warm.
+A subsequent run can confirm cache HITs. Concurrent editorial changes remain safe:
+server queries and path invalidation control publication, not sitemap discovery.
+
+With **G** published guides and **F** published notes and the current **13** static
+paths, a no-retry run uses **G + F + 15** requests (sitemap + robots included).
+At most **3 × (G + F + 15)** attempts are made with the default retry limit.
+Every attempt counts against the Workers Free **100,000 requests/day** budget,
+shared with visitor traffic; multiply by deploys/reruns per day. The CLI reports
+its actual request count. GET-only does not make these requests free of quota.
+
+This is mitigation, not a guarantee that SSR fits Workers Free. Reported cold
+article renders at **85–340 ms CPU** remain individual requests over the **10 ms**
+allowance. Cloudflare allows occasional overages per isolate, but consistent
+excess terminates execution with **1102 / exceededCpu**. A burst of cold prewarms
+can exhaust that flexibility; retries may fail too. There is no documented
+probability or fixed "one in N" rate. Neither HTTP success nor local workerd can
+quantify it. Measure cold deploy batches, error counts and subsequent HIT CPU on
+the edge before claiming reliability; no remote measurement was run here.
+See [Cloudflare CPU/request limits](https://developers.cloudflare.com/workers/platform/limits/#cpu-time).
+
+### Metadata cache and freshness
+
+`src/app/sitemap.ts` now exports `revalidate = 3600`. Guide and field-note create,
+edit/rename, publish, unpublish and archive actions, and Editorial AI publication,
+call `revalidatePath("/sitemap.xml")`. The next anonymous GET regenerates against
+D1; hourly expiry is a safety net (normal time expiry can use SWR). The render-time
+wrapper also covers `APP_ROUTE` entries, preventing a late old sitemap upload from
+undoing action invalidation.
+
+Because Next prerenders a cacheable sitemap against **build-local** D1,
+`withRenderTimestamp` rejects only **unstamped sitemap route entries** populated
+from the build. The first deployed GET then reads the deployed D1 binding and
+writes a stamped runtime cache entry. This prevents prewarming a stale local
+article list after deployment. Other build-populated routes keep their existing
+behavior. No dependency files are patched.
+
+`robots.ts` has the same explicit one-hour cache lifetime. Its policy and sitemap
+URL do not depend on article status or slugs, so editorial actions need not expire
+it. A configuration/code change deploys it in the new build namespace. HTTP tests
+check repeat GET cache HITs for both metadata routes.
+
+Installed-source analysis and verification results:
+[COLD-RENDER.md](COLD-RENDER.md).
 
 ## Worker cache regression suite
 
@@ -53,13 +140,17 @@ assert the **first** subsequent GET; only cache-write preconditions poll.
 Failures retain screenshots/traces in `test-results/worker`.
 
 HTTP-only: `npm run test:e2e:worker:http`. This launches no browser. The final
-clean build passed **4/4** (42.8 s including setup), covering headers/HEAD,
-HTML/RSC, preview rewrites, live slots, both article lifecycles, and first-GET
-commerce freshness on all four public offer pages.
+clean build passed **5/5** (53.6 s including setup), covering headers/HEAD,
+HTML/RSC, preview rewrites, live slots, both article lifecycles, first-GET
+commerce freshness on all four public offer pages, anonymous prewarming, and
+sitemap/robots caching. Sitemap lifecycle checks cover publish, edit, rename,
+unpublish, republish and archive. Discovery includes a guide created after the
+build without invalidation, proving runtime D1 bootstrap.
 
 `npm run test:e2e:worker:race` adds 750 ms latency before cache writes, forcing
-a pre-mutation render's upload to finish after tag expiry. Strict first-GET
-lifecycle/commerce checks passed with this latency on and off. For the off A/B,
+a pre-mutation render's upload to finish after tag expiry. The current metadata/
+prewarmer suite passed **2/2** (1.1 min including setup); the lifecycle check
+took 31.0 s. Earlier page/commerce checks also passed with interception off. For the off A/B,
 use `WORKER_E2E_INTERCEPTION_OFF=1 npm run test:e2e:worker:race`; the default
 guard still requires interception on. `WORKER_E2E_ORIGINAL_R2=1` selects the
 unwrapped baseline in this disposable harness; with latency it reproduces the
@@ -105,7 +196,7 @@ Worker shutdown and throwaway-state removal were verified after HTTP runs.
    ```
 
    `--remote` without `--env` is refused. Without flags it targets local D1 (honours `DH_LOCAL_STATE_DIR`). Run it after step 5, then sign in at `/admin/login`. The first sign-in lands on `/admin/security`: enroll an authenticator app and save the backup codes before anything else works. Lost-device recovery: a backup code, or, with D1 access, delete the user's row in `two_factor` and set `user.two_factor_enabled = 0` (they re-enroll on next sign-in).
-7. **Deploy:** `npm run deploy`. Prefer a staging environment first (`env.staging`, same shape).
+7. **Deploy:** `PREWARM_BASE_URL=https://your-deployment-origin npm run deploy`. Prefer a staging environment first (`env.staging`, same shape).
 8. **Domain:** add a custom domain or route in Cloudflare. DNS cutover from V1 is a Phase 8 launch step.
 
 ## Risks and open decisions

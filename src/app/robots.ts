@@ -13,6 +13,9 @@ import { getSiteUrl } from "@/lib/seo";
 // Public /api/og and /api/media are explicitly ALLOWED.
 // ============================================================================
 
+// This policy has no article-data dependency; edits deploy with the build.
+export const revalidate = 3600;
+
 export default function robots(): MetadataRoute.Robots {
   return {
     rules: [

@@ -8,7 +8,8 @@ import { buildSitemapEntries } from "@/lib/sitemap-entries";
 // (which the regression suite exercises directly).
 // ============================================================================
 
-export const dynamic = "force-dynamic";
+// Runtime sitemap entries expire on editorial changes, with an hourly safety net.
+export const revalidate = 3600;
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   return buildSitemapEntries();

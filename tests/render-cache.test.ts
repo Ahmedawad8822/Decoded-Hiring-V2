@@ -85,3 +85,25 @@ test("a render starting in the same millisecond as invalidation remains expired"
   f.nextRequest();
   assert.ok(expiresAt > (await f.cache.get("detail"))!.lastModified!);
 });
+
+
+test("build-local sitemap snapshots are ignored; runtime route entries retain caching and render timestamps", async () => {
+  const f = fixture();
+  for (const key of ["/sitemap.xml", `route-cache/APP_ROUTE/${"a".repeat(64)}/$/sitemap.xml`]) {
+    const value = { type: "route" as const, body: "<urlset>local DB</urlset>",
+      revalidate: 3600, meta: { status: 200, headers: { "x-next-cache-tags": "_N_T_/sitemap.xml" } } };
+    await f.r2.set(key, value);
+    assert.equal(await f.cache.get(key), null, "never discover deployed content from build-local D1");
+    await f.cache.set(key, { ...value, body: "<urlset>deployed DB</urlset>" });
+    const entry = await f.cache.get(key);
+    assert.equal(entry?.value?.type, "route");
+    assert.equal(entry?.lastModified, 99);
+    assert.deepEqual(entry?.value, { ...value, body: "<urlset>deployed DB</urlset>" });
+    f.time(200); // publish expires the sitemap tag
+    assert.ok(200 > entry!.lastModified!);
+    f.time(100);
+  }
+  const robots = { type: "route" as const, body: "User-agent: *" };
+  await f.r2.set("/robots.txt", robots);
+  assert.deepEqual(await f.cache.get("/robots.txt"), await f.r2.get("/robots.txt"));
+});

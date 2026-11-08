@@ -128,6 +128,7 @@ export async function publishDraftAction(id: string) {
         : await getAdminFieldNoteById(result.entityId);
     const base = result.entityType === "guide" ? "/guides" : "/field-notes";
     revalidatePath(base);
+    revalidatePath("/sitemap.xml");
     if (published) revalidatePath(`${base}/${published.slug}`);
     revalidatePath(`/admin/editorial/${id}`);
     revalidatePath("/admin/editorial");

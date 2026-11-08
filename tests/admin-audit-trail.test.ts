@@ -23,6 +23,7 @@ import { IMAGE_FIXTURES } from "./helpers/image-fixtures";
 
 const nodeRequire = createRequire(__filename);
 let cookieHeader = "";
+const revalidatedPaths: string[] = [];
 
 /** Install stubs in require.cache BEFORE the app modules that import them load. */
 function stubModule(id: string, exports: Record<string, unknown>) {
@@ -54,7 +55,7 @@ test.before(async () => {
   await migrateLocalDb();
   stubModule("next/headers", { headers: async () => new Headers({ cookie: cookieHeader }) });
   stubModule("next/cache", {
-    revalidatePath: () => {},
+    revalidatePath: (path: string) => { revalidatedPaths.push(path); },
     revalidateTag: () => {},
     unstable_cache: <T>(fn: T) => fn,
   });
@@ -128,6 +129,45 @@ test("field note create + archive write audit rows", async () => {
   const rows = await rowsFor("field_note", id);
   assert.deepEqual(rows.map((r) => r.action).sort(), ["field_note.archive", "field_note.create"]);
 });
+
+// Both domains must invalidate identical public surfaces for every lifecycle
+// mutation, including edits/renames and draft creation (negative caches).
+for (const kind of ["guide", "note"] as const) {
+  test(`${kind} actions expire sitemap and public paths consistently`, async () => {
+    const actions = kind === "guide" ? {
+      create: m.guides.createGuideAction, update: m.guides.updateGuideAction,
+      publish: m.guides.publishGuideAction, unpublish: m.guides.unpublishGuideAction,
+      archive: m.guides.archiveGuideAction,
+    } : {
+      create: m.notes.createFieldNoteAction, update: m.notes.updateFieldNoteAction,
+      publish: m.notes.publishFieldNoteAction, unpublish: m.notes.unpublishFieldNoteAction,
+      archive: m.notes.archiveFieldNoteAction,
+    };
+    const base = kind === "guide" ? "/guides" : "/field-notes";
+    const slug = `invalidate-${kind}-${uid()}`;
+    function paths(current: string, previous?: string) {
+      assert.deepEqual(revalidatedPaths.splice(0), [base, "/sitemap.xml", `${base}/${current}`,
+        ...(previous ? [`${base}/${previous}`] : []), "/admin/content"]);
+    }
+    revalidatedPaths.length = 0;
+    const created = await actions.create({ title: "Sitemap freshness", slug, author: "Test", body: [] });
+    assert.ok(created.ok, String(created.error));
+    const id = created.data!.id;
+    paths(slug);
+    for (const mutate of [actions.publish, actions.unpublish, actions.publish]) {
+      const result = await mutate(id);
+      assert.ok(result.ok, String(result.error));
+      paths(slug);
+    }
+    const renamed = `${slug}-renamed`;
+    const edited = await actions.update({ id, slug: renamed, title: "Edited" });
+    assert.ok(edited.ok, String(edited.error));
+    paths(renamed, slug);
+    const archived = await actions.archive(id);
+    assert.ok(archived.ok, String(archived.error));
+    paths(renamed);
+  });
+}
 
 test("course, section and lesson mutations write audit rows", async () => {
   const course = await m.courses.createCourseAction({ title: "Audit course", slug: `ac-${uid()}` });
