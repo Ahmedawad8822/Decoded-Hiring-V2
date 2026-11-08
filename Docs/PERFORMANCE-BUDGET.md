@@ -10,7 +10,7 @@ Blueprint §9 ("Flashlight Speed" as a budget) and §18.9 (free-first guardrails
 | INP (mobile p75) | <= 200 ms | Not measured | No |
 | CLS | <= 0.05 | Not measured | No |
 | Cached public TTFB | < 200 ms from target markets | Not measured | No |
-| Public DB reads on a cache hit | 0 where practical | Static and ISR routes: 0 at request time (see section 3). Dynamic public routes (`/coaching`, `/workshop`, preview) read D1 | No |
+| Public DB reads on a cache hit | 0 where practical | Static and ISR routes (now including `/coaching` and `/workshop`): 0 at request time (see section 3). Reads happen only in `GET /api/public/booking-slots`, `/sitemap.xml` and preview | No |
 | Initial JS | Aggressively small | See section 4 | No |
 | Images | Responsive, modern formats, correct dimensions, lazy below the fold | See section 5 | No |
 | Third-party scripts | No render-blocking analytics/marketing | None found in `src` (no `<script>` except JSON-LD in `src/lib/seo.tsx`; no external font/CSS import found) | By absence only |
@@ -48,8 +48,9 @@ Static (○) means served from prerender/cache with no D1 read at request time. 
 |---|---|
 | ○ Static | `/`, `/about`, `/contact`, `/cookies`, `/field-notes`, `/guides`, `/login`, `/privacy`, `/programmes`, `/robots.txt`, `/signup`, `/terms`, `/_not-found` |
 | ○ Static, timed ISR (`revalidate = 300`) | `/mission-01`, `/ai-recruiter-os` |
+| ○ Static, timed ISR (`revalidate = 300`), live part client-side | `/coaching`, `/workshop` |
 | ● ISR on demand (`generateStaticParams` returns `[]`, `revalidate = 3600`) | `/guides/[slug]`, `/field-notes/[slug]` |
-| ƒ Dynamic public | `/coaching`, `/workshop` (`force-dynamic`, live scheduling), `/preview/guides/[slug]`, `/preview/field-notes/[slug]` (staff preview, session read), `/sitemap.xml`, `/api/*` |
+| ƒ Dynamic public | `/api/public/booking-slots` (live slots, `no-store`, reads only), `/preview/guides/[slug]`, `/preview/field-notes/[slug]` (staff preview, session read), `/sitemap.xml`, other `/api/*` |
 | ƒ Dynamic private | `/admin/*` (all, plus `/admin/login`), `/learn`, `/learn/courses`, `/learn/courses/[courseSlug]`, `/learn/courses/[courseSlug]/lessons/[lessonSlug]` |
 
 Observations:
@@ -58,7 +59,12 @@ Observations:
 - Staff preview (`?preview=true`) is rewritten in `next.config.ts` (`beforeFiles`, matches `has: query preview=true`) to `/preview/guides/[slug]` and `/preview/field-notes/[slug]`, which are `force-dynamic`, read the session, return 404 to anyone who is not an admin, and are `noindex`. The browser URL is unchanged. Verified with `opennextjs-cloudflare preview`: published article `x-nextjs-cache: MISS` then `HIT`; `?preview=true` is `private, no-store`.
 - `/contact` reads `?reason=` in a client component (`useSearchParams` inside `<Suspense>`), which only selects the form variant and the `audiencePath` bound into the `submitLead` action (server-validated, max 80 chars). The static fallback is the generic contact form.
 - `/mission-01` and `/ai-recruiter-os` were `force-dynamic` only because they read the offer row; there is no per-request input, so they are ISR (`revalidate = 300`) and `refreshCommerce()` revalidates them on every Studio offer or booking-type change.
-- `/coaching` and `/workshop` stay `force-dynamic` on purpose: `resolvePublicSchedulingModel()` reads live availability windows, bookings and slot holds relative to the current time and (when a calendar provider is configured) checks provider availability. A cached copy would show stale or taken slots. Making them cacheable would mean moving the slot picker into a client component that fetches slots from an API route (proposal, not built).
+- `/coaching` and `/workshop` were `force-dynamic` (before: ƒ) because `resolvePublicSchedulingModel()` reads live availability, bookings and slot holds. They are now a cached shell (after: ○, `revalidate = 300`, 5m / 1y expire in the build table) plus a small live part:
+  - The page only reads configuration through `resolvePublicSchedulingConfig()` (offer + booking type: eligible or not, title, duration, timezone). `refreshCommerce()` revalidates both paths on every Studio offer or booking-type change.
+  - `<PublicScheduler>` (client) fetches `GET /api/public/booking-slots?offer=coaching|workshop` (same-origin, `Cache-Control: no-store`, zod-validated query limited to the two public offer slugs). The handler (`features/scheduling/public-slots-handler.ts`) reuses `resolvePublicSchedulingModel()`; slot logic is not duplicated. It is reads only (about 5 small D1 queries, at most 60 slots, bounded probe window), so it has **no rate-limit counter**: a counter would make every GET a D1 write. Revisit with a Cloudflare rate-limiting rule if abused.
+  - UI states: loading, error (with retry), "not available" (offer/booking type changed since the shell was cached, calendar provider unverifiable, or booking type mismatch), empty, and ready. A `SLOT_UNAVAILABLE` submit result re-fetches the list in place instead of `router.refresh()`.
+  - Unchanged: slot validation, hold acquisition, admission limits and analytics all stay in `submitPublicBooking` / `recordPublicBookingStarted`.
+  - Trade-off: the hero CTA ("Choose a time" vs the enquiry form) and whether the scheduler section exists now follow the cached configuration (up to 5 minutes stale, or the build machine's D1 until the first revalidation), not the live calendar-provider state. A provider outage shows the "not available" state inside the section instead of hiding it.
 
 ## 4. Client JavaScript (approximate, gzip)
 
@@ -69,7 +75,7 @@ Method: gzip each chunk in `.next/static/chunks` and sum the chunks listed in `b
 | All static JS in the build (73 files) | about 384 KiB (1229 KiB raw) |
 | Shared app shell (`rootMainFiles`) | about 130 KiB |
 | Home `/`, `/about`, `/guides`, `/privacy`, etc. | shell plus about 20 KiB |
-| `/coaching`, `/workshop` | shell plus about 27-28 KiB |
+| `/coaching`, `/workshop` | shell plus about 27-28 KiB (re-measure; the scheduler now includes the fetch and state logic) |
 | `/login`, `/signup` | shell plus about 34 KiB (auth client) |
 | `/learn/*` | shell plus about 33 KiB |
 | `/admin/*` | shell plus about 35-57 KiB (`/admin/content` 57, `/admin/editorial/memory` 54, structured block editor) |

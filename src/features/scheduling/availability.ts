@@ -8,7 +8,7 @@
 // gaps; pick the earlier occurrence for fall-back folds).
 // ====================================================================
 
-import { localTimeToUtc, getWeekdayInTz, NonexistentTimeError } from "./time";
+import { createLocalTimeResolver, getLocalDateParts, NonexistentTimeError } from "./time";
 import type { BookingType, BookingAvailabilityWindow, CanonicalSlot } from "./types";
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
@@ -59,113 +59,78 @@ export function buildSlotKey(bookingTypeId: string, startAt: Date): string {
  *
  * Returns slots sorted by startAt ascending.
  */
-export function generateCandidateSlots(params: {
+type CandidateSlotParams = {
   bookingType: BookingType;
   windows: BookingAvailabilityWindow[];
   rangeStart: Date;
   rangeEnd: Date;
   now: Date;
-}): CanonicalSlot[] {
-  const {
-    id: bookingTypeId,
-    durationMinutes,
-    bufferBeforeMinutes,
-    bufferAfterMinutes,
-    minimumNoticeMinutes,
-    bookingHorizonDays,
-    timezone,
-  } = params.bookingType;
+};
 
-  const { rangeStart, rangeEnd, now, windows } = params;
+export function generateCandidateSlots(params: CandidateSlotParams): CanonicalSlot[] {
+  return Array.from(iterateCandidateSlots(params));
+}
 
-  // Group windows by weekday for O(1) lookup.
-  const windowsByWeekday = new Map<number, BookingAvailabilityWindow[]>();
-  for (const w of windows) {
-    const existing = windowsByWeekday.get(w.weekday) ?? [];
-    existing.push(w);
-    windowsByWeekday.set(w.weekday, existing);
+/** Ordered, lazy version of the canonical generator: consumers can stop early. */
+export function* iterateCandidateSlots(params: CandidateSlotParams): Generator<CanonicalSlot> {
+  const { bookingType, windows, rangeStart, rangeEnd, now } = params;
+  const { id, durationMinutes, bufferBeforeMinutes, bufferAfterMinutes, timezone } = bookingType;
+  const durationMs = durationMinutes * MS_PER_MINUTE;
+  const startMs = Math.max(rangeStart.getTime(), now.getTime() + bookingType.minimumNoticeMinutes * MS_PER_MINUTE);
+  const endMs = rangeEnd.getTime();
+  const horizonMs = now.getTime() + bookingType.bookingHorizonDays * MS_PER_DAY;
+  const resolveLocal = createLocalTimeResolver(timezone);
+
+  // Expand weekly rules once in local minute space, retaining duplicates and
+  // sorting even if callers supply unsorted/overlapping windows.
+  const minutesByWeekday = new Map<number, number[]>();
+  for (const window of windows) {
+    const minutes = minutesByWeekday.get(window.weekday) ?? [];
+    for (let minute = window.startMinute + bufferBeforeMinutes;
+      minute + durationMinutes <= window.endMinute - bufferAfterMinutes;
+      minute += durationMinutes) {
+      minutes.push(minute);
+    }
+    minutesByWeekday.set(window.weekday, minutes);
+  }
+  for (const minutes of minutesByWeekday.values()) minutes.sort((a, b) => a - b);
+
+  // Preserve the previous UTC-day padding and its local-date multiplicity.
+  // Around historical date-line changes two reference days can map to the same
+  // local day. Group them so duplicates remain in global UTC start order.
+  const days = new Map<number, { reference: Date; count: number }>();
+  const firstDay = floorUtcDay(rangeStart).getTime() - MS_PER_DAY;
+  const lastDay = floorUtcDay(rangeEnd).getTime() + MS_PER_DAY;
+  for (let epoch = firstDay; epoch <= lastDay; epoch += MS_PER_DAY) {
+    const reference = new Date(epoch);
+    const { year, month, day } = getLocalDateParts(reference, timezone);
+    const localDay = Date.UTC(year, month - 1, day);
+    const existing = days.get(localDay);
+    if (existing) existing.count++;
+    else days.set(localDay, { reference, count: 1 });
   }
 
-  const slots: CanonicalSlot[] = [];
-
-  // Iterate UTC days overlapping [rangeStart, rangeEnd] with 1-day padding.
-  // The padding covers TZ boundary spillover: a UTC day near a TZ boundary
-  // can belong to two local weekdays. Generating both and letting the
-  // range filter prune is correct (at most a few extra candidates).
-  const utcStart = floorUtcDay(rangeStart);
-  const utcEnd = floorUtcDay(rangeEnd);
-  const iterStart = new Date(utcStart.getTime() - MS_PER_DAY);
-  const iterEnd = new Date(utcEnd.getTime() + MS_PER_DAY);
-
-  const deadline = new Date(now.getTime() + minimumNoticeMinutes * MS_PER_MINUTE);
-  const horizon = new Date(now.getTime() + bookingHorizonDays * MS_PER_DAY);
-
-  for (let t = iterStart.getTime(); t <= iterEnd.getTime(); t += MS_PER_DAY) {
-    const utcDay = new Date(t);
-    const weekday = getWeekdayInTz(utcDay, timezone);
-    const dayWindows = windowsByWeekday.get(weekday);
-    if (!dayWindows || dayWindows.length === 0) continue;
-
-    for (const w of dayWindows) {
-      // --- DST SAFE: operate in LOCAL minute space -------------------------
-      // Apply buffers to the local window so buffer boundaries are expressed
-      // in the same local wall-clock frame as the availability rule.
-      const effectiveStartMinute = w.startMinute + bufferBeforeMinutes;
-      const effectiveEndMinute = w.endMinute - bufferAfterMinutes;
-      if (effectiveStartMinute >= effectiveEndMinute) continue;
-
-      // Generate duration-aligned LOCAL candidates.
-      let slotStartMinute = effectiveStartMinute;
-      while (slotStartMinute + durationMinutes <= effectiveEndMinute) {
-
-        // Resolve the local wall-clock candidate to a UTC instant using the
-        // documented DST policy. A nonexistent local time (spring-forward
-        // gap) throws NonexistentTimeError — skip that slot instead of
-        // crashing the entire query.
-        let slotStartUtc: Date;
-        try {
-          slotStartUtc = localTimeToUtc(utcDay, timezone, slotStartMinute);
-        } catch (e) {
-          if (e instanceof NonexistentTimeError) {
-            slotStartMinute += durationMinutes;
-            continue;
-          }
-          throw e;
-        }
-
-        const slotEndUtc = new Date(slotStartUtc.getTime() + durationMinutes * MS_PER_MINUTE);
-
-        // Range filter
-        if (slotStartUtc < rangeStart) {
-          slotStartMinute += durationMinutes;
-          continue;
-        }
-        if (slotEndUtc > rangeEnd) {
-          break; // remaining slots also exceed rangeEnd
-        }
-
-        // Minimum notice filter
-        if (slotStartUtc < deadline) {
-          slotStartMinute += durationMinutes;
-          continue;
-        }
-
-        // Booking horizon filter
-        if (slotStartUtc > horizon) {
-          break; // remaining slots also exceed horizon
-        }
-
-        const slotKey = buildSlotKey(bookingTypeId, slotStartUtc);
-        slots.push({ startAt: new Date(slotStartUtc), endAt: new Date(slotEndUtc), slotKey });
-
-        slotStartMinute += durationMinutes;
+  for (const [localDay, { reference, count }] of [...days].sort(([a], [b]) => a - b)) {
+    const minutes = minutesByWeekday.get(new Date(localDay).getUTCDay());
+    if (!minutes) continue;
+    for (const minute of minutes) {
+      let startAt: Date;
+      try {
+        startAt = resolveLocal(reference, minute);
+      } catch (error) {
+        if (error instanceof NonexistentTimeError) continue;
+        throw error;
+      }
+      const epoch = startAt.getTime();
+      if (epoch < startMs) continue;
+      if (epoch + durationMs > endMs || epoch > horizonMs) break;
+      const endAt = new Date(epoch + durationMs);
+      const slotKey = buildSlotKey(id, startAt);
+      for (let i = 0; i < count; i++) {
+        yield { startAt: i ? new Date(epoch) : startAt, endAt: i ? new Date(epoch + durationMs) : endAt, slotKey };
       }
     }
   }
-
-  // Sort by startAt ascending for deterministic output.
-  slots.sort((a, b) => a.startAt.getTime() - b.startAt.getTime());
-  return slots;
 }
 
 /** Floor a Date to midnight UTC. */
