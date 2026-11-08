@@ -10,16 +10,18 @@
 // remaining payment/admin UX is implemented.
 // ============================================================================
 
-import { and, eq, gt, gte, lt, or } from "drizzle-orm";
+import { and, asc, eq, gt, gte, lt, or } from "drizzle-orm";
 
 import {
   bookings,
+  bookingTypes,
+  bookingAvailabilityWindows,
+  offers,
   slotHolds,
   type BookingType,
   type Offer,
 } from "@/lib/db";
-import { getDb } from "@/lib/db";
-import { getOfferBySlugForKind } from "@/features/offers/service";
+import { getDb, type Database } from "@/lib/db";
 import {
   anonymousRateLimitFingerprint,
   PUBLIC_IP_LIMITS,
@@ -30,8 +32,7 @@ import {
   UnconfiguredCommerceSchedulingProviders,
   type CommerceSchedulingProviders,
 } from "./providers";
-import { generateCandidateSlots } from "./availability";
-import { getBookingTypeById, getBookingTypeWindows } from "./policy";
+import { iterateCandidateSlots } from "./availability";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const MAX_PUBLIC_SLOTS = 60;
@@ -90,17 +91,8 @@ class PublicAvailabilityProviderError extends Error {
   }
 }
 
-function overlaps(
-  startA: Date,
-  endA: Date,
-  startB: Date,
-  endB: Date,
-): boolean {
-  return startA < endB && endA > startB;
-}
-
-async function listAvailableSlots(params: {
-  bookingTypeId: string;
+async function listAvailableSlots(db: Database, params: {
+  bookingType: BookingType;
   rangeStart: Date;
   rangeEnd: Date;
   now: Date;
@@ -108,13 +100,14 @@ async function listAvailableSlots(params: {
 }): Promise<PublicSchedulingSlot[]> {
   const providers =
     params.providers ?? UnconfiguredCommerceSchedulingProviders;
-  const bookingType = await getBookingTypeById(params.bookingTypeId);
-  if (!bookingType || !bookingType.active) return [];
+  const { bookingType } = params;
+  if (!bookingType.active) return [];
 
-  const windows = await getBookingTypeWindows(bookingType.id);
-
-  const db = await getDb();
-  const [holdRows, confirmedRows] = await Promise.all([
+  // One D1 batch shares a read snapshot and avoids three binding round trips.
+  const [windows, holdRows, confirmedRows] = await db.batch([
+    db.select().from(bookingAvailabilityWindows)
+      .where(eq(bookingAvailabilityWindows.bookingTypeId, bookingType.id))
+      .orderBy(asc(bookingAvailabilityWindows.weekday), asc(bookingAvailabilityWindows.startMinute)),
     db
       .select({
         slotKey: slotHolds.slotKey,
@@ -175,60 +168,29 @@ async function listAvailableSlots(params: {
     throw new PublicAvailabilityProviderError();
   }
 
-  // Public pages are anonymous and refreshable, so cap server CPU as well as
-  // response size. Expand the candidate horizon progressively and stop once
-  // enough actually-available slots are found. Dense one-minute schedules
-  // therefore do not force generation of the entire 21–31 day horizon merely
-  // to return the first 60 rows.
-  const requestedRangeMs = Math.max(
-    DAY_MS,
-    params.rangeEnd.getTime() - params.rangeStart.getTime(),
-  );
-  const requestedDays = Math.max(1, Math.ceil(requestedRangeMs / DAY_MS));
-  let probeDays = 1;
-
-  while (true) {
-    const probeEnd = new Date(
-      Math.min(
-        params.rangeEnd.getTime(),
-        params.rangeStart.getTime() + probeDays * DAY_MS,
-      ),
-    );
-    const candidates = generateCandidateSlots({
-      bookingType,
-      windows,
-      rangeStart: params.rangeStart,
-      rangeEnd: probeEnd,
-      now: params.now,
+  // Sweep busy intervals once as the ordered candidates advance. maxBusyEnd
+  // handles nested/overlapping intervals without rescanning them per slot.
+  const busyIntervals = providerBusy
+    .map((busy) => ({ start: busy.startAt.getTime(), end: busy.endAt.getTime() }))
+    .filter((busy) => !Number.isNaN(busy.start) && !Number.isNaN(busy.end))
+    .sort((a, b) => a.start - b.start);
+  let busyIndex = 0;
+  let maxBusyEnd = -Infinity;
+  const available: PublicSchedulingSlot[] = [];
+  for (const slot of iterateCandidateSlots({ windows, ...params })) {
+    if (blockedSlotKeys.has(slot.slotKey)) continue;
+    const startMs = slot.startAt.getTime();
+    const endMs = slot.endAt.getTime();
+    while (busyIndex < busyIntervals.length && busyIntervals[busyIndex].start < endMs) {
+      maxBusyEnd = Math.max(maxBusyEnd, busyIntervals[busyIndex++].end);
+    }
+    if (maxBusyEnd > startMs) continue;
+    available.push({
+      startAt: slot.startAt.toISOString(), endAt: slot.endAt.toISOString(), slotKey: slot.slotKey,
     });
-
-    const available = candidates
-      .filter((slot) => !blockedSlotKeys.has(slot.slotKey))
-      .filter(
-        (slot) =>
-          !providerBusy.some((busy) =>
-            overlaps(slot.startAt, slot.endAt, busy.startAt, busy.endAt),
-          ),
-      )
-      .map((slot) => ({
-        startAt: slot.startAt.toISOString(),
-        endAt: slot.endAt.toISOString(),
-        slotKey: slot.slotKey,
-      }));
-
-    if (
-      available.length >= MAX_PUBLIC_SLOTS ||
-      probeEnd.getTime() >= params.rangeEnd.getTime()
-    ) {
-      return available.slice(0, MAX_PUBLIC_SLOTS);
-    }
-
-    const nextProbeDays = Math.min(requestedDays, probeDays * 2);
-    if (nextProbeDays === probeDays) {
-      return available.slice(0, MAX_PUBLIC_SLOTS);
-    }
-    probeDays = nextProbeDays;
+    if (available.length === MAX_PUBLIC_SLOTS) break;
   }
+  return available;
 }
 
 export async function consumePublicBookingAdmission(params: {
@@ -287,18 +249,26 @@ export async function consumePublicBookingAdmission(params: {
  * configuration rows (no availability windows, holds or bookings), so the
  * public pages can cache it.
  */
-export async function resolvePublicSchedulingConfig(params: {
-  offerSlug: string;
-  kind: PublicSchedulingKind;
-}): Promise<PublicSchedulingConfig> {
-  const offer = await getOfferBySlugForKind(params.offerSlug, params.kind);
+async function readSchedulingSource(db: Database, params: { offerSlug: string; kind: PublicSchedulingKind }) {
+  return db.select({ offer: offers, bookingType: bookingTypes })
+    .from(offers)
+    .leftJoin(bookingTypes, eq(offers.bookingTypeId, bookingTypes.id))
+    .where(and(eq(offers.slug, params.offerSlug), eq(offers.kind, params.kind)))
+    .get();
+}
+
+function schedulingConfig(
+  source: Awaited<ReturnType<typeof readSchedulingSource>>,
+  kind: PublicSchedulingKind,
+): PublicSchedulingConfig {
+  const offer = source?.offer;
+  const bookingType = source?.bookingType;
   if (!offer) return { enabled: false, reason: "OFFER_MISSING" };
   if (!offer.active) return { enabled: false, reason: "OFFER_INACTIVE" };
   if (!offer.bookingTypeId) {
     return { enabled: false, reason: "BOOKING_TYPE_MISSING" };
   }
 
-  const bookingType = await getBookingTypeById(offer.bookingTypeId);
   if (!bookingType) {
     return { enabled: false, reason: "BOOKING_TYPE_MISSING" };
   }
@@ -319,7 +289,7 @@ export async function resolvePublicSchedulingConfig(params: {
   return {
     enabled: true,
     offerSlug: offer.slug,
-    offerKind: params.kind,
+    offerKind: kind,
     bookingTypeId: bookingType.id,
     bookingTitle: bookingType.title,
     durationMinutes: bookingType.durationMinutes,
@@ -330,6 +300,13 @@ export async function resolvePublicSchedulingConfig(params: {
   };
 }
 
+export async function resolvePublicSchedulingConfig(params: {
+  offerSlug: string;
+  kind: PublicSchedulingKind;
+}): Promise<PublicSchedulingConfig> {
+  return schedulingConfig(await readSchedulingSource(await getDb(), params), params.kind);
+}
+
 export async function resolvePublicSchedulingModel(params: {
   offerSlug: string;
   kind: PublicSchedulingKind;
@@ -337,7 +314,9 @@ export async function resolvePublicSchedulingModel(params: {
   rangeDays?: number;
   providers?: CommerceSchedulingProviders;
 }): Promise<PublicSchedulingModel> {
-  const config = await resolvePublicSchedulingConfig(params);
+  const db = await getDb();
+  const source = await readSchedulingSource(db, params);
+  const config = schedulingConfig(source, params.kind);
   if (!config.enabled) return config;
 
   const now = params.now ?? new Date();
@@ -345,8 +324,8 @@ export async function resolvePublicSchedulingModel(params: {
   const rangeEnd = new Date(now.getTime() + rangeDays * DAY_MS);
   let slots: PublicSchedulingSlot[];
   try {
-    slots = await listAvailableSlots({
-      bookingTypeId: config.bookingTypeId,
+    slots = await listAvailableSlots(db, {
+      bookingType: source!.bookingType!,
       rangeStart: now,
       rangeEnd,
       now,
