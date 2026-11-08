@@ -1,7 +1,7 @@
 # Cold renders and metadata caching — 2026-11-08
 
 Branch `perf/cold-render`, from `b5466cb`. Local, uncommitted implementation.
-No remote Cloudflare commands or browser launches. PROJECT-STATUS.md is unchanged.
+No remote Cloudflare commands or browser launches.
 
 ## Design
 
@@ -112,7 +112,7 @@ before implementation.
   `cf:size` used local `wrangler deploy --dry-run`; nothing was deployed.
 - Final `.next/prerender-manifest.json` records **3600** seconds for both
   `/sitemap.xml` and `/robots.txt` and their concrete `_N_T_` URL tags.
-- `git diff --check`: passed; PROJECT-STATUS.md has no diff. Both Worker harness
+- `git diff --check`: passed; Both Worker harness
   throwaway directories were checked absent after shutdown; build temp state is
   removed by Python's `TemporaryDirectory`.
 

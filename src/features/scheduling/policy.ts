@@ -8,7 +8,7 @@
 // the existing enrollments/courses pattern.
 //
 // Window overlap is REJECTED at write time (documented policy: reject, do not
-// silently merge). See Docs/Engineering/MISSION-08-COMMERCE-SCHEDULING.md.
+// silently merge). See Docs/CONTENT-MODEL.md.
 // ============================================================================
 
 import { AppError } from "@/lib/errors";

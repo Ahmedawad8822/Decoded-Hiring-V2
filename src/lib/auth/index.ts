@@ -1,3 +1,4 @@
+import { assertSafeAuthSecret, hashAuthPassword, verifyAuthPassword } from "./credential-policy";
 import { cache } from "react";
 import { redirect } from "next/navigation";
 import { betterAuth } from "better-auth";
@@ -23,6 +24,7 @@ export function resolveAuthSecret(): string {
       "Missing BETTER_AUTH_SECRET environment variable. Authentication is disabled until it is configured."
     );
   }
+  assertSafeAuthSecret(secret, process.env);
   return secret;
 }
 
@@ -63,6 +65,7 @@ function createAuth(db: Parameters<typeof drizzleAdapter>[0]) {
     emailAndPassword: {
       enabled: true,
       requireEmailVerification: false,
+      password: { hash: hashAuthPassword, verify: verifyAuthPassword },
     },
     // Correction 1: normal users default to "user", staff get "admin"
     plugins: [

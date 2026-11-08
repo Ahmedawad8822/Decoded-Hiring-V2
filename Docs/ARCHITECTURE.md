@@ -1,6 +1,6 @@
 # Architecture
 
-Blueprint §6, §7, §18.1 (clean-code rules) and §18.6 (repository knowledge contract). Status: **living document**, written against `main` at `8351e55` (2026-10-26). Nothing is deployed yet; production values in `wrangler.jsonc` are placeholders. If code and this file disagree, the code wins; fix this file. Vocabulary lives in `Docs/CONTEXT.md`; delivery state in `Docs/PROJECT-STATUS.md`.
+Implementation reference. Production configuration contains placeholders; the disposable test environment is documented in `Docs/Engineering/WORKERS-BUILDS.md`. Code and configuration take precedence over this document.
 
 ## 1. Runtime
 
@@ -40,7 +40,7 @@ Cloudflare Worker  (.open-next/worker.js, built by @opennextjs/cloudflare 1.20.1
 | R2 `MEDIA_BUCKET` | `guides/`, `field-notes/` (public images), `course-resources/<courseId>/` (private PDFs), knowledge sources (private) | `lib/media/service.ts`, `lib/course-resources/service.ts`, `editorial-ai/knowledge/storage.ts` |
 | R2 `NEXT_INC_CACHE_R2_BUCKET` | OpenNext incremental cache | OpenNext only |
 
-**Migrations:** SQL files in `drizzle/migrations` (0000-0023, generated with `drizzle-kit generate`; some hand-written, e.g. 0012 booking overlap trigger; latest: 0020 `slug_redirects`, 0021 `admin_audit_log`, 0022 `two_factor` plus `user.two_factor_enabled`, 0023 `business_events_occurred_idx` for retention pruning). Local: `npm run db:migrate:local` (`scripts/migrate-local.ts` -> `src/lib/db/migrate.ts`), which records applied files in wrangler's `d1_migrations` table and fails loudly on non-idempotent errors (`tests/migrations-tracking.test.ts`). Remote: `npm run db:migrate:remote` (`wrangler d1 migrations apply DB --env production --remote`). Schema changes are a high-risk change (`Docs/SECURITY-THREAT-MODEL.md` section 6).
+**Migrations:** SQL files in `drizzle/migrations` (0000-0023, generated with `drizzle-kit generate`; some hand-written, e.g. 0012 booking overlap trigger; latest: 0020 `slug_redirects`, 0021 `admin_audit_log`, 0022 `two_factor` plus `user.two_factor_enabled`, 0023 `business_events_occurred_idx` for retention pruning). Local: `npm run db:migrate:local` (`scripts/migrate-local.ts` -> `src/lib/db/migrate.ts`), which records applied files in wrangler's `d1_migrations` table and fails loudly on non-idempotent errors (`tests/migrations-tracking.test.ts`). Remote: `npm run db:migrate:remote` (`wrangler d1 migrations apply DB --env production --remote`). Schema changes are a high-risk change (see the review policy in `Docs/DEFINITION-OF-DONE.md`).
 
 **Table groups:** identity (`user`, `session`, `account`, `verification`); content (`guides`, `field_notes`, `field_note_revisions`, `media`); learning (`courses`, `course_sections`, `lessons`, `lesson_resources`, `enrollments`, `lesson_progress`); editorial AI (`knowledge_*`, `editorial_*`); scheduling (`booking_types`, `booking_availability_windows`, `slot_holds`, `bookings`, `booking_history`); commerce (`offers`, `orders`, `order_history`, `payment_events`, `orchestration_effects`, `orchestration_history`); intake and operations (`lead_submissions`, `public_rate_limits`, `business_events`); security and routing (`two_factor`, `admin_audit_log`, `slug_redirects`).
 
@@ -74,7 +74,7 @@ Cloudflare Worker  (.open-next/worker.js, built by @opennextjs/cloudflare 1.20.1
 | `slug-redirects` | Records a redirect when an ever-published Guide, Field Note, Course or Lesson slug is renamed, in the same D1 batch; target resolved at request time (A to B to C resolves A to C); a live entity reusing a slug deletes its redirect row | `service.ts` |
 | `analytics` | Business events (best-effort, no PII), public funnel events | `service.ts`, `public-actions.ts`, `types.ts` |
 
-Outside features: `src/lib` (cross-cutting infra: `auth`, `db`, `cloudflare`, `media`, `course-resources`, `uploads/sniff.ts`, `errors.ts`, `action-result.ts`, `safe-redirect.ts`, `upload-limits.ts`, `seo.tsx`, `sitemap-entries.ts`); `src/app` (routes: `(site)` public incl. `preview/`, `admin` Studio incl. `security` (2FA enrolment) and `audit`, `learn` classroom, `api`); `src/components` (`home`, `learner`, `products`, `publishing`, `site`). Note: `src/lib/media` and `src/lib/course-resources` hold domain logic that has not been moved into `features/` (candidate cleanup, blueprint §18.1).
+Outside features: `src/lib` (cross-cutting infra: `auth`, `db`, `cloudflare`, `media`, `course-resources`, `uploads/sniff.ts`, `errors.ts`, `action-result.ts`, `safe-redirect.ts`, `upload-limits.ts`, `seo.tsx`, `sitemap-entries.ts`); `src/app` (routes: `(site)` public incl. `preview/`, `admin` Studio incl. `security` (2FA enrolment) and `audit`, `learn` classroom, `api`); `src/components` (`home`, `learner`, `products`, `publishing`, `site`). Note: `src/lib/media` and `src/lib/course-resources` hold domain logic that has not been moved into `features/` (candidate cleanup).
 
 ## 5. Cross-cutting conventions
 
@@ -110,7 +110,7 @@ Outside features: `src/lib` (cross-cutting infra: `auth`, `db`, `cloudflare`, `m
 | `e2e` (needs verify) | Playwright Chromium, 40-minute timeout; `test:e2e:ci` runs all seven specs: `mission-08-final-certification`, `field-notes`, `smoke`, `mission-06-learning-platform`, `mission-07-editorial-ai`, `csp`, `admin-security` | Uploads report artifacts on failure. Web server sets `ADMIN_REQUIRE_2FA=false`; shared `e2e/helpers/actions.ts` (`clickAction`, `waitForHydration`) |
 | `worker-size` (needs verify) | `db:migrate:local`, `cf:build`, `cf:size` | Fails above 20480 KiB uncompressed (`scripts/check-worker-size.ts`, override `WORKER_UNCOMPRESSED_BUDGET_KIB`); Free/Paid limit 64 MiB, gzip informational only |
 | `audit.yml` `npm-audit` | `npm audit --omit=dev --audit-level=high`; PRs, `main`, weekly (Monday) | Dev-only moderates are documented in `Docs/Engineering/DEPENDENCY-AUDIT.md` |
-| `codeql.yml` | CodeQL javascript-typescript | `workflow_dispatch` only until code scanning is enabled on the private repo |
+| `codeql.yml` | CodeQL javascript-typescript | `workflow_dispatch` only (public repositories support CodeQL) |
 
 `.github/dependabot.yml`: weekly npm and GitHub Actions updates, 7-day cooldown, minor/patch grouped, semver-major ignored for `next`, `react`, `react-dom`, `@opennextjs/cloudflare`, `wrangler`, `better-auth`, `drizzle-orm`, `typescript`, `eslint`, `eslint-config-next`.
 
@@ -130,19 +130,19 @@ Bindings are not inherited between wrangler environments, so every binding is re
 
 ## 9. Where to put new code
 
-Follows blueprint §18.1: modular monolith, organise by business capability, deep modules, no `helpers/`, `utils/` or `services/` dumping grounds, no layers that only forward arguments.
+Use a modular monolith, organise by business capability, deep modules, no `helpers/`, `utils/` or `services/` dumping grounds, no layers that only forward arguments.
 
 | You are adding | Put it in |
 |---|---|
 | A business rule or lifecycle | The owning `src/features/<domain>/` module (`service.ts` or a named file). One source of truth; routes, actions and UI call it |
-| A new capability with its own vocabulary and tables | A new `src/features/<domain>/` folder; add terms to `Docs/CONTEXT.md` |
+| A new capability with its own vocabulary and tables | A new `src/features/<domain>/` folder; document its public domain model |
 | A server action | `src/features/<domain>/actions.ts` (admin/learner) or `public-actions.ts` (anonymous). Start with the auth guard or rate limit, validate with Zod, return `ActionResult` |
 | A route handler | `src/app/api/...` only for binary/streaming or webhooks; keep it thin and delegate to the feature. Gate with `requireAdmin()` or a session check first |
 | A page | `src/app/(site)` (public), `src/app/learn` (learner), `src/app/admin` (Studio, gate with `requireAdminPage()`). Pages call feature services, never D1 or R2 directly |
 | UI components | `src/components/<area>/`; one-off feature UI may live next to its feature (as `leads/lead-form.tsx`) |
 | Cross-cutting infrastructure used by many domains | `src/lib/` (auth, db, cloudflare, errors, safe redirect, upload limits) |
 | An external provider | Behind a contract in the owning feature (as `scheduling/providers.ts`), failing closed when unconfigured; add an adapter only when variation is real |
-| A schema change | Edit `src/lib/db/schema.ts`, `npm run db:generate`, review the SQL, commit the migration and `meta/`; add a regression test. High-risk: needs Ahmed's approval |
+| A schema change | Edit `src/lib/db/schema.ts`, `npm run db:generate`, review the SQL, commit the migration and `meta/`; add a regression test. High-risk: needs owner approval |
 | An admin mutation | Guard with `requireAdmin()`, then call `recordAdminAudit()` (add the entity to `AUDIT_ENTITY_TYPES` if new). Renaming a published slug goes through `slug-redirects` |
 | A rate limit on a public path | `consumePublicFixedWindowLimit` with a hashed scope key; remember each consume is a D1 write (`Docs/PERFORMANCE-BUDGET.md`) |
 | A test | `tests/<name>.test.ts` and add it to the `npm test` script (it is an explicit `&&` chain, not a glob); E2E in `e2e/`, added to `test:e2e:ci`, using `clickAction` / `waitForHydration`. A suite using a real admin session sets `ADMIN_REQUIRE_2FA=false` |

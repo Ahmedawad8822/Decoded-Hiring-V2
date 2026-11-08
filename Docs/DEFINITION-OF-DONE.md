@@ -1,8 +1,8 @@
 # Definition of Done
 
-The six permanent quality gates (blueprint §15), made checkable for this repo. A feature is not done until every gate that applies to it passes. Vocabulary follows `Docs/CONTEXT.md`.
+Quality checks for contributors. A feature is done when its applicable checks pass; document any remaining limitations.
 
-**Rule for agents (blueprint §14):** if a feature is included, build the complete workflow. If it cannot be completed properly yet, leave it out of the release rather than ship placeholder-grade admin.
+**Workflow completeness:** if a feature is included, build the complete workflow. If it cannot be completed properly yet, leave it out of the release rather than ship placeholder-grade admin.
 
 ## How to read the tables
 
@@ -10,7 +10,7 @@ The six permanent quality gates (blueprint §15), made checkable for this repo. 
 |---|---|
 | **CI** | Enforced automatically on every PR and push to `main` by `.github/workflows/ci.yml` (or by `audit.yml` where stated) |
 | **Review** | A human or reviewer agent must check it; nothing automated catches it |
-| **Gap** | Required by the blueprint, **not automated or not built yet** |
+| **Gap** | Expected but **not automated or not built yet** |
 
 ## What CI runs today
 
@@ -26,7 +26,7 @@ The six permanent quality gates (blueprint §15), made checkable for this repo. 
 
 `test:e2e:ci` runs **seven** specs, all of `e2e/`: `mission-08-final-certification`, `field-notes`, `smoke`, `mission-06-learning-platform`, `mission-07-editorial-ai`, `csp`, `admin-security`. A new spec must be appended to that script, or it does not run in CI. `npm run test:e2e` runs them locally (needs `.env.local` admin vars, see `.env.example`).
 
-Not CI-gated: `codeql.yml` is `workflow_dispatch` only until GitHub code scanning is enabled on the private repo. Dependabot (`.github/dependabot.yml`: weekly, 7-day cooldown, grouped minor/patch, majors of framework packages ignored) opens update PRs that go through the normal CI.
+Not CI-gated: `codeql.yml` remains manual (`workflow_dispatch`). Dependabot (`.github/dependabot.yml`: weekly, 7-day cooldown, grouped minor/patch, majors of framework packages ignored) opens update PRs that go through the normal CI.
 
 CI uses fake secrets and local Miniflare D1/R2 only. It never contacts real services.
 
@@ -53,9 +53,9 @@ The full intended workflow works, including dependencies, persistence and recove
 | Lint, types and build pass | **CI** |
 | Domain rules covered by a suite on an isolated D1 (state transitions, idempotency, concurrency) | **CI** (`npm test`); **Review** that a new suite was added and listed in `package.json` |
 | Happy path works end to end in a browser | **CI** for the seven specs above; **Review** for areas none of them cover (add a spec) |
-| Lifecycle is defined: Draft/Publish/Archive behave as in `CONTEXT.md`; permanent delete and Trash are not built, so do not imply them | **Review** |
+| Lifecycle is defined: Draft/Publish/Archive behave as in `CONTENT-MODEL.md`; permanent delete and Trash are not built, so do not imply them | **Review** |
 | Failure paths recover: retries are idempotent, a second submit does not duplicate, provider outage does not strand an Order or Booking | **Review**, backed by orchestration/idempotency tests |
-| Docs updated: `Docs/PROJECT-STATUS.md` (see below) and any mission or spec doc | **Review** |
+| Docs updated: the relevant public implementation references | **Review** |
 
 ## 2. UX
 
@@ -88,9 +88,9 @@ Authentication/authorization, validation, uploads, destructive actions and abuse
 | Audit trail: every **new admin mutation** (create, update, publish, archive, delete, upload) records a row with `recordAdminAudit()` from `src/features/audit/service.ts`, adding the entity to `AUDIT_ENTITY_TYPES` if new. Prefer `buildAdminAuditStatement()` inside the mutation's D1 batch when the actor is available. Entities covered today: guide, field note, course, section, lesson, lesson resource, media, offer, booking type, availability window | **Review**, backed by `tests/admin-audit-trail.test.ts`. Booking decisions and orders keep their own history tables; `editorial_audit_log` is separate and best-effort |
 | Turnstile; passkeys; CSRF/origin test | **Gap**: not wired / not built |
 
-### High-risk change policy (blueprint §17.4)
+### High-risk change policy
 
-Changes touching any of the following **never self-merge or self-promote; they need Ahmed's explicit approval**:
+Changes touching any of the following **never self-merge or self-promote; they need the owner's explicit approval**:
 
 - authentication and authorization
 - payments and the commerce/Order truth model
@@ -104,7 +104,7 @@ Also approval-gated: merging a mission to `main`, any deploy or production resou
 
 ## 4. Performance
 
-Stays inside the agreed budgets and adds no unjustified client or runtime weight. Budgets are from blueprint §9.
+Stays inside the agreed budgets and adds no unjustified client or runtime weight. See `PERFORMANCE-BUDGET.md`.
 
 | Metric | Target |
 |---|---|
@@ -156,7 +156,7 @@ Agreed events/KPIs, consent behaviour, failure observability, enough instrumenta
 | New funnel step emits a Business Event, using an existing name from `BUSINESS_EVENT_NAMES` where one fits; no near-duplicate event names | **Review** |
 | Failures are logged server-side and surfaced safely (no silent catch) | **Review** |
 | Consent respected for any analytics/marketing tool | **Gap**: no analytics provider is active and no consent layer exists |
-| Canonical event dictionary (`ANALYTICS-EVENTS.md`) | **Gap**: not written; blueprint taxonomy and code names differ (see `CONTEXT.md`) |
+| Canonical event dictionary (`ANALYTICS-EVENTS.md`) | **Review**: see the current inventory in `ANALYTICS-EVENTS.md` |
 | Page-level analytics, Command Center, alerting on regressions | **Gap**: not built |
 
 ---
@@ -169,9 +169,10 @@ Agreed events/KPIs, consent behaviour, failure observability, enough instrumenta
 - **Internal errors** (SQL, driver, provider, bugs) are logged server-side only. The caller sees a generic fallback.
 - **Mission 08 domains** use their own typed errors with stable codes and safe fallbacks: `SchedulingDomainError`, `CommerceDomainError`, `LeadDomainError`, and `SchedulingProviderError` for provider adapters. Map them to user-safe text at the boundary; do not display `error.message` from provider errors.
 
-## Updating `Docs/PROJECT-STATUS.md`
+## Documentation
 
-Update it **last** in every task that changes code, branches, PRs or plans: snapshot, branch/PR map, next-steps queue and a session-log entry (newest first). Keep it short and factual. If it disagrees with the code or GitHub, fix it. Update `Docs/CONTEXT.md` when you add or rename a domain term or state.
+Update the public implementation references when behavior changes. Private status
+is optional for contributors; see `AGENTS.md` for the `internal/` convention.
 
 ## Reviewer checklist (copy into PR)
 
@@ -184,5 +185,5 @@ Update it **last** in every task that changes code, branches, PRs or plans: snap
 - [ ] Performance: no unjustified client JS or images
 - [ ] Public pages: metadata, sitemap, internal links
 - [ ] Business Event / observability considered
-- [ ] High-risk category? If yes, Ahmed approval recorded
-- [ ] `Docs/PROJECT-STATUS.md` (and `CONTEXT.md` if vocabulary changed) updated
+- [ ] High-risk category? If yes, owner approval recorded
+- [ ] Relevant public implementation docs updated

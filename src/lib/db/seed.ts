@@ -1,3 +1,4 @@
+import { isLocalCredentialContext } from "../auth/credential-policy";
 import { getDb, guides, users } from "./index";
 import { getAuth } from "../auth";
 import { migrateLocalDb } from "./migrate";
@@ -12,6 +13,9 @@ export async function seedDatabase() {
     }
   }
 
+  if (!isLocalCredentialContext(process.env)) {
+    throw new Error("seedDatabase is local-only. Use admin:create for remote provisioning.");
+  }
   console.log("🌱 Running local D1 migrations...");
   await migrateLocalDb();
 

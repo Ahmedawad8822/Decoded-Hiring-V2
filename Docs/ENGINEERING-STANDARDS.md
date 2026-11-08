@@ -1,6 +1,6 @@
 # Engineering Standards
 
-Blueprint §14, §15, §18.1 and §18.6. Status: **living document**, written against `main` at `b902784`. These are the conventions the code **actually follows**; "Must" rules are checked by CI or by review, "Gap" marks where the code does not yet comply. If code and this file disagree, the code wins; fix this file. Related: `Docs/DEFINITION-OF-DONE.md` (gates), `Docs/ARCHITECTURE.md` (seams), `Docs/PROJECT-STATUS.md` §8 (workflow).
+Contributor conventions for the current implementation. Related: `Docs/DEFINITION-OF-DONE.md` (checks) and `Docs/ARCHITECTURE.md` (runtime seams). Code takes precedence when documentation drifts.
 
 ## 1. Structure
 
@@ -46,9 +46,9 @@ Always go through `src/lib/cloudflare/bindings.ts` (`getCloudflareBindings`, `ge
 
 1. Edit `src/lib/db/schema.ts`.
 2. `npm run db:generate` (drizzle-kit writes `drizzle/migrations/NNNN_*.sql` and `meta/`). Commit the SQL **and** the meta files. Triggers, FTS5 and raw-SQL tables are hand-written (0006, 0012, 0018) and must also be listed in `meta/_journal.json`.
-3. Read the SQL. Migrations must be additive or reversible by a later migration; a schema change is a high-risk change (`SECURITY-THREAT-MODEL.md`).
+3. Read the SQL. Migrations must be additive or reversible by a later migration; a schema change is a high-risk change (see `DEFINITION-OF-DONE.md`).
 4. `npm run db:migrate:local` (`src/lib/db/migrate.ts`): records each file in `d1_migrations` like wrangler, applies each file atomically, fails loudly on non-idempotent errors. Covered by `tests/migrations-tracking.test.ts`.
-5. Remote: `npm run db:migrate:remote` (`wrangler d1 migrations apply DB --env production --remote`). Never run against production without Ahmed's approval.
+5. Remote: `npm run db:migrate:remote` (`wrangler d1 migrations apply DB --env production --remote`). Never run against production without owner approval.
 6. Parallel PRs that each add a migration collide on the number; regenerate the later one after the earlier one merges (done for 0019/0020).
 
 ## 6. Testing
@@ -73,7 +73,7 @@ Always go through `src/lib/cloudflare/bindings.ts` (`getCloudflareBindings`, `ge
 | `ci.yml` `e2e` (after `verify`) | `npm run test:e2e:ci`, 40-minute timeout; Playwright artifacts uploaded on failure |
 | `ci.yml` `worker-size` (after `verify`) | `npm run cf:build` then `npm run cf:size`: uncompressed Worker must stay within **20480 KiB** (Free/Paid limit 64 MiB; gzip informational only) |
 | `audit.yml` | `npm audit --omit=dev --audit-level=high` on PRs, `main`, and weekly. Known dev-only moderates are listed in `Docs/Engineering/DEPENDENCY-AUDIT.md` |
-| `codeql.yml` | Manual only until GitHub code scanning is enabled on the private repo |
+| `codeql.yml` | Manual `workflow_dispatch` only |
 
 Local gate before a PR: `npm run lint`, `npm run typecheck`, `npm test`, `npm run db:migrate:local && npm run build` (with `BETTER_AUTH_SECRET` set), and the relevant Playwright spec. Performance budgets: `Docs/PERFORMANCE-BUDGET.md`.
 
@@ -106,18 +106,10 @@ Must: no new third-party script, font, frame or image origin without updating th
 
 ## 10. Branches, PRs and docs
 
-From `PROJECT-STATUS.md` §8:
-
-- One branch per task, PR to `main` (or the mission integration branch). Subagents work in isolated worktrees under `.claude/worktrees/` (git- and lint-ignored), commit to `hardening/*`-style branches, and the coordinator reviews, pushes and opens PRs.
-- Mission merges need Ahmed's explicit GO. Never deploy or touch production resources without approval.
-- Read `Docs/PROJECT-STATUS.md` before starting; update it last (snapshot, branch/PR map, next steps, session log) when code, branches, PRs or plans change.
-- Commits end with the `Co-Authored-By` trailer for the model that wrote them.
-- Comments explain *why* and name the invariant (see existing "REVIEW CORRECTION" style); avoid ticket-reference comments (listed as hygiene debt).
-- Docs: per-mission docs in `Docs/Engineering/`, vocabulary in `Docs/CONTEXT.md`, content in `Docs/CONTENT-MODEL.md`, events in `Docs/ANALYTICS-EVENTS.md`.
-
-## ⚠ Divergences
-
-1. **ActionResult adoption is partial** (section 2): five feature action files define their own `ActionState`. `AGENTS` and `PROJECT-STATUS.md` §8 state the rule as universal.
-2. **Blueprint §18.1 clean-code rules are not written down in the repo**; this file records only observed practice. Module-depth and naming reviews have no tool support.
-3. **Cover images vs CSP: resolved.** `isSafeMediaUrl` now accepts only same-origin `/api/media/...` paths, matching `img-src`; the field-note article omits any stored cover that fails it. Plain `Error` remains deliberately on internal invariant paths (re-read failures, orchestration, providers, rate-limit, migrations). Validation, not-found and conflict throws in `offers/service.ts`, `scheduling/policy.ts` and guide/field-note discard are now `AppError`, and Studio commerce `fail()` surfaces them through `publicErrorMessage` (the old message-regex allowlist is gone).
-4. **Pinning is mixed:** blueprint and Dependabot cooldown imply deliberate versions, but `better-auth`, `drizzle-orm`, `drizzle-kit`, `wrangler`, `playwright`, `@playwright/test` and `@cloudflare/workers-types` use `^` ranges.
+- Keep pull requests focused and describe the behavior and relevant checks.
+- Comments explain the invariant and why it exists.
+- Update public implementation docs when behavior changes. Private planning and
+  status belong in the optional `internal/` clone; see `AGENTS.md`.
+- Deployment and remote data changes require authorization for the target.
+- Follow the existing `ActionResult` convention for new server actions.
+- Package versions are deliberately reviewed; the lockfile is authoritative.

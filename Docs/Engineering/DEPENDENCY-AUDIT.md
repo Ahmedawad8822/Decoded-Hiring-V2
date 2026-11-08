@@ -37,6 +37,6 @@ for copies nested under `@better-auth/cli` (better-auth 1.4.22, drizzle-orm 0.41
 ## Automated supply-chain checks
 
 - **Dependabot** (`.github/dependabot.yml`): weekly `npm` and `github-actions` updates. Minor/patch bumps are grouped into one PR per ecosystem, max 5 open PRs, and `cooldown.default-days: 7` enforces the "only adopt versions at least 7 days old" rule. Major bumps of `next`, `react`, `react-dom`, `@opennextjs/cloudflare`, `wrangler`, `better-auth` and `drizzle-orm` are ignored; upgrade those manually.
-- **CodeQL** (`.github/workflows/codeql.yml`): `javascript-typescript` analysis on push to `main`, PRs to `main`, and weekly. Results appear under Security -> Code scanning.
+- **CodeQL** (`.github/workflows/codeql.yml`): `javascript-typescript` analysis on manual `workflow_dispatch` runs. Results appear under Security -> Code scanning.
 - **npm audit gate** (`.github/workflows/audit.yml`): `npm audit --omit=dev --audit-level=high` on PRs, pushes to `main` and weekly. Fails on high/critical production advisories. The 4 known moderates (esbuild / drizzle-kit chain above) are below the threshold and pass. Note `--omit=dev` still reports drizzle-kit's chain because it is listed in `dependencies`.
-- Repo settings needed: enable Dependabot version updates and (for private repos) GitHub code scanning / Advanced Security; mark `CodeQL` and `npm audit` as required checks if desired.
+- Dependabot is enabled; changes still pass the normal pull-request checks.

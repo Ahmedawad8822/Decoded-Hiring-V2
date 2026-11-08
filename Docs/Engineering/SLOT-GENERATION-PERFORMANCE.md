@@ -83,4 +83,4 @@ and status, bookings, nested calendar intervals, touching interval edges,
 fully busy horizons, and a dense one-minute schedule reaching the slot cap.
 
 Validation: `npm run lint`, `npm run typecheck`, and `npm test` passed; 516 tests
-across 39 suites. `Docs/PROJECT-STATUS.md` was left unchanged as requested.
+across 39 suites.

@@ -265,7 +265,7 @@ export type PublicRateLimit = typeof publicRateLimits.$inferSelect;
 // ----------------------------------------------------------------------------
 // Dedicated course tables. Archived courses: no NEW enrollments, but existing
 // enrolled learners retain access (explicit decision, documented in
-// Docs/Engineering/MISSION-06-LEARNING-PLATFORM.md).
+// Docs/CONTENT-MODEL.md).
 // Access modes are provider-neutral from day one; only FREE auto-enrolls.
 // No permanent delete exposed in Mission 06.
 // ============================================================================

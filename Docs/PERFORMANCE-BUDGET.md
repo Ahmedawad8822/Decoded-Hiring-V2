@@ -1,8 +1,8 @@
 # Performance budget
 
-Blueprint §9 ("Flashlight Speed" as a budget) and §18.9 (free-first guardrails). Status: **budgets defined; build-time, platform-size and anonymous public edge CPU measurements exist.** Measured on 2026-10-24 with Next 16.4.2 (webpack), `npm run build` against a freshly migrated local D1. A feature that materially breaks a budget should fail the quality gate until justified or corrected.
+Status: **budgets defined; build-time, platform-size and anonymous public edge CPU measurements exist.** Measured on 2026-10-24 with Next 16.4.2 (webpack), `npm run build` against a freshly migrated local D1. A feature that materially breaks a budget should fail the quality gate until justified or corrected.
 
-## 1. User-facing budgets (blueprint §9)
+## 1. User-facing budgets
 
 | Metric / rule | Target | Measured today | Enforced today |
 |---|---|---|---|
@@ -149,7 +149,7 @@ A numeric JS budget is not defined yet. Proposal: public pages <= 170 KiB gz tot
 | Gap | Proposal |
 |---|---|
 | Lighthouse (LCP, CLS, TBT, JS weight) | Add a CI job running Lighthouse CI against `npm run preview` (built Worker, local D1) for `/`, `/guides`, a seeded article, `/coaching`, mobile emulation, with assertions at the section 1 targets (warn first, fail later). Lab data only |
-| Field Core Web Vitals (LCP, INP, CLS, p75) | `web-vitals` library or Cloudflare Web Analytics / Zaraz (blueprint §18.9 lists Zaraz at 1 M free events) after deploy; report to PostHog or an aggregate. Tag by route and country. Needs a cookie/consent decision |
+| Field Core Web Vitals (LCP, INP, CLS, p75) | `web-vitals` library or Cloudflare Web Analytics / Zaraz after deploy; report to PostHog or an aggregate. Tag by route and country. Needs a cookie/consent decision |
 | TTFB from EG/SA/AE | Cloudflare edge colo is not the user; use WebPageTest or Cloudflare Observatory with Cairo, Riyadh/Jeddah, Dubai locations, or a scheduled synthetic check from three regions. Record cache status (`cf-cache-status`) separately for HIT and MISS |
 | Cache-hit DB reads | Add a test that renders each ○ route with D1 stubbed to throw; log D1 query counts per route in `preview` |
 | Worker CPU per request | `wrangler tail` / Workers Logs CPU time on the deployed Worker, or `wrangler dev` timing; decide Free vs Paid from p95 of dynamic routes |

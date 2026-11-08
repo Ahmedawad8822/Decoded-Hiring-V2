@@ -13,8 +13,8 @@ import {
 
 /**
  * Retention for the business-event ledger, measured on `occurred_at`.
- * POLICY DEFAULT pending the analytics/consent decision (PROJECT-STATUS.md
- * section 7): 400 days keeps a full year of year-over-year comparison plus a
+ * POLICY DEFAULT: review retention and consent for each deployment (see
+ * Docs/ANALYTICS-EVENTS.md): 400 days keeps a full year of year-over-year comparison plus a
  * margin. Must stay >= the 365-day maximum summary window. Change it here
  * once the retention policy is decided.
  */

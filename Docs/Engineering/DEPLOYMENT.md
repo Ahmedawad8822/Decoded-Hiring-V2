@@ -1,8 +1,8 @@
 # Deployment — Cloudflare Workers via OpenNext
 
-Status: **prepared, not deployed.** Nothing in this repo has been provisioned on
-Cloudflare. Every production value in `wrangler.jsonc → env.production` is a
-`<PLACEHOLDER>`.
+Status: production is not provisioned; `env.production` contains placeholders.
+The disposable test Worker uses `env.cputest`. For test-only Git integration,
+follow [Workers Builds](WORKERS-BUILDS.md). Do not use the production scripts for it.
 
 ## How it fits together
 
@@ -174,7 +174,7 @@ Worker shutdown and throwaway-state removal were verified after HTTP runs.
   - Email sign-up wrote to D1, and the session cookie then opened `/learn`.
   - `/_next/image` returns the original WebP (no `IMAGES` binding, so no resizing).
 
-## First deploy checklist (needs Ahmed's decisions)
+## Production deployment reference (not provisioned)
 
 1. **Account and plan.** Choose the Cloudflare account. See the risks below about script size, startup time and request CPU limits.
 2. **Provision:**
@@ -196,7 +196,7 @@ Worker shutdown and throwaway-state removal were verified after HTTP runs.
    ```
 
    `--remote` without `--env` is refused. Without flags it targets local D1 (honours `DH_LOCAL_STATE_DIR`). Run it after step 5, then sign in at `/admin/login`. The first sign-in lands on `/admin/security`: enroll an authenticator app and save the backup codes before anything else works. Lost-device recovery: a backup code, or, with D1 access, delete the user's row in `two_factor` and set `user.two_factor_enabled = 0` (they re-enroll on next sign-in).
-7. **Deploy:** `PREWARM_BASE_URL=https://your-deployment-origin npm run deploy`. Prefer a staging environment first (`env.staging`, same shape).
+7. **Deploy:** `PREWARM_BASE_URL=https://your-deployment-origin npm run deploy`. For the existing test environment use [Workers Builds](WORKERS-BUILDS.md).
 8. **Domain:** add a custom domain or route in Cloudflare. DNS cutover from V1 is a Phase 8 launch step.
 
 ## Risks and open decisions
@@ -213,5 +213,5 @@ Worker shutdown and throwaway-state removal were verified after HTTP runs.
 
 ## Follow-ups
 
-- A remote-safe admin seed script.
-- A staging environment and a CI deploy job (preview deploys per PR) once an account exists.
+- Use `npm run admin:create -- --remote --env <name>` for admin provisioning; public fixture passwords are rejected for every remote target.
+- Test Git integration is documented in [Workers Builds](WORKERS-BUILDS.md); production and non-production branch builds are not connected.
