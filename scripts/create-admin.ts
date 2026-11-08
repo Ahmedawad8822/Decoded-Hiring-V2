@@ -23,6 +23,7 @@
 // left alone unless --reset-password is given.
 // ============================================================================
 
+import { assertSafePassword, isLocalCredentialContext } from "../src/lib/auth/credential-policy";
 import { spawnSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import fs from "node:fs";
@@ -73,7 +74,7 @@ export function parseArgs(argv: string[]): CliOptions {
   return { target: { kind: "local" }, resetPassword };
 }
 
-export function readInput(env: Record<string, string | undefined>): AdminInput {
+export function readInput(env: Record<string, string | undefined>, target: Target = { kind: "local" }): AdminInput {
   const email = (env.ADMIN_EMAIL ?? "").trim().toLowerCase();
   const password = env.ADMIN_PASSWORD ?? "";
   const name = (env.ADMIN_NAME ?? "").trim() || DEFAULT_ADMIN_NAME;
@@ -84,6 +85,7 @@ export function readInput(env: Record<string, string | undefined>): AdminInput {
   if (password.length < MIN_PASSWORD_LENGTH) {
     throw new Error(`ADMIN_PASSWORD must be at least ${MIN_PASSWORD_LENGTH} characters.`);
   }
+  assertSafePassword(password, target.kind === "local" && isLocalCredentialContext(env));
   return { email, password, name };
 }
 
@@ -185,7 +187,7 @@ function queryJson<T>(target: Target, persistParent: string | undefined, sql: st
 
 async function main() {
   const options = parseArgs(process.argv.slice(2));
-  const input = readInput(process.env);
+  const input = readInput(process.env, options.target);
   const { hashPassword } = await import("better-auth/crypto");
 
   // Local: wrangler appends "v3" to --persist-to, while the app's

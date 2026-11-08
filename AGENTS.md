@@ -1,10 +1,18 @@
-# Project status — read first, update last
+# Project guidance
 
-Before starting any task, read `Docs/PROJECT-STATUS.md`. It has the current state, the branch/PR map, the ordered next-steps queue and the decisions waiting on Ahmed. When you finish a task that changes code, branches, PRs or plans, update that file: snapshot, branch/PR map, next steps and session log.
+Contributor setup and checks are in `README.md` and `Docs/ENGINEERING-STANDARDS.md`.
+
+Private project knowledge lives in a separate private repository, optionally
+cloned into the ignored `internal/` directory at the project root. When
+`internal/PROJECT-STATUS.md` is present, read it before starting work and update
+its snapshot, branch/PR map, next steps and session log last when changing code,
+branches, PRs or plans. When it is absent, it is optional: proceed using the
+public contributor docs and the task instructions. Do not recreate or publish
+private plans, handoffs, QA logs, owner decisions or personal data in this repo.
 
 <!-- BEGIN:nextjs-agent-rules -->
 
-# This is NOT the Next.js you know
+## This is NOT the Next.js you know
 
 This version has breaking changes — APIs, conventions, and file structure may all differ from your training data. Read the relevant guide in `node_modules/next/dist/docs/` (resolved from this file's directory; in monorepos the `next` package may not be visible from the repo root) before writing any code. Heed deprecation notices.
 

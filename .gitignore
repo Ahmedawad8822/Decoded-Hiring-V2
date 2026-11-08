@@ -27,3 +27,27 @@ test-results/
 tail.jsonl
 cpu-results*.json
 cpu-results*.md
+
+# Private project knowledge (separate repository, cloned here optionally)
+internal/
+
+# Local credentials and certificates (.env.example is intentionally public)
+.dev.vars*
+.env*
+!.env.example
+*.pem
+*.key
+
+# Disposable test database exports / bootstrap scripts
+*cputest*.sql
+*seed*.sql
+runtime-env.sh
+
+# Wrangler state and CPU capture output
+.wrangler*/
+.wrangler-state/
+*cpu-tail*
+*cpu-profile*.json
+*cpu-profile*.txt
+*cpu-results*
+*.tail.jsonl

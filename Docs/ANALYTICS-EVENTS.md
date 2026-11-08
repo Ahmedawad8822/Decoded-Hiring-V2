@@ -1,6 +1,6 @@
 # Analytics Events
 
-Blueprint §16.4 and §18.6. Status: **inventory of what the code records today, plus what is still missing.** Written against `main` at `b902784`. If code and this file disagree, the code wins; fix this file. Vocabulary: `Docs/CONTEXT.md`. Provider activation (PostHog, GA4, Zaraz, consent) is a pending Ahmed decision (`PROJECT-STATUS.md` §7) and is **not designed here**.
+Inventory of events recorded by the current implementation. Code takes precedence. No external analytics provider is active.
 
 ## 1. What exists
 
@@ -73,35 +73,10 @@ Applies to the two browser-triggered events (`offer_cta_clicked`, `booking_start
 
 An over-limit event is dropped with no error to the visitor. IP hashing: SHA-256 salted with `BETTER_AUTH_SECRET`; raw IPs are never stored (`public-intake/rate-limit.ts`). Each admitted public event costs about 2 to 3 D1 writes (limit counters plus the insert).
 
-## 6. Gaps against the blueprint (not built)
+## 6. Limitations
 
-The blueprint's taxonomy (§16.4) versus the code. No design is proposed here.
-
-| Blueprint group | Blueprint events | In code |
-|---|---|---|
-| Content | `page_view`, `guide_view`, `field_note_view`, `resource_download`, `content_share`, `related_content_click` | None |
-| Conversion | `primary_cta_click`, `workshop_enquiry_started`, `workshop_enquiry_submitted`, `newsletter_signup`, `course_signup`, `login_success` | Only `offer_cta_clicked` (a narrower CTA event). Lead submissions (`lead_submissions`) are stored but emit **no** event. Sign-up, login and free enrollment emit none |
-| Learning | `course_started`, `lesson_started`, `lesson_completed`, `course_completed`, `learner_returned` | None. State exists (`enrollments`, `lesson_progress`) but no events |
-| Commerce | `checkout_started`, `checkout_completed`, `payment_failed`, `payment_refunded`, `product_unlocked` | `checkout_started` and `payment_failed` match. `payment_confirmed` is the code's name for `checkout_completed`. `payment_refunded` and `product_unlocked` are absent (the `REFUNDED` and `FULFILLED` order states exist) |
-| Scheduling | `booking_started`, `slot_held`, `booking_requested`, `booking_approved`, `booking_confirmed`, `booking_rescheduled`, `booking_cancelled`, `booking_completed`, `booking_no_show` | All present except `booking_completed` (the `COMPLETED` status and history action exist, no event) and `booking_no_show` (no status). The code adds `booking_declined` |
-| Publishing | `content_draft_created`, `content_approved`, `content_published`, `content_archived` | None as business events. Editorial draft actions are logged separately in `editorial_audit_log` |
-| Reliability | `client_error`, `server_error`, `route_failure`, `upload_failure`, `auth_failure`, `broken_link_detected` | None |
-
-Other missing pieces named by the blueprint (§16, §18.6):
-
-- Event properties common to all events: UTM and campaign fields, referrer, anonymous or session id, consent state, content id and type. Today there is no visitor identity and no UTM capture.
-- Consent policy, cookie behaviour and regional rules (`/cookies` is a static page only).
-- Tag layer (Cloudflare Zaraz), PostHog, GA4, Google Ads, LinkedIn, Meta, Search Console, Bing/IndexNow, Cloudflare analytics ingestion.
-- Daily aggregates and KPI definitions for the Command Center, source-of-truth ownership per metric, and the anomaly rules in §17.
-- Retention is a **policy default**: `BUSINESS_EVENT_RETENTION_DAYS = 400` (on `occurred_at`), pending the analytics/consent decision. Pruning is bounded (500 rows per call, ~1% of successful event writes). No archiving.
-- A conformance test that fails on unknown or near-duplicate event names (the zod enum is the only guard).
-
-## ⚠ Divergences
-
-1. **Naming:** code `payment_confirmed` versus blueprint `checkout_completed`; code `offer_cta_clicked` versus blueprint `primary_cta_click`; code-only `booking_declined`.
-2. **Blueprint says D1 stores aggregates and raw data stays in specialist platforms.** Today D1 holds raw first-party events and nothing is aggregated.
-3. ~~`business_events` is not in `schema.ts`~~ **Fixed:** `businessEvents` (plus the two 0018 history indexes) is now in `schema.ts`; the 0023 snapshot carries the full state, and 0023 itself only adds `business_events_occurred_idx` (the `CREATE TABLE` drizzle-kit emitted was removed because 0018 already created it). `tests/business-events-hardening.test.ts` checks the parity against the migrated DB.
-4. **Reconstructed rows lose detail:** reconstruction writes `{}` (bookings) or `{source}` (orders) metadata, whereas live rows also carry `actor_role`, `confirmation_policy`, `offer_kind`, `access_mode`, `state`. Whichever insert wins the dedupe key sets the stored metadata.
-5. ~~Summary reads write~~ **Fixed:** `getBusinessEventSummary` is read-only; reconciliation is explicit (see section 1).
-6. **`ARCHITECTURE.md` and `PERFORMANCE-BUDGET.md`** describe events as written "on order transitions"; only `checkout_started`, `payment_confirmed` and `payment_failed` are recorded, never `FULFILLED`, `CANCELLED` or `REFUNDED`.
-7. **Write cost of the retention index:** the extra `occurred_at` index adds one billed row per admitted public event; the saturation estimate in `mission-08-observability.test.ts` moved from under 50,000 to 53,350 D1 writes per day, so the test threshold became 60,000.
+D1 stores raw first-party business events; no external analytics transport or
+consent layer is active. The retention default is 400 days with bounded pruning
+(500 rows per pass, sampled on successful writes). Review retention and consent
+before activating external analytics. Order events currently cover checkout
+start, payment confirmation and payment failure, not every order transition.

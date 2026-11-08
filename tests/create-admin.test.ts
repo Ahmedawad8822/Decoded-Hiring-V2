@@ -86,3 +86,70 @@ test("wranglerTargetArgs selects local persist dir or explicit remote env", () =
   assert.deepEqual(wranglerTargetArgs({ kind: "local" }, "/tmp/x"), ["--local", "--persist-to", "/tmp/x"]);
   assert.deepEqual(wranglerTargetArgs({ kind: "remote", env: "production" }), ["--remote", "--env", "production"]);
 });
+
+
+// Public-repo regression: no remote target may provision the documented fixtures,
+// even if the calling shell still contains localhost development configuration.
+import {
+  assertSafeAuthSecret,
+  isLocalCredentialContext,
+  hashAuthPassword,
+  verifyAuthPassword,
+} from "../src/lib/auth/credential-policy";
+import { hashPassword } from "better-auth/crypto";
+
+const fixturePasswords = [
+  "admin-local-dev-password-2026!",
+  "worker-e2e-fixture-password-2026!",
+  "profile-admin-password-2026!",
+  "profile-learner-password-2026!",
+];
+
+test("remote admin provisioning rejects every known fixture before D1 access", () => {
+  for (const password of fixturePasswords) {
+    for (const env of ["production", "cputest"]) {
+      assert.throws(() => readInput({
+        ADMIN_EMAIL: "admin@example.com", ADMIN_PASSWORD: password,
+        BETTER_AUTH_URL: "http://localhost:3000",
+      }, { kind: "remote", env }), /fixture passwords/);
+    }
+    assert.doesNotThrow(() => readInput({ ADMIN_EMAIL: "admin@example.com", ADMIN_PASSWORD: password }));
+  }
+});
+
+test("production fixtures require configured loopback origins; conflicting or misleading origins fail closed", () => {
+  assert.equal(isLocalCredentialContext({ NODE_ENV: "production" }), false);
+  for (const origin of ["https://example.com", "http://localhost.example.com", "invalid", "https://user@localhost"]) {
+    assert.equal(isLocalCredentialContext({ NODE_ENV: "production", BETTER_AUTH_URL: origin }), false);
+  }
+  assert.equal(isLocalCredentialContext({ NODE_ENV: "production", BETTER_AUTH_URL: "http://127.0.0.1:3107" }), true);
+  assert.equal(isLocalCredentialContext({ NODE_ENV: "production", BETTER_AUTH_URL: "http://localhost", NEXT_PUBLIC_SITE_URL: "https://example.com" }), false);
+});
+
+test("hosted auth rejects fixture secrets", () => {
+  for (const secret of ["your_32_char_minimum_secret_key_here", "test-only-not-a-real-secret-0123456789abcdef", "ci-only-not-a-real-secret-0123456789abcdef"]) {
+    assert.throws(() => assertSafeAuthSecret(secret, { NODE_ENV: "production" }), /fixture auth secrets/);
+    assert.doesNotThrow(() => assertSafeAuthSecret(secret, { NODE_ENV: "production", BETTER_AUTH_URL: "http://localhost:3107" }));
+  }
+});
+
+test("auth hash/verify hooks reject hosted fixture signup and existing imported credentials", async () => {
+  const saved = { BETTER_AUTH_URL: process.env.BETTER_AUTH_URL, NEXT_PUBLIC_SITE_URL: process.env.NEXT_PUBLIC_SITE_URL };
+  try {
+    process.env.BETTER_AUTH_URL = "https://deployment.example";
+    process.env.NEXT_PUBLIC_SITE_URL = "https://deployment.example";
+    for (const password of fixturePasswords) {
+      const hash = await hashPassword(password);
+      await assert.rejects(() => hashAuthPassword(password), /fixture passwords/);
+      assert.equal(await verifyAuthPassword({ password, hash }), false);
+    }
+    const password = "unique-test-credential-for-roundtrip";
+    const hash = await hashAuthPassword(password);
+    assert.equal(await verifyAuthPassword({ password, hash }), true);
+    assert.equal(await verifyAuthPassword({ password: "wrong", hash }), false);
+  } finally {
+    for (const [key, value] of Object.entries(saved)) {
+      if (value === undefined) delete process.env[key]; else process.env[key] = value;
+    }
+  }
+});

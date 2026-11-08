@@ -46,6 +46,44 @@
   // <PLACEHOLDER> with real resources (see Docs/Engineering/DEPLOYMENT.md).
   // Bindings are not inherited by environments, so all of them are repeated.
   "env": {
+    // Disposable TEST environment only. IDs/names select resources, not credentials.
+    // The ISR queue branch adds its Durable Object binding/migration on merge.
+    "cputest": {
+      "name": "dh-cputest",
+      "workers_dev": true,
+      "migrations": [
+        { "tag": "isr-queue-v1", "new_sqlite_classes": ["DOQueueHandler"] }
+      ],
+      "durable_objects": {
+        "bindings": [
+          { "name": "NEXT_CACHE_DO_QUEUE", "class_name": "DOQueueHandler" }
+        ]
+      },
+      "services": [
+        { "binding": "WORKER_SELF_REFERENCE", "service": "dh-cputest" }
+      ],
+      "d1_databases": [
+        {
+          "binding": "DB",
+          "database_name": "dh-cputest-db",
+          "database_id": "48a2e827-8d37-4041-a311-4642aa5a2d76",
+          "migrations_dir": "drizzle/migrations"
+        },
+        {
+          "binding": "NEXT_TAG_CACHE_D1",
+          "database_name": "dh-cputest-db",
+          "database_id": "48a2e827-8d37-4041-a311-4642aa5a2d76"
+        }
+      ],
+      "r2_buckets": [
+        { "binding": "MEDIA_BUCKET", "bucket_name": "dh-cputest-media" },
+        { "binding": "NEXT_INC_CACHE_R2_BUCKET", "bucket_name": "dh-cputest-next-cache" }
+      ],
+      "vars": {
+        "BETTER_AUTH_URL": "https://dh-cputest.hdv2.workers.dev",
+        "NEXT_PUBLIC_SITE_URL": "https://dh-cputest.hdv2.workers.dev"
+      }
+    },
     "production": {
       "name": "decoded-hiring-v2",
       "migrations": [

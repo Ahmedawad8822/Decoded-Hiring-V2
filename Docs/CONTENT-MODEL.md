@@ -1,6 +1,6 @@
 # Content Model
 
-Blueprint §4, §5 and §18.6. Status: **living document**, written against `main` at `b902784` (migrations through `0020_slug_redirects`). The code wins over this file; fix this file when they disagree. Vocabulary lives in `Docs/CONTEXT.md`; the runtime in `Docs/ARCHITECTURE.md`. Schema source: `src/lib/db/schema.ts` (Drizzle) plus raw SQL in `drizzle/migrations/` (see divergences).
+Implementation inventory. Schema source: `src/lib/db/schema.ts` and `drizzle/migrations/`. Runtime: `Docs/ARCHITECTURE.md`. Code takes precedence over this reference.
 
 ## 1. Shared rules
 
@@ -56,7 +56,7 @@ Slug-redirect rules (`features/slug-redirects/service.ts`): a row is written onl
 | **Enrollment** (`enrollments`) | `userId`, `courseId`, `status` (`active`/`completed`/`cancelled`), `accessSource`, `enrolledAt`, `completedAt` | see below | none | unique per (user, course) | private |
 | **Lesson Progress** (`lesson_progress`) | `enrollmentId`, `lessonId`, `completedAt` | none | none | unique per (enrollment, lesson) | private |
 
-Enrollment states: `active` to `completed` and back is automatic (reconcile); `cancelled` is **never set by any code path** and `enrollFree` reactivates it (decision pending, `PROJECT-STATUS.md` §7). Only an effectively FREE, non-archived course auto-enrolls.
+Enrollment states: `active` to `completed` and back is automatic (reconcile); `cancelled` is **never set by any code path** and `enrollFree` reactivates it (no cancellation workflow currently exists). Only an effectively FREE, non-archived course auto-enrolls.
 
 ### Commerce and scheduling catalogue
 
@@ -93,7 +93,7 @@ Supporting append-only tables (not content): `booking_history`, `order_history`,
 | **Editorial Draft** (`editorial_drafts`) | `contentType` `GUIDE`/`FIELD_NOTE`. Transitions (`drafts/types.ts`): `DRAFT` to `IN_REVIEW`; `IN_REVIEW` to `DRAFT`, `APPROVED` or `REJECTED`; `REJECTED` to `DRAFT`; `APPROVED` to `PUBLISHED`. Only `PUBLISHED` is terminal |
 | **Draft Source** (`editorial_draft_sources`) | provenance: draft to chunk and rank |
 | **Editorial Publication** (`editorial_publications`) | one per draft (unique `draftId`), one per target (unique `entityId`, NULL while a reservation is in flight). The draft is marked `PUBLISHED` only after the target Guide or Field Note is verified public. Publishing creates the Guide or Field Note and publishes it; the compensation path unpublishes and discards it |
-| **Editorial Audit Log** (`editorial_audit_log`) | `knowledge_ingested`, `knowledge_failed`, `draft_generated`, `draft_edited`, `draft_submitted`, `draft_approved`, `draft_rejected`, `draft_published`. The only audit table; Guide/Field Note/Course/Lesson/media/offer mutations have no equivalent (`PROJECT-STATUS.md` §5) |
+| **Editorial Audit Log** (`editorial_audit_log`) | `knowledge_ingested`, `knowledge_failed`, `draft_generated`, `draft_edited`, `draft_submitted`, `draft_approved`, `draft_rejected`, `draft_published`. Admin mutations use the separate `admin_audit_log` table |
 
 Revalidation for drafts is admin-side only (`/admin/editorial`, `/admin/content`); publishing a draft revalidates `/guides` or `/field-notes` and the new detail page (`drafts/actions.ts`).
 
@@ -101,27 +101,15 @@ Revalidation for drafts is admin-side only (`/admin/editorial`, `/admin/content`
 
 | Gap | State |
 |---|---|
-| **Trash / restore / permanent delete** (blueprint §5) | Not built. No `trashed` status and no `deletedAt` column anywhere. No Studio delete exists for Guides, Field Notes, Courses or Lessons |
+| **Trash / restore / permanent delete**  | Not built. No `trashed` status and no `deletedAt` column anywhere. No Studio delete exists for Guides, Field Notes, Courses or Lessons |
 | **Restore from archive** | Not possible. `archived` is terminal for Guides, Field Notes, Courses and Lessons. Only Editorial Memory has a restore (`unarchiveMemory`). Knowledge Sources have no unarchive function, though the ingest error text says "Unarchive first" |
-| **Course permanent delete** | Guard exists (`assertCourseDeletable`) but is called by nothing. Blueprint: block delete when enrollments exist |
+| **Course permanent delete** | Guard exists (`assertCourseDeletable`) but is called by nothing. Deletion guard blocks deletion when enrollments exist |
 | **Lesson archive** | `archived` is a valid `LessonStatus`, but no service function sets it, so it is unreachable from the Studio |
 | **Lesson Resource delete / replace** | No delete path. Orphaned R2 objects are not tracked |
 | **Media delete / usage tracking** | No delete, no "where used"; `media` rows are never referenced by FK |
 | **Enrollment cancellation** | No flow sets `cancelled`; reactivation rule undecided |
-| **Revisions** | Field Notes only. Guides, Lessons and Courses keep none (CONTEXT.md conflict) |
+| **Revisions** | Field Notes only. Guides, Lessons and Courses keep none  |
 | **Lead inbox extras** | Inbox and status workflow exist; no search, notes, assignee, export or deletion/retention policy for lead PII |
 | **Offer / Booking Type retirement** | Only an `active` toggle; no archive state or history |
 | **Page types not built** | Standard Pages, Landing Pages, course sales pages, Product pages as managed content. About, legal, contact, programmes and offer pages are hand-built routes |
-| **Scheduled publishing, autosave, categories/tags taxonomy** (blueprint §4.1) | Not built. Guides have free-text `category` and `tags`; Field Notes have none |
-
-## ⚠ Divergences (blueprint or docs vs code)
-
-1. **Archive is terminal in code; the blueprint and `CONTEXT.md` say Archive is reversible and list Restore.** `CONTEXT.md` (Archive entry) also says "Reversible".
-2. **Trash does not exist**, though the blueprint diagram is draft, published, archived, trash, permanently deleted. `PROJECT-STATUS.md` §3 and §6 already record this.
-3. **`business_events` has no Drizzle table.** It exists only in raw SQL (`drizzle/migrations/0018_business_events.sql`) and is accessed with raw D1 statements. `drizzle-kit generate` therefore does not know it; the unrelated indexes `booking_history_action_created_idx` and `order_history_status_created_idx` are in the same file and also absent from `schema.ts`.
-4. **Lesson `archived` status is declared but unreachable** (no `archiveLesson`); `publishLesson` still guards against it.
-5. **Unused guard:** `assertCourseDeletable` implements the blueprint's course-protection rule but nothing deletes courses.
-6. **Lead inbox (resolved):** the Studio now reads leads and moves them through `NEW`/`REVIEWED`/`CLOSED`. `PROJECT-STATUS.md` §4 wording may still describe the older state. Reopening is allowed from `REVIEWED` and `CLOSED` only; `CLOSED` cannot go straight to `REVIEWED`.
-7. **Offer validation throws plain `Error`**, not `AppError` (`offers/service.ts`), so messages are not guaranteed user-safe under `publicErrorMessage`. See `Docs/ENGINEERING-STANDARDS.md`.
-8. **Slug rules differ by entity:** content and course slugs use `slugSchema` (min 3, max 100, no uppercase); Booking Type slugs allow uppercase (`/i`), min 1, max 120. `ARCHITECTURE.md` still says migrations run 0000-0018; the repo has 0000-0020.
-9. **Blueprint "Product / Workshop page", "Course sales page":** the Offer model carries the commercial data, but no content-managed page type exists for either.
+| **Scheduled publishing, autosave, categories/tags taxonomy**  | Not built. Guides have free-text `category` and `tags`; Field Notes have none |
