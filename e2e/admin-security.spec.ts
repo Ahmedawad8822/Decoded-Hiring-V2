@@ -20,7 +20,7 @@ function localEnv(key: string): string {
   return "";
 }
 
-test("admin security page renders the 2FA status and enable button", async ({ page }) => {
+test("admin security page renders status and loads the enrollment QR code on demand", async ({ page }) => {
   test.setTimeout(150_000);
   const email = localEnv("ADMIN_INITIAL_EMAIL");
   const password = localEnv("ADMIN_INITIAL_PASSWORD");
@@ -38,4 +38,9 @@ test("admin security page renders the 2FA status and enable button", async ({ pa
   await expect(page.getByRole("heading", { name: "Security" })).toBeVisible({ timeout: 30_000 });
   await expect(page.getByTestId("twofa-status")).toContainText("Not enabled");
   await expect(page.getByRole("button", { name: "Enable two-factor authentication" })).toBeVisible();
+  await clickAction(page, page.getByRole("button", { name: "Enable two-factor authentication" }));
+  await page.getByLabel("Confirm your password").fill(password);
+  await clickAction(page, page.getByRole("button", { name: "Continue", exact: true }));
+  await expect(page.getByRole("img", { name: "TOTP QR code" })).toHaveAttribute("src", /^data:image\/svg\+xml;utf8,/);
+  await expect(page.getByTestId("twofa-secret")).not.toBeEmpty();
 });

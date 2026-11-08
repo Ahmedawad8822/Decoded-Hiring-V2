@@ -71,7 +71,7 @@ Always go through `src/lib/cloudflare/bindings.ts` (`getCloudflareBindings`, `ge
 |---|---|
 | `ci.yml` `verify` | `npm ci`, `npm run lint` (zero warnings), `npm run typecheck`, `npm test`, `npm run db:migrate:local`, `npm run build` (fake `BETTER_AUTH_SECRET`, local Miniflare only) |
 | `ci.yml` `e2e` (after `verify`) | `npm run test:e2e:ci`, 40-minute timeout; Playwright artifacts uploaded on failure |
-| `ci.yml` `worker-size` (after `verify`) | `npm run cf:build` then `npm run cf:size`: gzip Worker must stay under **2950 KiB** (Workers Free limit 3072) |
+| `ci.yml` `worker-size` (after `verify`) | `npm run cf:build` then `npm run cf:size`: uncompressed Worker must stay within **20480 KiB** (Free/Paid limit 64 MiB; gzip informational only) |
 | `audit.yml` | `npm audit --omit=dev --audit-level=high` on PRs, `main`, and weekly. Known dev-only moderates are listed in `Docs/Engineering/DEPENDENCY-AUDIT.md` |
 | `codeql.yml` | Manual only until GitHub code scanning is enabled on the private repo |
 
