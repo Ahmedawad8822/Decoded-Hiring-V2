@@ -31,6 +31,7 @@ export async function createGuideAction(
     await recordAdminAudit({ actorId: session.user.id, action: "guide.create", entityType: "guide", entityId: created.id, details: { slug: created.slug } });
 
     revalidatePath("/guides");
+    revalidatePath("/sitemap.xml");
     revalidatePath(`/guides/${created.slug}`);
     revalidatePath("/admin/content");
 
@@ -67,6 +68,7 @@ export async function updateGuideAction(
     await recordAdminAudit({ actorId: session.user.id, action: "guide.update", entityType: "guide", entityId: updated.id, details: { oldSlug: before?.slug ?? null, newSlug: updated.slug } });
 
     revalidatePath("/guides");
+    revalidatePath("/sitemap.xml");
     revalidatePath(`/guides/${updated.slug}`);
     if (before && before.slug !== updated.slug) {
       revalidatePath(`/guides/${before.slug}`);
@@ -93,6 +95,7 @@ export async function publishGuideAction(id: string): Promise<ActionState<{ slug
     await recordAdminAudit({ actorId: session.user.id, action: "guide.publish", entityType: "guide", entityId: id, details: { slug: published.slug, status: "published" } });
 
     revalidatePath("/guides");
+    revalidatePath("/sitemap.xml");
     revalidatePath(`/guides/${published.slug}`);
     revalidatePath("/admin/content");
 
@@ -116,6 +119,7 @@ export async function unpublishGuideAction(id: string): Promise<ActionState<{ sl
     await recordAdminAudit({ actorId: session.user.id, action: "guide.unpublish", entityType: "guide", entityId: id, details: { slug: draft.slug, status: "draft" } });
 
     revalidatePath("/guides");
+    revalidatePath("/sitemap.xml");
     revalidatePath(`/guides/${draft.slug}`);
     revalidatePath("/admin/content");
 
@@ -139,6 +143,7 @@ export async function archiveGuideAction(id: string): Promise<ActionState<{ slug
     await recordAdminAudit({ actorId: session.user.id, action: "guide.archive", entityType: "guide", entityId: id, details: { slug: archived.slug, status: "archived" } });
 
     revalidatePath("/guides");
+    revalidatePath("/sitemap.xml");
     revalidatePath(`/guides/${archived.slug}`);
     revalidatePath("/admin/content");
 

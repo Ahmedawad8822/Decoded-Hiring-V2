@@ -3,7 +3,15 @@
 // build manifest avoids hard-coding action IDs, which change on every build.
 import fs from "node:fs";
 import { test, expect } from "@playwright/test";
-import { WORKER_ADMIN } from "../scripts/worker-e2e-setup";
+import { prewarm } from "../scripts/prewarm";
+import { WORKER_ADMIN, WORKER_RUNTIME_GUIDE_SLUG } from "../scripts/worker-e2e-setup";
+
+test("HTTP anonymous prewarmer discovers public sitemap URLs against the built Worker", async ({ baseURL }) => {
+  const summary = await prewarm({ baseUrl: baseURL!, concurrency: 2 });
+  expect(summary.failed).toEqual([]);
+  expect(summary.results.some((result) => new URL(result.url).pathname === `/guides/${WORKER_RUNTIME_GUIDE_SLUG}`), "first sitemap GET reads deployed D1, not the build snapshot").toBe(true);
+  expect(summary.requests).toBeGreaterThan(13);
+});
 
 test("HTTP server actions keep article lifecycles and commerce fresh on the first GET", async ({ request, playwright, baseURL }) => {
   const admin = await playwright.request.newContext({ baseURL });
@@ -42,7 +50,18 @@ test("HTTP server actions keep article lifecycles and commerce fresh on the firs
     }).toBe("HIT");
   }
 
+  async function sitemapPaths() {
+    const response = await request.get("/sitemap.xml");
+    expect(response.status()).toBe(200);
+    const xml = await response.text();
+    await response.dispose();
+    return [...xml.matchAll(/<loc>([^<]+)<\/loc>/g)].map((match) => new URL(match[1]).pathname);
+  }
+
   try {
+    // Metadata handlers must hit the same R2 routing cache as public pages.
+    await warm("/robots.txt");
+    await warm("/sitemap.xml");
     const signin = await admin.post("/api/auth/sign-in/email", {
       data: WORKER_ADMIN, headers: { origin: baseURL! },
     });
@@ -55,6 +74,8 @@ test("HTTP server actions keep article lifecycles and commerce fresh on the firs
           title: `HTTP fixture ${kind}`, slug,
           body: [{ id: "p1", type: "paragraph", text: "Private fixture draft." }],
         }]);
+        expect(await sitemapPaths()).not.toContain(url);
+        await warm("/sitemap.xml");
         // Unlike the old HTTP check, exercise a public negative cache entry as
         // well as the dynamic previews before publishing.
         expect((await request.get(url)).status()).toBe(404);
@@ -80,6 +101,8 @@ test("HTTP server actions keep article lifecycles and commerce fresh on the firs
         });
         expect(draftIndex.status()).toBe(200);
         await draftIndex.dispose();
+        // Leave an old sitemap upload outstanding across publish in the race run.
+        expect(await sitemapPaths()).not.toContain(url);
         await action(`publish${prefix}Action`, [data.id]);
         // Optional local latency injection makes the OLD render's upload land
         // after publish. This is still the FIRST anonymous GET after the action;
@@ -90,6 +113,8 @@ test("HTTP server actions keep article lifecycles and commerce fresh on the firs
         expect(published.status(), "first detail GET after publish").toBe(200);
         expect(await published.text()).toContain("Private fixture draft.");
         expect(await (await request.get(`/${kind}`)).text()).toContain(`href="${url}"`);
+        expect(await sitemapPaths(), "first sitemap GET after publish").toContain(url);
+        await warm("/sitemap.xml");
         await warm(url);
         await action(`update${prefix}Action`, [{
           id: data.id, title: `Revised fixture ${kind}`,
@@ -99,6 +124,8 @@ test("HTTP server actions keep article lifecycles and commerce fresh on the firs
         expect(edited.status()).toBe(200);
         expect(await edited.text()).toContain("Revised fixture body.");
         expect(await (await request.get(`/${kind}`)).text()).toContain(`Revised fixture ${kind}`);
+        expect(await sitemapPaths(), "first sitemap GET after edit").toContain(url);
+        await warm("/sitemap.xml");
         await warm(url);
 
         const renamed = `${url}-renamed`;
@@ -115,19 +142,28 @@ test("HTTP server actions keep article lifecycles and commerce fresh on the firs
         const renamedIndex = await (await request.get(`/${kind}`)).text();
         expect(renamedIndex).toContain(`href="${renamed}"`);
         expect(renamedIndex).not.toContain(`href="${url}"`);
+        const renamedSitemap = await sitemapPaths();
+        expect(renamedSitemap, "first sitemap GET after rename").toContain(renamed);
+        expect(renamedSitemap).not.toContain(url);
+        await warm("/sitemap.xml");
         await warm(renamed);
         await action(`unpublish${prefix}Action`, [data.id]);
         expect((await request.get(renamed)).status()).toBe(404);
         expect(await (await request.get(`/${kind}`)).text()).not.toContain(`href="${renamed}"`);
+        expect(await sitemapPaths(), "first sitemap GET after unpublish").not.toContain(renamed);
+        await warm("/sitemap.xml");
         await action(`publish${prefix}Action`, [data.id]);
         const republished = await request.get(renamed);
         expect(republished.status(), "first detail GET after republish").toBe(200);
         expect(await republished.text()).toContain("Revised fixture body.");
         expect(await (await request.get(`/${kind}`)).text()).toContain(`href="${renamed}"`);
+        expect(await sitemapPaths(), "first sitemap GET after republish").toContain(renamed);
+        await warm("/sitemap.xml");
         await warm(renamed);
         await action(`archive${prefix}Action`, [data.id]);
         expect((await request.get(renamed)).status()).toBe(404);
         expect(await (await request.get(`/${kind}`)).text()).not.toContain(`href="${renamed}"`);
+        expect(await sitemapPaths(), "first sitemap GET after archive").not.toContain(renamed);
       });
     }
 

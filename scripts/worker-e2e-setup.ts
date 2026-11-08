@@ -6,6 +6,8 @@ export const WORKER_ADMIN = {
   password: "worker-e2e-fixture-password-2026!",
 };
 
+export const WORKER_RUNTIME_GUIDE_SLUG = "worker-runtime-only-sitemap-guide";
+
 export function workerPort(value = process.env.E2E_WORKER_PORT ?? "3107") {
   const port = Number(value);
   if (!Number.isSafeInteger(port) || port < 1024 || port > 65535) {

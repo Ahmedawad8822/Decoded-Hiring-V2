@@ -29,6 +29,14 @@ export function withRenderTimestamp(
       if (!entry?.value || (kind !== undefined && kind !== "cache")) return entry;
       const value = entry.value as CacheValue<Kind> & { [GENERATED_AT]?: number };
       const generatedAt = value[GENERATED_AT];
+      // The sitemap is prerendered against build-local D1. Never use that
+      // snapshot to discover production articles: the first deployed GET must
+      // regenerate it from the deployed binding. Runtime entries are stamped.
+      // Next 16.4 scopes APP_ROUTE keys as route-cache/APP_ROUTE/<hash>/$<path>.
+      const isSitemap = key === "/sitemap.xml" ||
+        /^\/?route-cache\/APP_ROUTE\/[0-9a-f]{64}\/\$\/sitemap\.xml$/.test(key);
+      if (isSitemap && "type" in value && value.type === "route" &&
+          (typeof generatedAt !== "number" || !Number.isFinite(generatedAt))) return null;
       // Build-time populated entries have no render timestamp; retain the
       // adapter's timestamp for those entries, without changing their format.
       if (typeof generatedAt !== "number" || !Number.isFinite(generatedAt)) return entry;

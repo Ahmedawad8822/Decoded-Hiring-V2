@@ -4,7 +4,7 @@ import { randomBytes } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { previewConfig, WORKER_ADMIN, workerDevArgs, workerPaths, workerPort } from "./worker-e2e-setup";
+import { previewConfig, WORKER_ADMIN, WORKER_RUNTIME_GUIDE_SLUG, workerDevArgs, workerPaths, workerPort } from "./worker-e2e-setup";
 
 const root = process.cwd();
 const work = fs.mkdtempSync(path.join(os.tmpdir(), "dh-worker-e2e-"));
@@ -112,6 +112,18 @@ export default { ...config, dangerous: { ...config.dangerous, enableCacheInterce
     buildArgs.push("--openNextConfigPath", override);
   }
   await run("opennextjs-cloudflare", buildArgs);
+  // Diverge deployed D1 from the build snapshot without any path invalidation.
+  // The first sitemap GET must discover this article, not build-local content.
+  await run("tsx", ["-e", `
+    import { createGuide, publishGuide } from "./src/features/guides/service";
+    import { disposeCloudflareBindings } from "./src/lib/cloudflare/bindings";
+    (async () => {
+      try {
+        const guide = await createGuide({ title: "Runtime sitemap fixture", slug: ${JSON.stringify(WORKER_RUNTIME_GUIDE_SLUG)}, author: "Worker fixture", body: [] });
+        await publishGuide(guide.id);
+      } finally { await disposeCloudflareBindings(); }
+    })().catch(error => { console.error(error); process.exitCode = 1; });
+  `]);
 
   // Reuse the pinned adapter's exact cache asset keys and tag-table schema.
   // Its local cache population has no --persist-to support, so change cwd to

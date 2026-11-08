@@ -1,4 +1,6 @@
 import type { MetadataRoute } from "next";
+import { staticRoutes } from "./public-routes";
+export { staticRoutes } from "./public-routes";
 import { getSiteUrl } from "@/lib/seo";
 import { getPublishedGuides } from "@/features/guides/service";
 import { getPublishedFieldNotes } from "@/features/field-notes/service";
@@ -14,22 +16,6 @@ import { getPublishedFieldNotes } from "@/features/field-notes/service";
 // Static routes omit lastModified (stable timestamp unknown); dynamic content
 // uses updatedAt. Adds max-image-preview: large via robots (not sitemap).
 // ============================================================================
-
-export const staticRoutes = [
-  "/",
-  "/about",
-  "/programmes",
-  "/mission-01",
-  "/workshop",
-  "/coaching",
-  "/ai-recruiter-os",
-  "/guides",
-  "/field-notes",
-  "/contact",
-  "/privacy",
-  "/terms",
-  "/cookies",
-];
 
 export async function buildSitemapEntries(): Promise<MetadataRoute.Sitemap> {
   const base = getSiteUrl().toString().replace(/\/$/, "");

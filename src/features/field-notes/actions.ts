@@ -16,6 +16,7 @@ export type ActionState<T = unknown> = {
 
 function revalidateFieldNotes(slug: string, previousSlug?: string) {
   revalidatePath("/field-notes");
+  revalidatePath("/sitemap.xml");
   revalidatePath(`/field-notes/${slug}`);
   // /field-notes/[slug] is static/ISR: after a rename the cached page at the
   // OLD slug must re-render as a 308 to the new one.
