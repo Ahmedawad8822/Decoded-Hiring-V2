@@ -1,6 +1,6 @@
 # Performance budget
 
-Blueprint §9 ("Flashlight Speed" as a budget) and §18.9 (free-first guardrails). Status: **budgets defined, only build-time and platform-size measurements exist.** Measured on 2026-10-24 with Next 16.4.2 (webpack), `npm run build` against a freshly migrated local D1. A feature that materially breaks a budget should fail the quality gate until justified or corrected.
+Blueprint §9 ("Flashlight Speed" as a budget) and §18.9 (free-first guardrails). Status: **budgets defined; build-time, platform-size and anonymous public edge CPU measurements exist.** Measured on 2026-10-24 with Next 16.4.2 (webpack), `npm run build` against a freshly migrated local D1. A feature that materially breaks a budget should fail the quality gate until justified or corrected.
 
 ## 1. User-facing budgets (blueprint §9)
 
@@ -22,12 +22,22 @@ Blueprint §9 ("Flashlight Speed" as a budget) and §18.9 (free-first guardrails
 |---|---|---|---|
 | Worker size (uncompressed) | Workers Free and Paid **64 MiB (65536 KiB)**; CI budget **20480 KiB (20 MiB)**; no compressed size limit | 12.57 MiB uncompressed (about 20% of platform limit), 2.82 MiB gzip (information only), per `Docs/Engineering/DEPLOYMENT.md` (2026-10-24) | CI job `worker-size` (`npm run cf:build`, `npm run cf:size`, `scripts/check-worker-size.ts`); fails the PR |
 | Worker startup (global scope) | Free and Paid: **1 second** | Not measured; imported module initialization counts | None; verify built Worker startup separately |
-| Worker CPU | Workers Free: **10 ms per request** | Not measured. Dynamic SSR (learner, Studio, booking) likely exceeds it | None. Expect Workers Paid or measure first (DEPLOYMENT.md risks) |
+| Worker CPU | Workers Free: **10 ms per request** | Disposable test Worker, 2026-11-08: cached anonymous public-page p50 **5–11 → 3–5 ms** with cache interception; p95 **10–26 → 6–10 ms**. Dynamic/private routes not measured on the edge | `test:e2e:worker` gates cache/routing correctness locally; no CPU gate |
 | Workers requests | 100,000/day (Free) | Not measured | None |
 | D1 reads | 5 M rows/day (Free) | Not measured | None |
 | D1 writes | 100 k rows/day (Free) | Not measured | None; writes are designed down (below) |
 | D1 storage | 5 GB | Not measured | None |
 | R2 | 10 GB-month; 1 M Class A, 10 M Class B ops/month | Not measured | None |
+
+Cache interception answers ISR/SSG hits before the Next server runs, after routing
+and preview rewrites; actions and draft mode bypass it. These edge numbers are
+from the deployed test Worker, not local workerd timing. Cold article renders
+remain expensive (135–331 ms with interception in that test). Run
+`npm run test:e2e:worker` for isolated local freshness/routing regression proof
+([setup](Engineering/DEPLOYMENT.md#worker-cache-regression-suite)).
+The local render-timestamp fix prevents late R2 writes from resurrecting expired
+pages ([analysis](Engineering/CACHE-INTERCEPTION.md)); its edge CPU overhead has
+not been measured. Local size on this branch: 12613.68 KiB uncompressed.
 
 ### Worker import audit (2026-11-08, offline)
 

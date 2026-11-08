@@ -84,6 +84,9 @@ jobs:
       - name: Playwright E2E
         run: npm run test:e2e:ci
 
+      - name: Worker E2E (built Worker, cache interception)
+        run: npm run test:e2e:worker
+
       - name: Upload Playwright artifacts
         if: failure()
         uses: actions/upload-artifact@v7

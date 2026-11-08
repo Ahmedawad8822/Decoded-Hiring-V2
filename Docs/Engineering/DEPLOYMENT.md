@@ -8,8 +8,8 @@ Cloudflare. Every production value in `wrangler.jsonc → env.production` is a
 
 | Piece | What it does |
 |---|---|
-| `@opennextjs/cloudflare` (pinned **1.20.12**) | Turns the `next build` output into a Worker (`.open-next/worker.js`) plus static assets (`.open-next/assets`). 1.20.12 needs Next ≥ 16.4.1 and wrangler ^4.148; we run Next 16.4.2 and wrangler 4.151.1. |
-| `open-next.config.ts` | R2 incremental cache (`NEXT_INC_CACHE_R2_BUCKET`) for ISR pages, plus the D1 tag cache (`NEXT_TAG_CACHE_D1`, bound to the same D1 database as `DB`). Without a tag cache, `revalidatePath()`/`revalidateTag()` from Studio publish actions would do nothing on Workers. OpenNext's cache population, which runs during `opennextjs-cloudflare deploy`, creates its own `revalidations` table in that D1; it is not a Drizzle migration. |
+| `@opennextjs/cloudflare` (pinned **1.20.15**) | Turns the `next build` output into a Worker (`.open-next/worker.js`) plus static assets (`.open-next/assets`). We run Next 16.4.3 and wrangler 4.156.0. |
+| `open-next.config.ts` | `enableCacheInterception: true` serves ISR/SSG hits in the routing layer after rewrites, bypassing server actions and draft-mode cookies. R2 incremental cache (`NEXT_INC_CACHE_R2_BUCKET`) uses our render-timestamp wrapper so an old render uploaded after a mutation cannot undo its invalidation. D1 persists tag expiry (`NEXT_TAG_CACHE_D1`, same database as `DB`); without it, `revalidatePath()`/`revalidateTag()` would do nothing on Workers. OpenNext population creates its own `revalidations` table; it is not a Drizzle migration. See [cache race analysis](CACHE-INTERCEPTION.md). |
 | `src/lib/cloudflare/bindings.ts` | On Workers, bindings come from `getCloudflareContext().env`. In local Node (`next dev`, `next build`, tests, scripts), it falls back to wrangler's `getPlatformProxy` with persist path `DH_LOCAL_STATE_DIR` or `.wrangler/state/v3`. wrangler is imported with a computed specifier, so it is never bundled. |
 | `wrangler.jsonc` | Top level = **local** config (dev, tests, `npm run preview`). `env.production` = real resources (placeholders). Bindings: `DB` (D1), `MEDIA_BUCKET` (R2), `NEXT_INC_CACHE_R2_BUCKET` (R2), `WORKER_SELF_REFERENCE` (service), `ASSETS`. |
 
@@ -20,8 +20,57 @@ Cloudflare. Every production value in `wrangler.jsonc → env.production` is a
 | `npm run cf:build` | OpenNext build (runs `next build` first). Needs `BETTER_AUTH_SECRET` set and a migrated local DB (`npm run db:migrate:local`), because `/guides` and `/field-notes` prerender from D1. |
 | `npm run cf:size` | Runs `wrangler deploy --dry-run` (no credentials), parses the uncompressed `Total Upload` size and fails above `WORKER_UNCOMPRESSED_BUDGET_KIB` (default 20480 KiB / 20 MiB; Free and Paid limit 64 MiB). Gzip is printed for information only. Run after `cf:build`. Runs in CI as the `worker-size` job. |
 | `npm run preview` | Build, then run the real Worker locally in `wrangler dev` against local D1/R2. Put local-only secrets in `.dev.vars` (git-ignored), e.g. `BETTER_AUTH_SECRET=...`. |
+| `npm run test:e2e:worker` | Builds and tests the real local Worker with cache interception; fresh disposable D1/R2 and test-only admin credentials. See below. |
 | `npm run db:migrate:remote` | `wrangler d1 migrations apply DB --env production --remote` |
 | `npm run deploy` | Build and deploy with `--env production`. **Fails until the placeholders are filled.** |
+
+## Worker cache regression suite
+
+Run `npm run test:e2e:worker` (Chromium installed via `npx playwright install chromium`).
+Use `E2E_WORKER_PORT=3151 npm run test:e2e:worker` if the default loopback port
+3107 is occupied. An existing server is never reused. Playwright arguments can
+be appended, e.g. `npm run test:e2e:worker -- --headed`.
+
+`playwright.worker.config.ts` starts `scripts/worker-e2e-server.ts`, which reuses
+`e2e-bootstrap.ts`, the baseline guide seed and OpenNext's pinned cache population
+implementation. It runs `opennextjs-cloudflare build`, populates R2 and the D1 tag
+table, then runs `wrangler dev --local`. The generated config copies
+`wrangler.preview.jsonc`, including its self-reference service. A fresh OS temp
+directory holds `.dev.vars` (random auth secret, fixture origin and
+`ADMIN_REQUIRE_2FA=false`), Wrangler config/logs and `.wrangler/state`.
+`DH_LOCAL_STATE_DIR` points to that directory's `state/v3`; `--persist-to` points
+to `state`. OpenNext cache population runs from that same temp cwd, since it
+has no persistence-path option. The harness stops the Worker and deletes the
+temp directory on completion/interruption; it never uses the developer's
+`.wrangler/state` or credentials. It rebuilds `.next`/`.open-next`, so do not run
+another build or dev server in this worktree concurrently.
+
+The suite checks routing-layer `x-opennext-cache: HIT`, security headers and
+HEAD, real Studio guide/field-note actions (publish, edit, rename, unpublish,
+archive), authenticated and anonymous draft preview, Link/RSC navigation,
+contact lead persistence and the coaching shell's live slots. Mutation checks
+assert the **first** subsequent GET; only cache-write preconditions poll.
+Failures retain screenshots/traces in `test-results/worker`.
+
+HTTP-only: `npm run test:e2e:worker:http`. This launches no browser. The final
+clean build passed **4/4** (42.8 s including setup), covering headers/HEAD,
+HTML/RSC, preview rewrites, live slots, both article lifecycles, and first-GET
+commerce freshness on all four public offer pages.
+
+`npm run test:e2e:worker:race` adds 750 ms latency before cache writes, forcing
+a pre-mutation render's upload to finish after tag expiry. Strict first-GET
+lifecycle/commerce checks passed with this latency on and off. For the off A/B,
+use `WORKER_E2E_INTERCEPTION_OFF=1 npm run test:e2e:worker:race`; the default
+guard still requires interception on. `WORKER_E2E_ORIGINAL_R2=1` selects the
+unwrapped baseline in this disposable harness; with latency it reproduces the
+stale 404/index failure. These options only generate a temporary local config.
+See [source citations, reproduction and results](CACHE-INTERCEPTION.md).
+
+Chromium cannot launch in this sandbox (`bootstrap_check_in …
+MachPortRendezvousServer`, `Permission denied (1100)`). The coordinator's earlier
+browser run exposed the late-upload race fixed here; the five browser tests
+still need rerunning on the final code outside the sandbox before merge.
+Worker shutdown and throwaway-state removal were verified after HTTP runs.
 
 ## Verified locally (2026-10-24)
 
@@ -63,7 +112,7 @@ Cloudflare. Every production value in `wrangler.jsonc → env.production` is a
 
 - **Script size.** Workers Free and Paid both allow **64 MiB uncompressed** (65536 KiB); there is no compressed size limit. Per the [Workers limits page](https://developers.cloudflare.com/workers/platform/limits/) updated 2026-10-29. The historical 12.57 MiB total upload above uses about 20% of that limit; its 2.82 MiB gzip size is informational. CI enforces an early-growth budget of **20480 KiB (20 MiB) uncompressed** (`npm run cf:size`, override `WORKER_UNCOMPRESSED_BUDGET_KIB`). It parses wrangler's `Total Upload` line, so a format change fails loudly (exit 2). The script warns above 90% of the platform's 64 MiB uncompressed limit.
 - **Startup time.** Both plans limit global-scope startup to **1 second**. Imported module initialization counts toward startup CPU; load admin-only providers, ingestion code and validation inside the functions that need them. Bundle size checks do not measure startup time; verify it separately with the built Worker before deploying.
-- **CPU time.** Workers Free allows **10 ms CPU** per request. SSR of dynamic pages (learner, Studio, booking) is likely to exceed that. Expect to need Workers Paid, or measure before deciding.
+- **CPU time.** Workers Free allows **10 ms CPU** per request. On the deployed disposable test Worker (2026-11-08), cache interception reduced cached anonymous public-page CPU p50 from **5–11 ms to 3–5 ms** (p95 **10–26 ms to 6–10 ms**). Cold article renders and dynamic/private routes remain separate risks; the local regression suite verifies behavior, not edge CPU.
 - **Build-time data.** `/guides` and `/field-notes` are statically prerendered from the build machine's local D1, so the first deploy ships whatever that DB contains (usually nothing). They refresh when a publish action calls `revalidatePath()`. Before launch, decide between:
   - `export const revalidate = <seconds>`
   - rendering them dynamically
