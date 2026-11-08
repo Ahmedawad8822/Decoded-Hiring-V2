@@ -49,14 +49,10 @@ import { eq, desc, and, inArray, isNull } from "drizzle-orm";
 import type { LlmBlock, ContextChunk } from "../skills/types";
 import type { LLMProvider } from "../providers";
 import type { ContentBlock } from "@/features/publishing/types";
-import { resolveProvider } from "../providers";
-import { retrieveKnowledge } from "../knowledge/retrieval";
-import { getActiveMemory } from "../memory/service";
 import { logAudit } from "../audit/service";
 import { createGuide, discardGuideDraft, getAdminGuideById, publishGuide, unpublishGuide } from "@/features/guides/service";
 import { createFieldNote, discardFieldNoteDraft, getAdminFieldNoteById, publishFieldNote, unpublishFieldNote } from "@/features/field-notes/service";
 import { isUniqueConstraintError } from "@/lib/db/sqlite-errors";
-import { AHA_AUTHORITY_V1, SKILL_VERSION, NoRelevantEvidenceError } from "../skills/aha-authority";
 import type {
   DraftContentType,
   DraftStatus,
@@ -66,7 +62,6 @@ import type {
   DraftSourceProvenance,
   DraftSummary,
 } from "./types";
-import { generateDraftSchema, updateDraftSchema } from "./types";
 import { AppError } from "@/lib/errors";
 
 // ---------------------------------------------------------------------------
@@ -82,7 +77,13 @@ export async function generateDraft(
     onBeforePersist?: (context: { draftId: string; chunkIds: string[] }) => Promise<void>;
   }
 ): Promise<EditorialDraftWithSources> {
+  // Generation-only code must not initialize when listing or reading drafts.
+  const { generateDraftSchema } = await import("./types");
   input = generateDraftSchema.parse(input);
+  const { resolveProvider } = await import("../providers");
+  const { retrieveKnowledge } = await import("../knowledge/retrieval");
+  const { getActiveMemory } = await import("../memory/service");
+  const { AHA_AUTHORITY_V1, SKILL_VERSION, NoRelevantEvidenceError } = await import("../skills/aha-authority");
   // Provider boundary (Mission 07 §3): use the injected provider when
   // supplied (tests/dev), otherwise resolve from env — which throws
   // EditorialProviderNotConfiguredError when unset (fail-closed, no fake).
@@ -362,6 +363,7 @@ export async function updateDraft(
     onValidated?: () => Promise<void>;
   },
 ): Promise<EditorialDraftWithSources> {
+  const { updateDraftSchema } = await import("./types");
   input = updateDraftSchema.parse(input);
   const db = await getDb();
   const now = new Date();

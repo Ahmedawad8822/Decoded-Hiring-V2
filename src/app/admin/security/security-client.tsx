@@ -2,7 +2,6 @@
 
 import React, { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import qrcode from "qrcode-generator";
 import { authClient } from "@/lib/auth/client";
 
 type Step = "idle" | "password" | "enroll" | "codes" | "regenerate" | "disable";
@@ -39,14 +38,6 @@ const secondary: React.CSSProperties = {
   border: "1px solid var(--line-strong)",
 };
 
-/** QR as an SVG data: URI (img-src allows data:, so no CSP change). */
-function qrDataUri(text: string): string {
-  const qr = qrcode(0, "M");
-  qr.addData(text);
-  qr.make();
-  return `data:image/svg+xml;utf8,${encodeURIComponent(qr.createSvgTag({ cellSize: 4, margin: 2, scalable: true }))}`;
-}
-
 export function SecurityClient({
   enabled,
   required,
@@ -61,6 +52,7 @@ export function SecurityClient({
   const [password, setPassword] = useState("");
   const [code, setCode] = useState("");
   const [totpUri, setTotpUri] = useState("");
+  const [qrSrc, setQrSrc] = useState("");
   const [backupCodes, setBackupCodes] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -72,7 +64,6 @@ export function SecurityClient({
       return "";
     }
   }, [totpUri]);
-  const qrSrc = useMemo(() => (totpUri ? qrDataUri(totpUri) : ""), [totpUri]);
 
   function reset(next: Step) {
     setStep(next);
@@ -96,11 +87,18 @@ export function SecurityClient({
   const startEnroll = (e: React.FormEvent) => {
     e.preventDefault();
     return run(async () => {
+      // Load before enabling TOTP so a chunk-load failure leaves enrollment untouched.
+      const { default: qrcode } = await import("qrcode-generator");
       const res = await authClient.twoFactor.enable({ password, method: "totp", issuer: "Decoded Hiring" });
       if (res.error || !res.data || res.data.method !== "totp") {
         setError(res.error?.message || "Could not start enrollment. Check your password.");
         return;
       }
+      const qr = qrcode(0, "M");
+      qr.addData(res.data.totpURI);
+      qr.make();
+      // SVG data: URI (img-src allows data:, so no CSP change).
+      setQrSrc(`data:image/svg+xml;utf8,${encodeURIComponent(qr.createSvgTag({ cellSize: 4, margin: 2, scalable: true }))}`);
       setTotpUri(res.data.totpURI);
       setBackupCodes(res.data.backupCodes);
       setPassword("");
@@ -156,6 +154,7 @@ export function SecurityClient({
   function finish() {
     setBackupCodes([]);
     setTotpUri("");
+    setQrSrc("");
     reset("idle");
     router.push("/admin/content");
     router.refresh();
