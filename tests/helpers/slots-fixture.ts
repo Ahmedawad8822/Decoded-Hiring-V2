@@ -8,6 +8,19 @@ import { generateCandidateSlots } from "./slots-reference/availability";
 
 const DAY_MS = 86_400_000;
 
+/**
+ * Let the event loop turn after long synchronous work, before the next local
+ * D1 query. Locally D1 goes through Miniflare's undici pool, which retires
+ * idle sockets on a 1 s timer, while workerd closes them after 5 s idle. A
+ * synchronous pass longer than 5 s (the reference slot generator on a loaded
+ * machine) blocks that timer, so the next query reuses a socket workerd has
+ * already closed: "fetch failed" / ECONNRESET. Yielding lets undici see the
+ * close first. Test-only: on Workers, D1 is native.
+ */
+export function settleLocalD1(): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, 50));
+}
+
 /** Real D1 rows; no service/DB mocks. Also shared by the reproducible benchmark. */
 export async function seedSlotsFixture(options: {
   now?: Date;
@@ -40,6 +53,7 @@ export async function seedSlotsFixture(options: {
   const rangeEnd = new Date(now.getTime() + 60 * DAY_MS);
   const candidateParams = { bookingType, windows, now, rangeStart: now, rangeEnd };
   const candidates = generateCandidateSlots(candidateParams);
+  await settleLocalD1();
   const busy: FreeBusyEntry[] = [];
   if (options.conflicts !== false) {
     for (let i = 0; i < candidates.length; i++) {

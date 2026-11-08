@@ -4,13 +4,49 @@ import { test } from "node:test";
 import { disposeCloudflareBindings } from "@/lib/cloudflare/bindings";
 import { migrateLocalDb } from "@/lib/db/migrate";
 import { generateCandidateSlots, iterateCandidateSlots } from "@/features/scheduling/availability";
-import { resolvePublicSchedulingModel } from "@/features/scheduling/public-scheduling";
+import { resolvePublicSchedulingModel as resolveModelImpl } from "@/features/scheduling/public-scheduling";
 import { generateCandidateSlots as referenceCandidates } from "./helpers/slots-reference/availability";
-import { resolvePublicSchedulingModel as referenceModel } from "./helpers/slots-reference/public-scheduling";
-import { seedSlotsFixture } from "./helpers/slots-fixture";
+import { resolvePublicSchedulingModel as referenceModelImpl } from "./helpers/slots-reference/public-scheduling";
+import { seedSlotsFixture, settleLocalD1 } from "./helpers/slots-fixture";
+
+// Every model call starts with D1 reads; yield first so a socket closed during
+// the preceding synchronous work is retired (see settleLocalD1).
+async function referenceModel(...args: Parameters<typeof referenceModelImpl>) {
+  await settleLocalD1();
+  return referenceModelImpl(...args);
+}
+async function resolvePublicSchedulingModel(...args: Parameters<typeof resolveModelImpl>) {
+  await settleLocalD1();
+  return resolveModelImpl(...args);
+}
 
 test.before(() => migrateLocalDb());
 test.after(() => disposeCloudflareBindings());
+
+// Backstop for settleLocalD1: if a local D1 proxy socket is still reset, rerun
+// the test once. Each attempt seeds fresh rows with new ids, so a rerun is safe;
+// any other failure, or a second reset, still fails.
+function isProxyReset(error: unknown): boolean {
+  for (let e: unknown = error, depth = 0; e && depth < 5; depth++) {
+    const err = e as { code?: string; message?: string; cause?: unknown };
+    if (err.code === "ECONNRESET" || /ECONNRESET/.test(err.message ?? "")) return true;
+    e = err.cause;
+  }
+  return false;
+}
+
+function proxyTest(name: string, fn: () => Promise<void>) {
+  test(name, async (t) => {
+    try {
+      await fn();
+    } catch (error) {
+      if (!isProxyReset(error)) throw error;
+      t.diagnostic("local D1 proxy reset (ECONNRESET); retrying once with fresh rows");
+      await settleLocalD1();
+      await fn();
+    }
+  });
+}
 
 const scenarios = [
   { timezone: "Africa/Cairo", now: "2026-10-20T08:00:00Z" },
@@ -28,7 +64,8 @@ const scenarios = [
 ];
 
 for (const [index, scenario] of scenarios.entries()) {
-  test(`slots equal frozen implementation: ${scenario.timezone} ${scenario.now}`, async () => {
+  proxyTest(`slots equal frozen implementation: ${scenario.timezone} ${scenario.now}`, async () => {
+    await settleLocalD1();
     const fixture = await seedSlotsFixture({
       now: new Date(scenario.now),
       policy: {
@@ -74,7 +111,8 @@ for (const [index, scenario] of scenarios.entries()) {
   });
 }
 
-test("dense one-minute schedule stops at cap, including conflicts before the cap", async () => {
+proxyTest("dense one-minute schedule stops at cap, including conflicts before the cap", async () => {
+  await settleLocalD1();
   const fixture = await seedSlotsFixture({
     policy: { timezone: "UTC", durationMinutes: 1, bufferBeforeMinutes: 0, bufferAfterMinutes: 0, bookingHorizonDays: 3 },
     windows: Array.from({ length: 7 }, (_, weekday) => ({ weekday, startMinute: 540, endMinute: 780 })),
@@ -87,7 +125,8 @@ test("dense one-minute schedule stops at cap, including conflicts before the cap
   assert.ok(actual.enabled && actual.slots.length === 60);
 });
 
-test("notice, horizon and range edges; insufficient/overlapping windows retain reference output", async () => {
+proxyTest("notice, horizon and range edges; insufficient/overlapping windows retain reference output", async () => {
+  await settleLocalD1();
   const fixture = await seedSlotsFixture({ conflicts: false, policy: { timezone: "UTC" } });
   const slot = fixture.candidates[0];
   const params = { ...fixture.candidateParams, rangeStart: slot.startAt, rangeEnd: slot.endAt };
