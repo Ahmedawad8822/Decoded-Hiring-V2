@@ -84,7 +84,7 @@ Local gate before a PR: `npm run lint`, `npm run typecheck`, `npm test`, `npm ru
 | **7-day-old rule** | Adopt only package versions published at least 7 days ago. Dependabot enforces it with `cooldown.default-days: 7` (`.github/dependabot.yml`); for manual bumps check the publish date yourself (the OpenNext adapter was pinned to 1.20.12 over 1.20.13 for this reason) |
 | Pinning | Runtime framework packages are pinned exactly (`next`, `react`, `react-dom`, `motion`, `zod`, `lucide-react`, `@opennextjs/cloudflare`, `tailwindcss`); a few tools use `^`. Keep the existing style when bumping |
 | Dependabot ignores | Semver-**major** updates are ignored for `next`, `react`, `react-dom`, `@opennextjs/cloudflare`, `wrangler`, `better-auth`, `drizzle-orm`, `typescript` (TS 7 breaks typescript-eslint), `eslint` (v10 unsupported by the plugins in `eslint-config-next`), `eslint-config-next`. Majors are manual, planned upgrades. Minor and patch updates arrive as one weekly group; GitHub Actions are grouped too |
-| Overrides | Two `overrides` in `package.json` (`undici`, `@node-minify/core` > `glob`) patch dev-tool advisories; remove them when upstream updates |
+| Overrides | `package.json` scopes dev-tool fixes to undici, OpenNext's glob consumers, TypeScript ESLint's minimatch and the Drizzle loader's esbuild; a transitive matcher pin enforces the seven-day rule. See `Docs/Engineering/DEPENDENCY-AUDIT.md` for compatibility constraints and removal criteria |
 | New dependency | Needs a reason in the PR; watch the Worker size budget (about 6% headroom) |
 | Next.js 16 | Differs from older docs. Read `node_modules/next/dist/docs/` before writing framework code (`AGENTS.md`) |
 

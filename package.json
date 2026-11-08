@@ -62,8 +62,24 @@
   },
   "overrides": {
     "undici@7.29.1": "7.30.1",
+    "@isaacs/nonrecursive-glob-match": "1.0.3",
     "@node-minify/core": {
-      "glob": "10.5.0"
+      "glob": {
+        ".": "14.0.3",
+        "minimatch": "11.0.3"
+      }
+    },
+    "@opennextjs/cloudflare": {
+      "glob": {
+        ".": "14.0.3",
+        "minimatch": "11.0.3"
+      }
+    },
+    "@typescript-eslint/typescript-estree": {
+      "minimatch": "11.0.3"
+    },
+    "@esbuild-kit/core-utils": {
+      "esbuild": "0.25.12"
     }
   }
 }
