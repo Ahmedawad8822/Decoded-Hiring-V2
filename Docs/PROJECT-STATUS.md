@@ -16,8 +16,8 @@ Last updated: **2026-11-08**
 
 | | |
 |---|---|
-| `main` | `96222e7` (plus this doc): **Missions 01–08, CI (verify, Playwright E2E with all 7 specs, Worker size gate on the 64 MiB uncompressed limit, npm audit; CodeQL on demand; Dependabot active), security fixes and CSP, hardening batches 1–7, free-plan perf batch (#67, #68, #71–#74), deploy-path prep, Next 16.4.2, React 19.3.1, motion 14.** Unit tests: 41 suites, each on its own throwaway D1/R2. Migrations through `0023_business_events_retention_index`. Admin 2FA is enforced unless `ADMIN_REQUIRE_2FA=false`. `.env.example` and the Playwright web server set it, and so do the unit suites that sign in admins (`admin-audit-trail`, `admin-two-factor`). `tests/helpers/env.ts` doesn't. |
-| Open PRs to `main` | Dependabot [#70](https://github.com/Ahmedawad8822/Decoded-Hiring-V2/pull/70) (9 minor/patch updates; untriaged) |
+| `main` | `44b8820` (plus this doc): **Missions 01–08, CI (verify, Playwright E2E with all 7 specs, Worker size gate on the 64 MiB uncompressed limit, npm audit; CodeQL on demand; Dependabot active), security fixes and CSP, hardening batches 1–7, free-plan perf batch (#67, #68, #71–#74), deploy-path prep, Next 16.4.3, OpenNext 1.20.15, wrangler 4.156.0, Better Auth 1.7.15, React 19.3.1, motion 14.9.** Unit tests: 41 suites, each on its own throwaway D1/R2. Migrations through `0023_business_events_retention_index`. Admin 2FA is enforced unless `ADMIN_REQUIRE_2FA=false`. `.env.example` and the Playwright web server set it, and so do the unit suites that sign in admins (`admin-audit-trail`, `admin-two-factor`). `tests/helpers/env.ts` doesn't. |
+| Open PRs to `main` | None |
 | Production | **Not deployed.** The OpenNext adapter and config are prepared and verified locally (`Docs/Engineering/DEPLOYMENT.md`). No real Cloudflare resources exist yet; `wrangler.jsonc → env.production` holds placeholders. |
 | **GitHub Actions** | **Blocked:** jobs won't start ("recent account payments have failed or your spending limit needs to be increased"). The repo is private, so minutes are billed. Since #62, every PR is verified with a local mirror of `ci.yml` and `audit.yml` instead (see the session log), with the result as a PR comment. Ahmed has to fix billing in GitHub Settings → Billing & plans. |
 | Providers | All dormant by design: no payment, calendar, mailbox, meeting or analytics provider is active. |
@@ -238,6 +238,11 @@ Take the top unblocked item. Move items, don't delete them silently.
 ## 9. Session log
 
 Newest first. One entry per task: date, what changed, branch/PR, what's next.
+
+- **2026-11-08.** Dependabot #70 (9 minor/patch: better-auth 1.7.15, next/eslint-config-next 16.4.3, motion 14.9, lucide-react 1.66, @opennextjs/cloudflare 1.20.15, wrangler 4.156.0, workers-types, @types/node) merged (`44b8820`).
+  - Two Codex (gpt-6.1-sol, high) reviewers diffed old vs new installed package code against our usage; all SAFE, no code changes. Coordinator spot-checked the D1 tag-cache diff and auth hooks.
+  - OpenNext 1.20.15 fixes on-demand ISR pages (`/guides/[slug]`, `/field-notes/[slug]`) falling back to 1 s revalidation on another instance.
+  - Local CI green (Worker 12,577 KiB uncompressed). No open PRs.
 
 - **2026-11-08.** Free-plan perf batch. Ahmed chose to stay on Workers Free, so the work went to CPU per request.
   - Profiled every route locally with the new `perf:cpu` tool (#72). Hot spots: slot generation on `/coaching` (`getTimezoneOffsetMs`), Drizzle `extractTablesRelationalConfig` on every `getDb()`, Better Auth scrypt on sign-in.
