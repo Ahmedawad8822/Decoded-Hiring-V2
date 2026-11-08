@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { CacheEntryType, CacheValue, IncrementalCache } from "@opennextjs/aws/types/overrides";
 import { withRenderTimestamp } from "../src/lib/cloudflare/render-cache";
+import { withRenderStart } from "../src/lib/cloudflare/render-context";
 
 function fixture() {
   let clock = 100;
@@ -84,6 +85,18 @@ test("a render starting in the same millisecond as invalidation remains expired"
   await f.cache.set("detail", { type: "app", html: "Old snapshot" });
   f.nextRequest();
   assert.ok(expiresAt > (await f.cache.get("detail"))!.lastModified!);
+});
+
+test("forced ISR writes without a cache read use this self-fetch's start, not upload time or the stale clock", async () => {
+  const f = fixture();
+  await withRenderStart(async () => {
+    f.time(900); // upload completes well after this self-fetch began
+    await f.cache.set("forced-isr", { type: "app", html: "New data", revalidate: 300 });
+  }, () => 500);
+  f.nextRequest();
+  assert.equal((await f.cache.get("forced-isr"))?.lastModified, 499);
+  assert.equal((await f.r2.get("forced-isr"))?.lastModified, 900);
+  assert.ok(550 > (await f.cache.get("forced-isr"))!.lastModified!, "an overlapping action still expires this background render");
 });
 
 
