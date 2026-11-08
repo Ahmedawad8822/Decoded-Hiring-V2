@@ -8,7 +8,7 @@
   at the bottom. Keep it short and factual. Link to mission docs for detail.
 - If this file disagrees with the code or GitHub, the code/GitHub wins. Fix this file.
 
-Last updated: **2026-10-26**
+Last updated: **2026-11-08**
 
 ---
 
@@ -16,10 +16,10 @@ Last updated: **2026-10-26**
 
 | | |
 |---|---|
-| `main` | `ebbd9d4` (plus this doc): **Missions 01–08, CI (verify, Playwright E2E with all 7 specs, Worker size budget, npm audit; CodeQL on demand; Dependabot active), security fixes and CSP, hardening batches 1–7, deploy-path prep, Next 16.4.2, React 19.3.1, motion 14.** Unit tests: 37 suites, each on its own throwaway D1/R2. Migrations through `0023_business_events_retention_index`. Admin 2FA is enforced unless `ADMIN_REQUIRE_2FA=false`. `.env.example` and the Playwright web server set it, and so do the unit suites that sign in admins (`admin-audit-trail`, `admin-two-factor`). `tests/helpers/env.ts` doesn't. |
-| Open PRs to `main` | None |
+| `main` | `96222e7` (plus this doc): **Missions 01–08, CI (verify, Playwright E2E with all 7 specs, Worker size gate on the 64 MiB uncompressed limit, npm audit; CodeQL on demand; Dependabot active), security fixes and CSP, hardening batches 1–7, free-plan perf batch (#67, #68, #71–#74), deploy-path prep, Next 16.4.2, React 19.3.1, motion 14.** Unit tests: 41 suites, each on its own throwaway D1/R2. Migrations through `0023_business_events_retention_index`. Admin 2FA is enforced unless `ADMIN_REQUIRE_2FA=false`. `.env.example` and the Playwright web server set it, and so do the unit suites that sign in admins (`admin-audit-trail`, `admin-two-factor`). `tests/helpers/env.ts` doesn't. |
+| Open PRs to `main` | Dependabot [#70](https://github.com/Ahmedawad8822/Decoded-Hiring-V2/pull/70) (9 minor/patch updates; untriaged) |
 | Production | **Not deployed.** The OpenNext adapter and config are prepared and verified locally (`Docs/Engineering/DEPLOYMENT.md`). No real Cloudflare resources exist yet; `wrangler.jsonc → env.production` holds placeholders. |
-| **GitHub Actions** | **Blocked:** jobs won't start ("recent account payments have failed or your spending limit needs to be increased"). The repo is private, so minutes are billed. #62, #59 and this doc were verified with a local mirror of `ci.yml` and `audit.yml` instead (see the session log). Ahmed has to fix billing in GitHub Settings → Billing & plans. |
+| **GitHub Actions** | **Blocked:** jobs won't start ("recent account payments have failed or your spending limit needs to be increased"). The repo is private, so minutes are billed. Since #62, every PR is verified with a local mirror of `ci.yml` and `audit.yml` instead (see the session log), with the result as a PR comment. Ahmed has to fix billing in GitHub Settings → Billing & plans. |
 | Providers | All dormant by design: no payment, calendar, mailbox, meeting or analytics provider is active. |
 | Blueprint phase | Phases 1–6 built and on `main`. **Phase 7 (Hardening & Growth) is in progress** (CI merged; #14 open), then Phase 8 (Launch). |
 
@@ -66,6 +66,13 @@ Last updated: **2026-10-26**
 | `ci/worker-self-ref-noise` | — | merged ([#63](https://github.com/Ahmedawad8822/Decoded-Hiring-V2/pull/63)) | `WORKER_SELF_REFERENCE` removed from the local wrangler config, kept in `env.production`; new `wrangler.preview.jsonc` for `npm run preview` |
 | `test/mission-06-complete-wait` | — | merged ([#64](https://github.com/Ahmedawad8822/Decoded-Hiring-V2/pull/64)) | mission-06 waits up to 30 s for completion and fails fast on the button's error |
 | `docs/status-batch-7` | — | merged (#65) | Status doc |
+| `perf/cached-booking-pages` | — | merged ([#68](https://github.com/Ahmedawad8822/Decoded-Hiring-V2/pull/68)) | `/coaching` and `/workshop` are `revalidate = 300` shells; slots come from `GET /api/public/booking-slots` client-side. Slot generation rewritten (lazy, stops at 60, batched D1 reads): resolver CPU median 185 → 11 ms. Equivalence tests against a frozen reference |
+| `perf/worker-slim-and-size-limit` | — | merged ([#67](https://github.com/Ahmedawad8822/Decoded-Hiring-V2/pull/67)) | `cf:size` gates **uncompressed** size (Cloudflare limit 64 MiB, no compressed limit since 2026-10-29); budget `WORKER_UNCOMPRESSED_BUDGET_KIB` 20480; gzip informational. Lazy `import()` for editorial AI and the 2FA QR code |
+| `perf/reuse-drizzle-instance` | — | merged ([#71](https://github.com/Ahmedawad8822/Decoded-Hiring-V2/pull/71)) | One Drizzle instance per D1 binding (`WeakMap`); `drizzle()` re-derived the schema config on every `getDb()`, the top CPU cost of dynamic pages |
+| `perf/d1-tag-cache` | — | merged ([#73](https://github.com/Ahmedawad8822/Decoded-Hiring-V2/pull/73)) | OpenNext D1 tag cache (`NEXT_TAG_CACHE_D1`, same D1 as `DB`); without it `revalidatePath`/`revalidateTag` are no-ops on Workers |
+| `test/slots-proxy-reset` | — | merged ([#74](https://github.com/Ahmedawad8822/Decoded-Hiring-V2/pull/74)) | Fixes a local-only `ECONNRESET` flake in `slots-equivalence` (Miniflare undici socket reused after >5 s sync work) |
+| `perf/cpu-profiler` | — | merged ([#72](https://github.com/Ahmedawad8822/Decoded-Hiring-V2/pull/72)) | `npm run perf:cpu` (local workerd CPU per route + V8 profiles) and `perf:cpu:remote -- --url https://<name>.workers.dev` (GET-only, reads a `wrangler tail` file). `Docs/Engineering/CPU-PROFILE.md` |
+| `perf/lesson-content-cache` | — | **on hold** (#69 closed) | Per-lesson/course `unstable_cache` content. Locally it made lesson pages slower (20 → 31 ms) because cache reads are in-process; revisit after a workers.dev measurement |
 | `chore/status-hardening-batch` | — | merged (#23) | Status doc; git/eslint ignore `.claude/` |
 | `deploy/opennext-cloudflare` | — | merged ([#24](https://github.com/Ahmedawad8822/Decoded-Hiring-V2/pull/24)) | `@opennextjs/cloudflare@1.20.9`, `getCloudflareContext()` bindings with local fallback, `wrangler.jsonc` local + `env.production` placeholders, R2 incremental cache, deploy scripts, `DEPLOYMENT.md` |
 | `docs/project-status` | — | merged (#16) | This file + `AGENTS.md` pointer |
@@ -120,13 +127,14 @@ Take the top unblocked item. Move items, don't delete them silently.
 
 1. **[DECISION: Ahmed] First deploy.** The deploy path, `npm run admin:create` and Next 16.4 are on `main`. Follow the checklist in
    `Docs/Engineering/DEPLOYMENT.md`, which needs **Ahmed's decisions**:
-   Cloudflare account and plan, D1/R2 names, domain, staging. Open technical items:
-   - Workers Free limits: 2.78 MiB of 3 MiB gzipped; 10 ms CPU, which SSR likely exceeds.
+   Cloudflare account and plan, D1/R2 names, domain, staging. **Ahmed wants to stay on Workers Free** (no revenue yet; 6–12 months before real traffic). Open technical items:
+   - Workers Free: size is no longer a constraint (12.5 MiB of 64 MiB uncompressed, #67). **CPU (10 ms/request) is the risk.** Local warm p50 after the perf batch: public cached pages 4–10 ms, `/coaching` 8 ms (was 83), get-session 9 ms, learner/admin 15–30 ms, sign-in ~65 ms (scrypt; tolerated as occasional). Locally, emulated D1/R2 count as CPU; on the edge they are I/O.
+   - **Next:** deploy a throwaway `*.workers.dev` preview (needs Ahmed's Cloudflare account) and run `npm run perf:cpu:remote`. Then decide on the held lesson-content cache (`perf/lesson-content-cache`) and any further learner/admin work.
    - `/guides` and `/field-notes` are prerendered from the *build machine's* D1. Choose
-     `revalidate`, dynamic rendering or `populateCache`.
+     `revalidate`, dynamic rendering or `populateCache`. On-demand revalidation now works on Workers (D1 tag cache, #73).
    - ~~Remote-safe admin seed script~~: done (#29).
    - ~~Upgrade to Next ≥ 16.4.1 and the current adapter~~: done (#31).
-   - Size headroom is about 6% (2.82 MiB of 3 MiB); CI enforces a 2950 KiB budget (#26).
+   - ~~Size headroom ~6% of 3 MiB gzip~~: the compressed limit is gone; CI gates 20 MiB uncompressed (#67).
 2. **Phase 7 hardening backlog** (from the 2026-10-24 audit; check whether Mission 08 already covers an item before starting it):
    - ~~Tests share the local dev D1~~: done (#20).
    - ~~Duplicated progress maths, 0-required case~~: done (#21).
@@ -141,6 +149,7 @@ Take the top unblocked item. Move items, don't delete them silently.
    - ~~22 npm audit advisories~~ (done, #36). 4 moderate dev-only remain; remove the 2 `overrides` when miniflare and `@node-minify/core` update (`Docs/Engineering/DEPENDENCY-AUDIT.md`).
    - **CI stability:**
      - ~~mission-07 e2e slow and flaky~~ (done, #44).
+     - ~~`slots-equivalence` ECONNRESET flake under load~~ (done, #74).
      - `mission-06-learning-platform` "✓ Completed" timeout: the hydration fix (#56) didn't stop it; it failed again on `main` (run 40293257373). #64 (merged) waits up to 30 s for the first server-action compile and D1 write, and surfaces the button's error. Confirm across later CI runs.
      - `workerd … Failed to get handler to worker` noise: confirmed by a CI experiment, 3 lines per run on `main` and 0 with the local binding removed. Fixed by #63 (merged).
    - Check one lesson with a real YouTube video under the CSP in staging (the seed has none).
@@ -165,7 +174,7 @@ Take the top unblocked item. Move items, don't delete them silently.
 
      Dependabot ignores both majors (and `eslint-config-next` majors). Revisit with the next Next.js upgrade.
    - **From the performance budget (#33):**
-     - ~~Dynamic `searchParams` pages and unneeded `force-dynamic`~~ (done, #43). `/coaching` and `/workshop` stay dynamic (live slots). Check ISR with the R2 cache in staging.
+     - ~~Dynamic `searchParams` pages and unneeded `force-dynamic`~~ (done, #43). ~~`/coaching` and `/workshop` stay dynamic~~: cached shells with client-loaded slots (#68). Check ISR with the R2 cache in staging.
      - No Lighthouse/CWV/geo-TTFB measurement yet.
    - Performance budget: ~~hero PNGs → WebP~~ (done, #19). Still to do: a `next/image` loader for Cloudflare, and Lighthouse/bundle checks in CI.
    - Hygiene: ticket-reference comments ("review correction H"), 9.4k lines of global CSS, `prototypes/` and the `.docx` in git, ~10 GB of local `.worktrees/`. Subagent worktrees under `.claude/worktrees/` can be removed with `git worktree remove` once their PRs merge.
@@ -196,7 +205,7 @@ Take the top unblocked item. Move items, don't delete them silently.
 
 | Decision | Blocks |
 |---|---|
-| Cloudflare account / domain / staging approach | Deploy path, launch |
+| Cloudflare account / domain / staging approach (plan: **Free**, decided 2026-11) | Deploy path, workers.dev CPU measurement, launch |
 | Payment provider (none chosen by design) | Paid checkout activation |
 | Calendar/mailbox provider (Google Workspace likely) | Real scheduling, invites, reminders |
 | LLM provider + credentials for Editorial AI | Real draft generation (tests use FakeProvider) |
@@ -229,6 +238,16 @@ Take the top unblocked item. Move items, don't delete them silently.
 ## 9. Session log
 
 Newest first. One entry per task: date, what changed, branch/PR, what's next.
+
+- **2026-11-08.** Free-plan perf batch. Ahmed chose to stay on Workers Free, so the work went to CPU per request.
+  - Profiled every route locally with the new `perf:cpu` tool (#72). Hot spots: slot generation on `/coaching` (`getTimezoneOffsetMs`), Drizzle `extractTablesRelationalConfig` on every `getDb()`, Better Auth scrypt on sign-in.
+  - Codex (gpt-6.1-sol, high) did the bulk implementation in worktrees; the coordinator reviewed and committed (Codex's sandbox can't write `.git`).
+  - Merged in order, each updated from `main` and verified with the local CI mirror: #68 (`ad88810`), #74 (`2c69f8d`), #67 (`0f935d1`), #71 (`c4a04df`), #73 (`1aeab68`), #72 (`96222e7`).
+  - #74 was new: #67's CI exposed an `ECONNRESET` flake in #68's `slots-equivalence` test on a loaded machine (load average ~20). Cause and fix are in the PR.
+  - #69 split: the D1 tag cache became #73; the per-lesson content cache is on hold (made lesson/course pages slower locally). Branch kept.
+  - Before → after (local warm p50): `/coaching` 83 → 8 ms, `/workshop` 13 → 9, get-session 12 → 9. Cached public pages went 4–6 → 7–10 ms, probably the tag-cache D1 check running in-process locally; confirm on the edge.
+  - Nothing deployed. Worktrees removed; `perf/lesson-content-cache` kept.
+  - Next: Ahmed creates a Cloudflare account → workers.dev preview → `perf:cpu:remote`. Triage Dependabot #70.
 
 - **2026-10-26.** Batch 7: five Sonnet subagents; the coordinator reviewed them and opened #59–#63.
   - The workerd experiment pushed a throwaway `experiment/worker-self-ref-a` branch, which is now deleted.
