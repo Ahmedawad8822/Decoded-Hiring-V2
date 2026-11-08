@@ -1,5 +1,7 @@
 # Workers Builds — test environment only
 
+> **Status (2026-11-08):** connected. `dh-cputest` builds from `main`; preview builds are off. The Cloudflare GitHub app is installed on this repository only.
+
 This connects **only `dh-cputest`**, at https://dh-cputest.hdv2.workers.dev,
 to GitHub. Production remains unprovisioned and unconnected. Stay on Workers
 Free. These instructions were checked against Cloudflare documentation and the
