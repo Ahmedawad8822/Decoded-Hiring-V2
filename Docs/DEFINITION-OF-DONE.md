@@ -21,7 +21,7 @@ The six permanent quality gates (blueprint §15), made checkable for this repo. 
 | `verify` | Unit/integration tests, each suite on its own throwaway local D1/R2 | `npm test` |
 | `verify` | Apply local D1 migrations, then production build | `npm run db:migrate:local`, `npm run build` |
 | `e2e` (after `verify`) | Playwright (Chromium), 40-minute timeout | `npm run test:e2e:ci` |
-| `worker-size` (after `verify`) | Apply local D1 migrations, OpenNext build, gzip Worker must stay under **2950 KiB** (Workers Free limit 3072) | `npm run db:migrate:local`, `npm run cf:build`, `npm run cf:size` |
+| `worker-size` (after `verify`) | Apply local D1 migrations, OpenNext build, uncompressed Worker must stay within **20480 KiB** (Free/Paid limit 64 MiB; gzip informational only) | `npm run db:migrate:local`, `npm run cf:build`, `npm run cf:size` |
 | `audit.yml` `npm-audit` | Production dependencies, high and critical advisories fail the job; runs on PRs, pushes to `main` and weekly | `npm audit --omit=dev --audit-level=high` |
 
 `test:e2e:ci` runs **seven** specs, all of `e2e/`: `mission-08-final-certification`, `field-notes`, `smoke`, `mission-06-learning-platform`, `mission-07-editorial-ai`, `csp`, `admin-security`. A new spec must be appended to that script, or it does not run in CI. `npm run test:e2e` runs them locally (needs `.env.local` admin vars, see `.env.example`).
@@ -125,7 +125,8 @@ Stays inside the agreed budgets and adds no unjustified client or runtime weight
 | Images are WebP/AVIF at right size (hero PNGs already converted) | **Review** |
 | No analytics or marketing script added outside the planned central tag layer | **Review** |
 | Lighthouse / Core Web Vitals check, bundle-size budget | **Gap**: not in CI |
-| Worker size: gzip under 2950 KiB (about 2.82 MiB measured of the 3 MiB Workers Free limit, `Docs/Engineering/DEPLOYMENT.md`) | **CI** (`worker-size`) |
+| Worker size: uncompressed at most 20480 KiB (20 MiB budget; Free/Paid limit 64 MiB; gzip informational only, `Docs/Engineering/DEPLOYMENT.md`) | **CI** (`worker-size`) |
+| Worker startup: global-scope initialization within 1 second on Free and Paid | **Review** at deploy time; not measured by the size gate |
 | Worker CPU limits | **Review** at deploy time; not measured |
 | Rendering mode of a new public route is deliberate (static, ISR with `revalidate`, or `force-dynamic`) and recorded in `Docs/PERFORMANCE-BUDGET.md` section 3 | **Review** |
 | Regional (EG/SA/AE) measurement | **Gap**: nothing set up |

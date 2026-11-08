@@ -20,13 +20,44 @@ Blueprint §9 ("Flashlight Speed" as a budget) and §18.9 (free-first guardrails
 
 | Budget | Limit | Current | Enforcement |
 |---|---|---|---|
-| Worker size (gzip) | Workers Free 3072 KiB; CI budget **2950 KiB** | 2.82 MiB (about 2888 KiB) gzipped, 12.57 MiB total, per `Docs/Engineering/DEPLOYMENT.md` (2026-10-24) | CI job `worker-size` (`npm run cf:build`, `npm run cf:size`, `scripts/check-worker-size.ts`); fails the PR |
+| Worker size (uncompressed) | Workers Free and Paid **64 MiB (65536 KiB)**; CI budget **20480 KiB (20 MiB)**; no compressed size limit | 12.57 MiB uncompressed (about 20% of platform limit), 2.82 MiB gzip (information only), per `Docs/Engineering/DEPLOYMENT.md` (2026-10-24) | CI job `worker-size` (`npm run cf:build`, `npm run cf:size`, `scripts/check-worker-size.ts`); fails the PR |
+| Worker startup (global scope) | Free and Paid: **1 second** | Not measured; imported module initialization counts | None; verify built Worker startup separately |
 | Worker CPU | Workers Free: **10 ms per request** | Not measured. Dynamic SSR (learner, Studio, booking) likely exceeds it | None. Expect Workers Paid or measure first (DEPLOYMENT.md risks) |
 | Workers requests | 100,000/day (Free) | Not measured | None |
 | D1 reads | 5 M rows/day (Free) | Not measured | None |
 | D1 writes | 100 k rows/day (Free) | Not measured | None; writes are designed down (below) |
 | D1 storage | 5 GB | Not measured | None |
 | R2 | 10 GB-month; 1 M Class A, 10 M Class B ops/month | Not measured | None |
+
+### Worker import audit (2026-11-08, offline)
+
+Same worktree and installed dependencies, before/after `npm run cf:build` and
+`npm run cf:size` (wrangler dry-run, no deployment):
+
+| Measurement | Before | After |
+|---|---|---|
+| Uncompressed Total Upload | 12769.90 KiB | 12818.90 KiB |
+| Gzip (informational only) | 2857.59 KiB | 2869.06 KiB |
+
+The additional async chunks increase total upload by 49.00 KiB uncompressed
+and 11.47 KiB gzip. These changes defer initialization; they do not reduce the
+total bundle or establish a measured startup-time improvement.
+
+| Module / dependency | Before | After / safety boundary |
+|---|---|---|
+| `qrcode-generator` | Static import in `admin/security/security-client.tsx`; QR implementation in `.next/server/app/admin/security/page.js` | Imported in the enrollment event before calling Better Auth; QR implementation moves to async `.next/server/chunks/1950.js`. Same SVG options and error handler; no server-rendered QR is needed |
+| Offers `./types` (create/update Zod schemas) | Static dependency of the shared offer read/mutation service | Imported inside `createOffer` / `updateOffer`, before the same validation and DB work. Public `/mission-01` and `/coaching` no longer statically reach offer schemas through this service |
+| Scheduling `./schemas` | Static import in shared `policy.ts` | Imported inside `createBookingType`, `updateBookingType`, `createAvailabilityWindow`, before validation and writes. Public hold operations still statically use this shared schema module; this is not complete schema isolation |
+| Editorial providers, knowledge retrieval, active memory, Aha Authority skill | Static imports of the draft service | Imported inside `generateDraft`; listing and reading drafts do not need generation. Existing provider configuration checks and evidence-first behavior remain; OpenAI and FakeProvider implementations were already dynamic |
+| Editorial draft `./types` schemas | Static import of the draft service | Imported inside `generateDraft` / `updateDraft` before the same validation; action-level validation is retained |
+| Knowledge `./storage` and `./chunker` | Static imports of the knowledge service | Imported inside ingestion's existing `try` block; list/detail reads do not need R2 loading or chunking; lease/error recovery stays in place |
+
+Checked source import graphs (after TypeScript type erasure), `.next/server`
+chunks and OpenNext's `handler.mjs.meta.json`. Editorial modules were already
+admin-scoped in the source graph; root/public layouts do not import them.
+Motion is used by public client components and remains for their animations.
+Zod remains in public paths that validate public inputs. Built Worker startup
+time and deployed request CPU are not measured by this audit.
 
 ### How D1 writes are spent
 

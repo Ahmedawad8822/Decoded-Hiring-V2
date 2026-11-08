@@ -104,8 +104,8 @@ jobs:
       # Same clearly fake, CI-only values as `verify`; local Miniflare only.
       BETTER_AUTH_SECRET: ci-only-not-a-real-secret-0123456789abcdef
       NEXT_TELEMETRY_DISABLED: "1"
-      # Workers Free limit is 3072 KiB gzipped; fail a little below it.
-      WORKER_GZIP_BUDGET_KIB: "2950"
+      # Workers Free/Paid limit is 64 MiB uncompressed; notice growth at 20 MiB.
+      WORKER_UNCOMPRESSED_BUDGET_KIB: "20480"
     steps:
       - uses: actions/checkout@v7
 
@@ -123,5 +123,5 @@ jobs:
       - name: Build Worker (OpenNext)
         run: npm run cf:build
 
-      - name: Check Worker gzip size
+      - name: Check Worker uncompressed size
         run: npm run cf:size
