@@ -704,11 +704,17 @@ export async function getLessonResourcesForLessons(
   const out = new Map<string, LessonResource[]>();
   if (lessonIds.length === 0) return out;
   const db = await getDb();
-  const rows = await db
-    .select()
-    .from(lessonResources)
-    .where(inArray(lessonResources.lessonId, lessonIds))
-    .orderBy(asc(lessonResources.position));
+  // D1 caps bound parameters per statement (100); chunk large curricula.
+  const rows: LessonResource[] = [];
+  for (let i = 0; i < lessonIds.length; i += 90) {
+    rows.push(
+      ...(await db
+        .select()
+        .from(lessonResources)
+        .where(inArray(lessonResources.lessonId, lessonIds.slice(i, i + 90)))
+        .orderBy(asc(lessonResources.position)))
+    );
+  }
   for (const row of rows) {
     const bucket = out.get(row.lessonId);
     if (bucket) bucket.push(row);

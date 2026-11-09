@@ -2,7 +2,8 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getServerSession } from "@/lib/auth";
 import { getAccessibleEnrollments } from "@/features/enrollments/service";
-import { getBatchedEnrollmentProgress } from "@/features/progress/service";
+import { getBatchedEnrollmentProgress, compareEnrollmentActivity } from "@/features/progress/service";
+import { getPublishedCourses, getPublishedLessonCounts } from "@/features/courses/service";
 
 export const metadata = {
   title: "Continue learning | Decoded Hiring",
@@ -18,12 +19,17 @@ export default async function LearnHomePage() {
 
   // QUERY SHAPE (batched dashboard): 1 enrollments read + the domain-owned
   // batched progress path (course metadata, published curriculum, progress
-  // rows, reconciliation states — all ONE query per table, bounded as the
-  // enrollment count grows). NO per-enrollment getEnrollmentProgress and NO
+  // rows including activity timestamps, current stored states — all ONE query
+  // per table, bounded as the enrollment count grows). NO per-enrollment getEnrollmentProgress and NO
   // getCoursesByIds fan-out; cancelled enrollments are filtered BEFORE any
   // progress work so they never appear here and never reconcile.
   const memberships = await getAccessibleEnrollments(userId);
-  const batchedProgress = await getBatchedEnrollmentProgress(memberships);
+  const [batchedProgress, published] = await Promise.all([
+    getBatchedEnrollmentProgress(memberships), getPublishedCourses(),
+  ]);
+  const enrolledIds = new Set(memberships.map((enrollment) => enrollment.courseId));
+  const explore = published.filter((course) => !enrolledIds.has(course.id)).slice(0, 2);
+  const lessonCounts = await getPublishedLessonCounts(explore.map((course) => course.id));
 
   const cards = memberships
     .map((enrollment) => {
@@ -33,24 +39,25 @@ export default async function LearnHomePage() {
     })
     .filter((r) => r !== null);
 
-  const inProgress = cards.filter((c) => !c!.progress.completed);
-  const completed = cards.filter((c) => c!.progress.completed);
-  const spotlight = inProgress[0] ?? null;
+  const inProgress = cards.filter((c) => !c.progress.completed).sort((a, b) => compareEnrollmentActivity(a.progress, b.progress));
+  const completed = cards.filter((c) => c.progress.completed);
+  // First in-progress course that has a lesson to resume (newest activity first).
+  const spotlight = inProgress.find((c) => c.progress.resumeLessonId) ?? null;
 
   return (
-    <main className="sec-app" id="main" style={{ padding: "clamp(24px,4vw,48px) 0" }}>
-      <div className="wrap" style={{ maxWidth: 880 }}>
-        <p className="a-micro" style={{ marginBottom: 6 }}>WELCOME BACK, {(session.user.name || "LEARNER").toUpperCase()}</p>
-        <h1 className="a-h1" style={{ marginBottom: 28 }}>Continue learning</h1>
+    <main className="sec-app learner-page" id="main">
+      <div className="wrap learner-column">
+        <p className="a-micro learner-mb-6">WELCOME BACK, {(session.user.name || "LEARNER").toUpperCase()}</p>
+        <h1 className="a-h1 learner-mb-28">Continue learning</h1>
 
         {cards.length === 0 && (
-          <div style={{ border: "1px solid var(--line)", borderRadius: "var(--radius-card)", background: "var(--paper-bright)", padding: "28px 24px" }}>
-            <b style={{ fontSize: 15 }}>No enrollments yet</b>
-            <p className="muted-strong" style={{ marginTop: 8, fontSize: 14, lineHeight: 1.6 }}>
+          <div className="learner-empty">
+            <b className="learner-empty-title">No enrollments yet</b>
+            <p className="muted-strong learner-empty-intro">
               Browse the course catalog and enroll free — your classroom will remember your place.
             </p>
-            <div style={{ marginTop: 16 }}>
-              <Link className="btn primary" href="/learn/courses" style={{ textDecoration: "none" }}>
+            <div className="learner-mt-16">
+              <Link className="btn primary learner-link" href="/learn/courses">
                 Browse courses →
               </Link>
             </div>
@@ -59,9 +66,8 @@ export default async function LearnHomePage() {
 
         {spotlight && spotlight.progress.resumeLessonId && (
           <Link
-            className="continue-card"
+            className="continue-card learner-inherit learner-link"
             href={`/learn/courses/${spotlight.progress.courseSlug}/lessons/${spotlight.progress.resumeLessonSlug}`}
-            style={{ color: "inherit", textDecoration: "none" }}
           >
             <div className="cc-top">
               <div>
@@ -76,7 +82,7 @@ export default async function LearnHomePage() {
             </div>
             <div>
               <div className="cc-bar"><i style={{ width: `${spotlight.progress.percent}%` }}></i></div>
-              <div style={{ display: "flex", justifyContent: "space-between", marginTop: 8 }}>
+              <div className="learner-spotlight-footer">
                 <span className="cc-count">Progress counts required lessons only</span>
                 <span className="btn primary small">Resume lesson →</span>
               </div>
@@ -84,36 +90,35 @@ export default async function LearnHomePage() {
           </Link>
         )}
 
-        {cards.length > 0 && (
-          <section style={{ marginTop: 44 }} aria-labelledby="mc-h">
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 12 }}>
+        {inProgress.length > 0 && (
+          <section className="learner-section" aria-labelledby="mc-h">
+            <div className="learner-section-heading">
               <h2 className="a-h2" id="mc-h">My courses</h2>
-              <Link href="/learn/courses" className="a-micro" style={{ color: "var(--blue)", textDecoration: "none", textTransform: "none", letterSpacing: 0 }}>
+              <Link href="/learn/courses" className="a-micro learner-catalog-link">
                 All courses →
               </Link>
             </div>
-            <div className="course-cards" style={{ marginTop: 18, gridTemplateColumns: "1fr" }}>
+            <div className="course-cards learner-course-list">
               {inProgress.map((c) => (
                 <Link
-                  key={c!.enrollment.id}
-                  className="course-card"
-                  href={`/learn/courses/${c!.progress.courseSlug}`}
-                  style={{ maxWidth: 640, textDecoration: "none", color: "inherit" }}
+                  key={c.enrollment.id}
+                  className="course-card learner-course-row"
+                  href={`/learn/courses/${c.progress.courseSlug}`}
                 >
-                  <div className="cc-cover">{c!.progress.courseTitle.slice(0, 2).toUpperCase()}</div>
+                  <div className="cc-cover">{c.progress.courseTitle.slice(0, 2).toUpperCase()}</div>
                   <div className="cc-body">
-                    <h3>{c!.progress.courseTitle}</h3>
+                    <h3>{c.progress.courseTitle}</h3>
                     <p className="cc-meta">
-                      {c!.lessonCount} lessons · <span className="lifecycle published" style={{ fontSize: 10 }}>ENROLLED · {c!.progress.courseAccessMode}</span>
+                      {c.lessonCount} lessons · <span className="lifecycle published learner-enrolled-badge">ENROLLED · {c.progress.courseAccessMode}</span>
                     </p>
                     <div className="cc-progress">
-                      <span className="progress-ring" style={{ ["--p" as string]: c!.progress.percent }}>
-                        <i>{c!.progress.percent}%</i>
+                      <span className="progress-ring" style={{ ["--p" as string]: c.progress.percent }}>
+                        <i>{c.progress.percent}%</i>
                       </span>
                       <span className="txt">
-                        <b style={{ color: "var(--ink)" }}>{c!.progress.completedRequired} of {c!.progress.totalRequired}</b> required lessons complete
+                        <b className="learner-ink">{c.progress.completedRequired} of {c.progress.totalRequired}</b> required lessons complete
                       </span>
-                      <span className="cc-state" style={{ marginLeft: "auto", color: "var(--blue)" }}>In progress</span>
+                      <span className="cc-state learner-in-progress">In progress</span>
                     </div>
                   </div>
                 </Link>
@@ -123,20 +128,34 @@ export default async function LearnHomePage() {
         )}
 
         {completed.length > 0 && (
-          <section style={{ marginTop: 44 }} aria-labelledby="done-h">
+          <section className="learner-section" aria-labelledby="done-h">
             <h2 className="a-h2" id="done-h">Completed</h2>
-            <div style={{ display: "grid", gap: 12, marginTop: 18 }}>
+            <div className="learner-completed-list">
               {completed.map((c) => (
-                <div key={c!.enrollment.id} style={{ border: "1px solid var(--line)", borderRadius: "var(--radius-card)", background: "var(--paper-bright)", padding: "18px 20px", display: "flex", gap: 14, alignItems: "center", flexWrap: "wrap" }}>
-                  <span className="progress-ring" style={{ ["--p" as string]: 100 }}><i>✓</i></span>
-                  <div style={{ flex: 1, minWidth: 200 }}>
-                    <b style={{ fontSize: 14.5 }}>{c!.progress.courseTitle}</b>
-                    <p className="cc-meta">Completed{c!.progress.enrollmentCompletedAt ? ` · ${new Date(c!.progress.enrollmentCompletedAt).toLocaleDateString()}` : ""}</p>
+                <div className="learner-completed-row" key={c.enrollment.id}>
+                  <span className="progress-ring learner-ring-complete"><i>✓</i></span>
+                  <div className="learner-completed-title">
+                    <b className="learner-completed-name">{c.progress.courseTitle}</b>
+                    <p className="cc-meta">Completed{c.progress.enrollmentCompletedAt ? ` · ${new Date(c.progress.enrollmentCompletedAt).toLocaleDateString()}` : ""}</p>
                   </div>
-                  <Link className="btn secondary small" href={`/learn/courses/${c!.progress.courseSlug}`} style={{ textDecoration: "none" }}>
+                  <Link className="btn secondary small" href={`/learn/courses/${c.progress.courseSlug}/complete`}>See completion</Link>
+                  <Link className="btn secondary small learner-link" href={`/learn/courses/${c.progress.courseSlug}`}>
                     Review
                   </Link>
                 </div>
+              ))}
+            </div>
+          </section>
+        )}
+        {explore.length > 0 && (
+          <section className="learner-section" aria-labelledby="explore-h">
+            <h2 className="a-h2" id="explore-h">Explore more courses</h2>
+            <div className="course-cards learner-mt-18">
+              {explore.map((course) => (
+                <Link className="course-card" href={`/learn/courses/${course.slug}`} key={course.id}>
+                  <div className="cc-cover">{course.title.slice(0, 2).toUpperCase()}</div>
+                  <div className="cc-body"><h3>{course.title}</h3><p className="cc-meta">{lessonCounts[course.id] ?? 0} lessons</p></div>
+                </Link>
               ))}
             </div>
           </section>

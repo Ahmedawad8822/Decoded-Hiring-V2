@@ -3,8 +3,7 @@
 import { publicErrorMessage } from "@/lib/errors";
 import { requireUser } from "@/lib/auth";
 import { revalidatePath } from "next/cache";
-import { markLessonComplete } from "./service";
-import { getAdminLessonById, getAdminCourseById } from "@/features/courses/service";
+import { completeLessonAndContinue } from "./service";
 
 export type ActionState<T = unknown> = {
   ok: boolean;
@@ -16,29 +15,24 @@ export type ActionState<T = unknown> = {
 export async function markLessonCompleteAction(
   enrollmentId: string,
   lessonId: string
-): Promise<ActionState<{ percent: number; completed: boolean; alreadyComplete: boolean }>> {
+): Promise<ActionState<{ percent: number; completed: boolean; alreadyComplete: boolean; nextHref: string }>> {
   try {
     const session = await requireUser();
-    const { progress, alreadyComplete } = await markLessonComplete(
-      session.user.id,
-      enrollmentId,
-      lessonId
+    const { progress, alreadyComplete, course, nextHref } = await completeLessonAndContinue(
+      session.user.id, enrollmentId, lessonId
     );
-    const lesson = await getAdminLessonById(lessonId);
-    if (lesson) {
-      const course = await getAdminCourseById(lesson.courseId);
-      if (course) {
-        revalidatePath(`/learn/courses/${course.slug}`);
-        revalidatePath(`/learn/courses/${course.slug}/lessons/${lesson.slug}`);
-        revalidatePath("/learn");
-      }
-    }
+    revalidatePath(`/learn/courses/${course.slug}`);
+    revalidatePath(`/learn/courses/${course.slug}/complete`);
+    const lesson = progress.publishedLessons.find((entry) => entry.id === lessonId);
+    if (lesson) revalidatePath(`/learn/courses/${course.slug}/lessons/${lesson.slug}`);
+    revalidatePath("/learn");
     return {
       ok: true,
       data: {
         percent: progress.percent,
         completed: progress.completed,
         alreadyComplete,
+        nextHref,
       },
     };
   } catch (err: unknown) {

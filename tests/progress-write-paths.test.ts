@@ -44,6 +44,7 @@ import {
   getEnrollmentProgress,
   getBatchedEnrollmentProgress,
   markLessonComplete,
+  completeLessonAndContinue,
 } from "../src/features/progress/service";
 import { eq } from "drizzle-orm";
 
@@ -282,4 +283,56 @@ test("LESSONS: an archived lesson cannot be published", async () => {
   } finally {
     await cleanup(course.id, []);
   }
+});
+
+
+test("CONTINUE: action domain target is server-owned, idempotent, and rejects foreign or cancelled enrollment", async () => {
+  const { course, a, b } = await makeCourse();
+  const userId = await makeUser();
+  const stranger = await makeUser();
+  const enrollment = await enrollFree(userId, course.id);
+  const other = await makeCourse();
+  try {
+    const first = await completeLessonAndContinue(userId, enrollment.id, a.id);
+    assert.equal(first.nextHref, `/learn/courses/${course.slug}/lessons/${b.slug}`);
+    assert.equal(first.alreadyComplete, false);
+    const repeated = await completeLessonAndContinue(userId, enrollment.id, a.id);
+    assert.equal(repeated.nextHref, first.nextHref);
+    assert.equal(repeated.alreadyComplete, true);
+    await assert.rejects(() => completeLessonAndContinue(stranger, enrollment.id, a.id), /another learner/);
+    await assert.rejects(() => completeLessonAndContinue(userId, enrollment.id, other.a.id), /does not belong/);
+    const finish = await completeLessonAndContinue(userId, enrollment.id, b.id);
+    assert.equal(finish.nextHref, `/learn/courses/${course.slug}/complete`);
+    assert.ok(finish.enrollment.completedAt);
+    const db = await getDb();
+    await db.update(enrollments).set({ status: "cancelled" }).where(eq(enrollments.id, enrollment.id));
+    await assert.rejects(() => completeLessonAndContinue(userId, enrollment.id, b.id), /no longer active/);
+  } finally {
+    await cleanup(course.id, [userId, stranger]);
+    await cleanup(other.course.id, []);
+  }
+});
+
+test("COMPLETION: enrollment gate denies strangers/cancelled, rejects incomplete, allows computed complete", async () => {
+  const { getCourseCompletionState } = await import("../src/features/progress/completion");
+  const { course, a, b } = await makeCourse();
+  const userId = await makeUser();
+  try {
+    assert.equal((await getCourseCompletionState(userId, course.slug)).kind, "enrollment_required");
+    const enrollment = await enrollFree(userId, course.id);
+    assert.equal((await getCourseCompletionState(userId, course.slug)).kind, "incomplete");
+    await markLessonComplete(userId, enrollment.id, a.id);
+    assert.equal((await getCourseCompletionState(userId, course.slug)).kind, "incomplete");
+    await markLessonComplete(userId, enrollment.id, b.id);
+    const complete = await getCourseCompletionState(userId, course.slug);
+    assert.equal(complete.kind, "complete");
+    if (complete.kind !== "complete") assert.fail("expected completed course");
+    assert.ok(complete.enrollment.completedAt);
+    assert.equal(complete.progress.completedRequired, 2);
+    const db = await getDb();
+    await db.update(enrollments).set({ status: "cancelled" }).where(eq(enrollments.id, enrollment.id));
+    assert.equal((await getCourseCompletionState(userId, course.slug)).kind, "enrollment_required");
+    assert.equal((await status(enrollment.id)).status, "cancelled", "completion reads must not reactivate enrollment");
+    assert.equal((await getCourseCompletionState(userId, `missing-${stamp()}`)).kind, "not_found");
+  } finally { await cleanup(course.id, [userId]); }
 });

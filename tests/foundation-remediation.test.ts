@@ -221,6 +221,7 @@ test("B4: sitemap includes static routes + published guides/field notes, exclude
     const entries = await buildSitemapEntries();
     const urls = entries.map((e) => e.url);
 
+    assert.ok(urls.every((url) => !new URL(url).pathname.startsWith("/learn")), "learner routes including completion must never enter sitemap");
     assert.ok(urls.some((u) => u.endsWith("/guides")), "sitemap must include /guides");
     assert.ok(urls.some((u) => u.endsWith("/field-notes")), "sitemap must include /field-notes");
     assert.ok(urls.some((u) => u.endsWith(`/guides/${guideSlug}`)), "published guide must appear");

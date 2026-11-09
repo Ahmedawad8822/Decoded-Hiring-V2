@@ -115,3 +115,69 @@ body.env-learner { padding-bottom: 64px; } /* tab-bar clearance */
 .completion-hero { text-align: center; padding-block: 40px 16px; }
 .completion-hero .cc-check { width: 64px; height: 64px; margin: 0 auto 20px; border-radius: 50%; background: var(--mint); display: grid; place-items: center; font-size: 28px; color: var(--ink); }
 .completion-hero h2 { font-family: var(--font-display); font-size: clamp(30px, 4vw, 44px); font-weight: 400; }
+
+/* Batch A learner layouts; scoped to the classroom stylesheet. */
+.learner-page { padding: clamp(24px,4vw,48px) 0; }
+.learner-column { max-width: 880px; }
+.learner-mb-6 { margin-bottom: 6px; }
+.learner-mb-10 { margin-bottom: 10px; }
+.learner-mb-16 { margin-bottom: 16px; }
+.learner-mb-24 { margin-bottom: 24px; }
+.learner-mb-28 { margin-bottom: 28px; }
+.learner-mt-8 { margin-top: 8px; }
+.learner-mt-12 { margin-top: 12px; }
+.learner-mt-16 { margin-top: 16px; }
+.learner-mt-18 { margin-top: 18px; }
+.learner-mt-20 { margin-top: 20px; }
+.learner-mt-36 { margin-top: 36px; }
+.learner-section { margin-top: 44px; }
+.learner-inherit { color: inherit; }
+.learner-link, .learner-course-row { text-decoration: none; }
+.learner-intro, .learner-empty-intro { margin-top: 12px; font-size: 14px; line-height: 1.6; }
+.learner-empty-intro { margin-top: 8px; }
+.learner-empty, .learner-completed-row { border: 1px solid var(--line); border-radius: var(--radius-card); background: var(--paper-bright); padding: 28px 24px; }
+.learner-empty-title { font-size: 15px; }
+.learner-spotlight-footer { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-top: 8px; }
+.learner-section-heading { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
+.learner-catalog-link { color: var(--blue); text-decoration: none; text-transform: none; letter-spacing: 0; }
+.learner-course-list { margin-top: 18px; grid-template-columns: 1fr; }
+.learner-course-row { max-width: 640px; color: inherit; }
+.learner-enrolled-badge { font-size: 10px; }
+.learner-ink { color: var(--ink); }
+.learner-in-progress { margin-left: auto; color: var(--blue); }
+.learner-completed-list { display: grid; gap: 12px; margin-top: 18px; }
+.learner-completed-row { padding: 18px 20px; display: flex; gap: 14px; align-items: center; flex-wrap: wrap; }
+.learner-completed-title { flex: 1; min-width: 200px; }
+.learner-completed-name { font-size: 14.5px; }
+.learner-overview-curriculum { max-height: none; position: static; }
+.learner-section-title { padding-top: 16px; }
+.learner-coming-soon { font-size: 12.5px; padding: 4px 0; }
+.lesson .ls-body { margin-top: 20px; }
+.lesson-video { margin-top: 20px; position: relative; padding-bottom: 56.25%; height: 0; overflow: hidden; border-radius: 12px; }
+.lesson-video-frame { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
+.lesson-completion-control { display: inline-flex; flex-direction: column; gap: 8px; min-width: 0; }
+.lesson-completed { font-size: 13px; color: var(--muted-strong); text-align: center; }
+.lesson-completion-error { font-size: 13px; color: #7c2d12; }
+.completion-badge { display: grid; place-items: center; width: 80px; height: 80px; margin: 0 auto 24px; border-radius: 50%; font-size: 32px; background: linear-gradient(135deg, var(--mint-soft), var(--blue-soft)); box-shadow: 0 0 0 10px var(--paper-dim); }
+.completion-title { font-family: var(--font-display); font-size: 24px; margin: 12px 0; overflow-wrap: anywhere; }
+.completion-stats { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); margin: 28px 0; }
+.completion-stats > div { padding: 20px; border: 1px solid var(--line); border-radius: var(--radius-card); }
+.completion-stats dt { font-size: 13px; color: var(--muted-strong); }
+.completion-stats dd { font-family: var(--font-mono); font-size: 22px; margin: 8px 0 0; }
+@media (prefers-reduced-motion: no-preference) {
+  .completion-badge { animation: completion-arrive 500ms ease-out both; }
+  @keyframes completion-arrive { from { transform: scale(.85); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+}
+@media (max-width: 759px) {
+  .ls-mobile-bar .lesson-completion-control { flex: 2; }
+  .ls-mobile-bar .btn { padding-inline: 8px; font-size: 12px; }
+  .ls-actions { visibility: hidden; } /* One visible action row on phones. */
+}
+.learner-ring-complete { --p: 100; }
+
+/* The fixed lesson action bar and the learner tab bar both sit at bottom:0 on
+   phones; the tab bar painted over "Complete & continue". In the lesson player
+   the action bar wins: hide the tabs (header + course-contents stay reachable). */
+@media (max-width: 759px) {
+  .env-learner:has(.ls-mobile-bar) .lrn-tabs { display: none; }
+}

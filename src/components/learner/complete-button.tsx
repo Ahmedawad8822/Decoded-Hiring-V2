@@ -1,62 +1,55 @@
 "use client";
 
-import React, { useState } from "react";
+import Link from "next/link";
+import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { markLessonCompleteAction } from "@/features/progress/actions";
 
-/**
- * Learner mark-complete control. Prev/next navigation lives in the lesson
- * shell (.ls-actions / .ls-mobile-bar) — this button only flips its own
- * state so there is exactly one Next per action row.
- */
+/** Completion navigates to a server-owned target; Prev/Next remain free navigation. */
 export function CompleteButton({
-  enrollmentId,
-  lessonId,
-  alreadyDone,
+  enrollmentId, lessonId, alreadyDone, continueHref,
 }: {
   enrollmentId: string;
   lessonId: string;
   alreadyDone: boolean;
+  continueHref: string;
 }) {
   const router = useRouter();
-  const [busy, setBusy] = useState(false);
-  const [done, setDone] = useState(alreadyDone);
+  const [busy, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
 
-  const handleComplete = async () => {
-    setBusy(true);
+  const handleComplete = () => {
     setError(null);
-    try {
-      const res = await markLessonCompleteAction(enrollmentId, lessonId);
-      if (!res.ok) {
-        setError(res.error || "Could not mark lesson complete");
-      } else {
-        setDone(true);
-        router.refresh();
+    startTransition(async () => {
+      try {
+        const res = await markLessonCompleteAction(enrollmentId, lessonId);
+        if (!res.ok || !res.data) {
+          setError(res.error || "Could not mark lesson complete");
+        } else {
+          router.push(res.data.nextHref);
+        }
+      } catch {
+        setError("Could not mark lesson complete. Please try again.");
       }
-    } finally {
-      setBusy(false);
-    }
+    });
   };
 
-  if (done) {
+  if (alreadyDone) {
     return (
-      <span className="btn primary" style={{ pointerEvents: "none", opacity: 0.85 }}>
-        ✓ Completed
+      <span className="lesson-completion-control">
+        <span className="lesson-completed">Completed ✓</span>
+        <Link className="btn primary" href={continueHref}>Continue →</Link>
       </span>
     );
   }
 
   return (
-    <span style={{ display: "inline-flex", flexDirection: "column", gap: 8 }}>
-      <button type="button" className="btn primary" onClick={handleComplete} disabled={busy}>
-        {busy ? "Saving…" : "Mark lesson complete"}
+    <span className="lesson-completion-control">
+      <button type="button" className="btn primary" onClick={handleComplete} disabled={busy}
+        aria-busy={busy}>
+        {busy ? "Saving…" : "Complete & continue"}
       </button>
-      {error && (
-        <span role="alert" style={{ fontSize: 13, color: "#7c2d12" }}>
-          {error}
-        </span>
-      )}
+      {error && <span role="alert" aria-live="assertive" className="lesson-completion-error">{error}</span>}
     </span>
   );
 }

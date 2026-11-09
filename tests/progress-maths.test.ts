@@ -23,7 +23,7 @@ import {
   type Lesson,
 } from "../src/lib/db";
 import { migrateLocalDb } from "../src/lib/db/migrate";
-import { disposeCloudflareBindings } from "../src/lib/cloudflare/bindings";
+import { getD1Database, setD1DatabaseForTest, clearD1DatabaseForTest, disposeCloudflareBindings } from "../src/lib/cloudflare/bindings";
 import {
   createCourse,
   createSection,
@@ -35,6 +35,8 @@ import { enrollFree } from "../src/features/enrollments/service";
 import {
   computeCourseProgress,
   getBatchedEnrollmentProgress,
+  getLessonContinuationHref,
+  compareEnrollmentActivity,
 } from "../src/features/progress/service";
 import { eq } from "drizzle-orm";
 
@@ -96,6 +98,34 @@ test("PURE: completions of unpublished lessons are ignored", () => {
   assert.equal(none.percent, 0);
 });
 
+test("CONTINUE: skip completed lessons, include optional lessons, wrap in curriculum order", () => {
+  const course = { id: "course", slug: "course-slug" };
+  const ls = ["a", "opt", "b", "c"].map((id) => ({
+    ...lesson(id, id !== "opt"), courseId: course.id, slug: id, status: "published",
+  })) as Lesson[];
+  const target = (id: string, done: string[]) => getLessonContinuationHref(course, id, ls, done);
+  assert.equal(target("a", ["a"]), "/learn/courses/course-slug/lessons/opt");
+  assert.equal(target("a", ["a", "opt", "b"]), "/learn/courses/course-slug/lessons/c");
+  assert.equal(target("c", ["c", "b"]), "/learn/courses/course-slug/lessons/a");
+  assert.equal(target("c", ["a", "b", "c"]), "/learn/courses/course-slug/complete", "optional work never blocks completion");
+  assert.equal(target("c", ["a", "opt", "b", "c"]), "/learn/courses/course-slug/complete");
+  assert.throws(() => target("unknown", []), /not in this course/);
+  const foreign = { ...ls[0], courseId: "other", id: "foreign" };
+  assert.throws(() => getLessonContinuationHref(course, foreign.id, [...ls, foreign], []), /not in this course/);
+  const draft = { ...ls[0], id: "draft", status: "draft" } as Lesson;
+  assert.throws(() => getLessonContinuationHref(course, draft.id, [...ls, draft], []), /not in this course/);
+  assert.equal(getLessonContinuationHref(course, "opt", [ls[1]], ["opt"]), "/learn/courses/course-slug", "zero required is not complete");
+});
+
+test("ACTIVITY: newest activity sorts first with a deterministic tie break", () => {
+  const rows = [
+    { enrollmentId: "old", lastActivityAt: new Date(1000) },
+    { enrollmentId: "recent-b", lastActivityAt: new Date(2000) },
+    { enrollmentId: "recent-a", lastActivityAt: new Date(2000) },
+  ];
+  assert.deepEqual(rows.sort(compareEnrollmentActivity).map((row) => row.enrollmentId), ["recent-a", "recent-b", "old"]);
+});
+
 // ---------------------------------------------------------------- batched
 
 test("BATCHED: reads report the computed verdict and never write the enrollment row", async () => {
@@ -126,6 +156,8 @@ test("BATCHED: reads report the computed verdict and never write the enrollment 
   const enrollment = await enrollFree(userId, course.id);
 
   try {
+    const freshSummary = (await getBatchedEnrollmentProgress([enrollment])).get(enrollment.id)!;
+    assert.equal(freshSummary.lastActivityAt.getTime(), enrollment.enrolledAt.getTime());
     // Active but the required set is satisfied: the batched READ reports the
     // computed verdict (completed) but must NOT write — the stored row stays
     // active until a write path reconciles it. (Previously this read closed it.)
@@ -136,6 +168,7 @@ test("BATCHED: reads report the computed verdict and never write the enrollment 
       completedAt: now,
     });
     const closed = (await getBatchedEnrollmentProgress([enrollment])).get(enrollment.id)!;
+    assert.equal(closed.lastActivityAt.getTime(), Math.floor(now.getTime() / 1000) * 1000);
     assert.equal(closed.completed, true);
     assert.equal(closed.enrollmentStatus, "active");
     assert.equal(closed.enrollmentCompletedAt, null);
@@ -157,5 +190,59 @@ test("BATCHED: reads report the computed verdict and never write the enrollment 
     await db.delete(courseSections).where(eq(courseSections.courseId, course.id));
     await db.delete(courses).where(eq(courses.id, course.id));
     await db.delete(users).where(eq(users.id, userId));
+  }
+});
+
+
+test("ACTIVITY: batched rows pick latest completion with one read per table at any enrollment count", async () => {
+  const db = await getDb();
+  const course = await createCourse({ title: "Activity", slug: `activity-${stamp()}`, accessMode: "FREE" });
+  const section = await createSection({ courseId: course.id, title: "S" });
+  const ls = [];
+  for (let i = 0; i < 3; i++) {
+    const entry = await createLesson({ courseId: course.id, sectionId: section.id, title: `Lesson ${i}`, slug: `activity-${i}-${stamp()}`, required: true });
+    await publishLesson(entry.id);
+    ls.push(entry);
+  }
+  await publishCourse(course.id);
+  const userIds: string[] = [];
+  const memberships = [];
+  try {
+    for (let i = 0; i < 3; i++) {
+      const id = `activity-${stamp()}`;
+      userIds.push(id);
+      await db.insert(users).values({ id, name: "Activity fixture", email: `${id}@example.test`, role: "user", emailVerified: false, createdAt: new Date(), updatedAt: new Date() });
+      const membership = await enrollFree(id, course.id);
+      await db.update(enrollments).set({ enrolledAt: new Date((i + 1) * 1000) }).where(eq(enrollments.id, membership.id));
+      memberships.push(membership);
+    }
+    // Older enrollment's latest completion must outrank newer enrollment dates.
+    for (const [i, time] of [10000, 5000].entries()) {
+      await db.insert(lessonProgress).values({ id: `activity-${stamp()}`, enrollmentId: memberships[0].id, lessonId: ls[i].id, completedAt: new Date(time) });
+    }
+    const realD1 = await getD1Database();
+    const reads: string[] = [];
+    setD1DatabaseForTest({
+      prepare(sql: string) { if (/^select/i.test(sql)) reads.push(sql); return realD1.prepare(sql); },
+      batch: realD1.batch.bind(realD1),
+    } as Parameters<typeof setD1DatabaseForTest>[0]);
+    try {
+      const summaries = [...(await getBatchedEnrollmentProgress(memberships)).values()];
+      assert.equal(reads.length, 4, "courses, curriculum, progress, enrollment states: exactly four batched reads");
+      assert.equal(reads.filter((sql) => /from "lesson_progress"/i.test(sql)).length, 1);
+      assert.equal(summaries[0].lastActivityAt.getTime(), 10000, "max, not last row read");
+      assert.equal(summaries[1].lastActivityAt.getTime(), 2000, "fallback uses current enrollment date");
+      assert.deepEqual(summaries.sort(compareEnrollmentActivity).map((row) => row.enrollmentId), [memberships[0].id, memberships[2].id, memberships[1].id]);
+      reads.length = 0;
+      await getBatchedEnrollmentProgress([memberships[0]]);
+      assert.equal(reads.length, 4, "query count does not grow with enrollments");
+    } finally { clearD1DatabaseForTest(); }
+  } finally {
+    for (const membership of memberships) await db.delete(lessonProgress).where(eq(lessonProgress.enrollmentId, membership.id));
+    await db.delete(enrollments).where(eq(enrollments.courseId, course.id));
+    await db.delete(lessons).where(eq(lessons.courseId, course.id));
+    await db.delete(courseSections).where(eq(courseSections.courseId, course.id));
+    await db.delete(courses).where(eq(courses.id, course.id));
+    for (const id of userIds) await db.delete(users).where(eq(users.id, id));
   }
 });
