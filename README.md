@@ -41,7 +41,11 @@ E2E bootstrap needs the local admin settings from `.env.example` in the shell
 or `.env.local`. See [engineering standards](Docs/ENGINEERING-STANDARDS.md),
 [architecture](Docs/ARCHITECTURE.md) and [deployment](Docs/Engineering/DEPLOYMENT.md).
 The [Workers Builds guide](Docs/Engineering/WORKERS-BUILDS.md) targets the test Worker.
+See [signed-in CPU measurement](Docs/Engineering/AUTH-MEASUREMENT.md) for external
+session files and the test-only HTTP setup tool.
 
-Report vulnerabilities privately using [SECURITY.md](SECURITY.md).
-No project license has been selected; public source visibility does not grant a
-license to reuse the code or bundled content.
+## License
+
+No open-source license is granted. All rights are reserved by the project owner.
+The code is public for transparency and review only.
+Report security vulnerabilities privately via [SECURITY.md](SECURITY.md).

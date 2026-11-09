@@ -7,10 +7,11 @@
 //
 // It needs NO credentials in the repo and sends only GET requests. It runs
 // only when you pass a URL (`--url` or CPU_REMOTE_URL). Signed-in routes are
-// measured only if you export a session cookie yourself:
+// measured only when cookies are supplied via the environment or --sessions:
 //   CPU_LEARNER_COOKIE='better-auth.session_token=...'
 //   CPU_ADMIN_COOKIE='better-auth.session_token=...'
-// (copy from a browser session on the deployed site; never commit them).
+// Or prepare an external state file with `npm run perf:sessions` and pass
+// --sessions /absolute/external/state (never commit or print session values).
 //
 // WHERE THE REAL CPU NUMBERS COME FROM (the client cannot see CPU time):
 //   1. `wrangler tail --format json` (needs `wrangler login` on your machine):
@@ -43,7 +44,7 @@
 // Usage:
 //   npm run perf:cpu:remote -- --url https://decoded-hiring-v2.<acct>.workers.dev \
 //        [--runs 20] [--delay 300] [--routes "/,/about"] [--tail-file tail.jsonl] \
-//        [--settle 8] [--out result.md] [--allow-host]
+//        [--sessions /external/state] [--settle 8] [--out result.md] [--allow-host]
 //
 // Cold vs warm: the platform decides isolate lifetime, so the FIRST request to
 // a route after idle (let it sit for several minutes first) is the closest
@@ -52,6 +53,7 @@
 
 import * as fs from "node:fs";
 import * as crypto from "node:crypto";
+import { readState, SessionToolError } from "./remote-sessions";
 import { buildRoutes, fmt, mdTable, percentile, summarize, parseCpuTail, type CpuTailRow, type CpuRoute } from "./cpu-routes";
 
 const argv = process.argv.slice(2);
@@ -92,9 +94,19 @@ const TAIL_FILE = opt("tail-file");
 const OUT = opt("out");
 const ROUTE_FILTER = opt("routes")?.split(",").map((s) => s.trim());
 const RUN_ID = crypto.randomBytes(4).toString("hex");
+let sessionState: ReturnType<typeof readState> = {};
+try {
+  if (opt("sessions")) {
+    sessionState = readState(opt("sessions")!);
+    if (sessionState.CPU_SESSION_ORIGIN !== base.origin) throw new SessionToolError("Session state origin does not match --url.");
+  }
+} catch (error) {
+  console.error(error instanceof SessionToolError ? error.message : "Cannot read external session state.");
+  process.exit(2);
+}
 const COOKIES: Record<string, string | undefined> = {
-  learner: process.env.CPU_LEARNER_COOKIE,
-  admin: process.env.CPU_ADMIN_COOKIE,
+  learner: opt("sessions") ? sessionState.CPU_LEARNER_COOKIE : process.env.CPU_LEARNER_COOKIE,
+  admin: opt("sessions") ? sessionState.CPU_ADMIN_COOKIE : process.env.CPU_ADMIN_COOKIE,
 };
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
