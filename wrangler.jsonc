@@ -86,6 +86,7 @@
     },
     "production": {
       "name": "decoded-hiring-v2",
+      "workers_dev": true,
       "migrations": [
         { "tag": "isr-queue-v1", "new_sqlite_classes": ["DOQueueHandler"] }
       ],
@@ -103,30 +104,30 @@
       "d1_databases": [
         {
           "binding": "DB",
-          "database_name": "<PROD_D1_DATABASE_NAME>",
-          "database_id": "<PROD_D1_DATABASE_ID>",
+          "database_name": "decoded-hiring-v2-db",
+          "database_id": "9119d667-3929-4182-91fa-74c0e2ffbb43",
           "migrations_dir": "drizzle/migrations"
         },
         {
           // Must match DB above; no separate database is needed.
           "binding": "NEXT_TAG_CACHE_D1",
-          "database_name": "<PROD_D1_DATABASE_NAME>",
-          "database_id": "<PROD_D1_DATABASE_ID>"
+          "database_name": "decoded-hiring-v2-db",
+          "database_id": "9119d667-3929-4182-91fa-74c0e2ffbb43"
         }
       ],
       "r2_buckets": [
         {
           "binding": "MEDIA_BUCKET",
-          "bucket_name": "<PROD_MEDIA_BUCKET_NAME>"
+          "bucket_name": "decoded-hiring-v2-media"
         },
         {
           "binding": "NEXT_INC_CACHE_R2_BUCKET",
-          "bucket_name": "<PROD_NEXT_CACHE_BUCKET_NAME>"
+          "bucket_name": "decoded-hiring-v2-next-cache"
         }
       ],
       "vars": {
-        "BETTER_AUTH_URL": "<PROD_SITE_URL>",
-        "NEXT_PUBLIC_SITE_URL": "<PROD_SITE_URL>"
+        "BETTER_AUTH_URL": "https://decoded-hiring-v2.hdv2.workers.dev",
+        "NEXT_PUBLIC_SITE_URL": "https://decoded-hiring-v2.hdv2.workers.dev"
       }
     }
   }

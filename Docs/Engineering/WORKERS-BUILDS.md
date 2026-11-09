@@ -3,7 +3,9 @@
 > **Status (2026-11-08):** connected. `dh-cputest` builds from `main`; preview builds are off. The Cloudflare GitHub app is installed on this repository only.
 
 This connects **only `dh-cputest`**, at https://dh-cputest.hdv2.workers.dev,
-to GitHub. Production remains unprovisioned and unconnected. Stay on Workers
+to GitHub. Production is provisioned on workers.dev and remains unconnected;
+its coordinator deploys manually after owner GO (see [deployment](DEPLOYMENT.md)).
+Never connect production to Workers Builds. Stay on Workers
 Free. These instructions were checked against Cloudflare documentation and the
 installed OpenNext 1.20.15 / Wrangler 4.156.0 sources on 2026-11-08; no remote
 settings or resources were changed during preparation.

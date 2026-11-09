@@ -1,0 +1,19 @@
+{
+  "data": {
+    "viewer": {
+      "accounts": [{
+        "workersInvocationsAdaptive": [{
+          "dimensions": {"status": "success"},
+          "sum": {"requests": 1548, "errors": 0},
+          "quantiles": {"cpuTimeP50": 4500, "cpuTimeP99": 334000, "cpuTimeP999": 650000},
+          "max": {"cpuTime": 728000}
+        }],
+        "durableObjectsInvocationsAdaptiveGroups": [{
+          "dimensions": {"status": "success"},
+          "sum": {"requests": 12, "errors": 0}
+        }]
+      }]
+    }
+  },
+  "errors": null
+}
