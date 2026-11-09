@@ -1,4 +1,5 @@
 "use client";
+import { humanLabel, EmptyState, PageHeader, Button, Input, Select, Textarea } from "../_ui";
 
 import React, { useState } from "react";
 import Link from "next/link";
@@ -22,10 +23,12 @@ type CourseRow = Course & {
 const ACCESS_MODES = ["FREE", "PAID_ONE_TIME", "MANUAL_INVOICE", "PAYMENT_DISABLED"] as const;
 
 export function CoursesClient({
+  startNew = false,
   initialCourses,
   initialQ,
   initialStatus,
 }: {
+  startNew?: boolean;
   initialCourses: CourseRow[];
   initialQ: string;
   initialStatus: string;
@@ -35,7 +38,7 @@ export function CoursesClient({
   const [status, setStatus] = useState(initialStatus);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [showCreate, setShowCreate] = useState(false);
+  const [showCreate, setShowCreate] = useState(startNew);
   const [editing, setEditing] = useState<CourseRow | null>(null);
 
   const [title, setTitle] = useState("");
@@ -119,55 +122,55 @@ export function CoursesClient({
 
   return (
     <div>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 12, flexWrap: "wrap" }}>
-        <h1 className="a-h1" style={{ marginBottom: 4 }}>Courses</h1>
-        <button className="btn secondary small" type="button" onClick={() => { resetForm(); setShowCreate(true); }}>
+      <div className="s-row s-justify-content-space-between s-align-items-baseline s-gap-12 s-flex-wrap-wrap" >
+        <PageHeader eyebrow="Learning" title={<>Courses</>} />
+        <Button className="btn primary small" type="button" onClick={() => { resetForm(); setShowCreate(true); }}>
           ＋ New course
-        </button>
+        </Button>
       </div>
 
-      <form
+      <form className="s-row s-gap-10 s-margin-top-20 s-flex-wrap-wrap"
         onSubmit={(e) => { e.preventDefault(); applyFilter(); }}
-        style={{ display: "flex", gap: 10, marginTop: 20, flexWrap: "wrap" }}
+
       >
-        <label style={{ display: "grid", gap: 4, fontSize: 12 }}>
+        <label className="s-stack s-gap-4 s-text-sm" >
           Search
-          <input
+          <Input className="s-padding-8px-12px s-text-sm s-min-width-220"
             aria-label="Search courses"
             type="search"
             value={q}
             onChange={(e) => setQ(e.target.value)}
             placeholder="Title or slug…"
-            style={{ padding: "8px 12px", borderRadius: 8, border: "1px solid var(--line-strong)", fontSize: 13, minWidth: 220 }}
+
           />
         </label>
-        <label style={{ display: "grid", gap: 4, fontSize: 12 }}>
+        <label className="s-stack s-gap-4 s-text-sm" >
           Status
-          <select
+          <Select className="s-padding-8px-12px s-text-sm"
             aria-label="Filter by status"
             value={status}
             onChange={(e) => setStatus(e.target.value)}
-            style={{ padding: "8px 12px", borderRadius: 8, border: "1px solid var(--line-strong)", fontSize: 13 }}
+
           >
             <option value="all">All</option>
             <option value="draft">Draft</option>
             <option value="published">Published</option>
             <option value="archived">Archived</option>
-          </select>
+          </Select>
         </label>
-        <button className="btn secondary small" type="submit" style={{ alignSelf: "end" }}>
+        <Button className="btn secondary small s-align-self-end" type="submit" >
           Apply
-        </button>
+        </Button>
       </form>
 
       {error && (
-        <div role="alert" style={{ marginTop: 16, padding: "10px 14px", borderRadius: 8, background: "var(--coral-soft, #f5d6cd)", color: "#7c2d12", fontSize: 13, border: "1px solid rgba(235, 116, 94, 0.4)" }}>
+        <div className="s-margin-top-16 s-padding-10px-14px s-danger s-text-sm" role="alert" >
           {error}
         </div>
       )}
 
       {confirmModal && (
-        <div className="dialog" style={{ display: "grid", placeItems: "center" }}>
+        <div className="dialog s-stack s-place-items-center" >
           <div className="dg-panel">
             <h3>Confirm Archive</h3>
             <div className="dg-body">
@@ -185,10 +188,10 @@ export function CoursesClient({
               </div>
             </div>
             <div className="dg-actions">
-              <button type="button" className="btn ghost small" onClick={() => setConfirmModal(null)}>
+              <Button type="button" className="btn ghost small" onClick={() => setConfirmModal(null)}>
                 Cancel
-              </button>
-              <button
+              </Button>
+              <Button
                 type="button"
                 className="btn danger small"
                 onClick={() => {
@@ -199,95 +202,95 @@ export function CoursesClient({
                 }}
               >
                 Confirm Archive
-              </button>
+              </Button>
             </div>
           </div>
         </div>
       )}
 
       {showCreate && (
-        <form
+        <form className="s-margin-top-20 s-padding-22px-24px s-stack s-gap-14"
           onSubmit={handleSave}
-          style={{ marginTop: 20, border: "1px solid var(--line)", borderRadius: "var(--radius-surface)", background: "var(--paper-bright)", padding: "22px 24px", display: "grid", gap: 14 }}
+
         >
-          <b style={{ fontSize: 15 }}>{editing ? "Edit course" : "New draft course"}</b>
-          <label style={{ display: "grid", gap: 6, fontSize: 12.5, fontWeight: 600 }}>
+          <b >{editing ? "Edit course" : "New draft course"}</b>
+          <label className="s-stack s-gap-6 s-text-sm s-bold" >
             Title *
-            <input aria-label="Course title" value={title} onChange={(e) => setTitle(e.target.value)} required minLength={3} maxLength={160} style={{ padding: "10px 14px", borderRadius: 8, border: "1px solid var(--line-strong)", fontSize: 14 }} />
+            <Input className="s-padding-10px-14px s-text-sm" aria-label="Course title" value={title} onChange={(e) => setTitle(e.target.value)} required minLength={3} maxLength={160} />
           </label>
-          <label style={{ display: "grid", gap: 6, fontSize: 12.5, fontWeight: 600 }}>
-            Slug * <span style={{ fontWeight: 400, color: "var(--muted)" }}>lowercase, hyphens, unique</span>
-            <input aria-label="Course slug" value={slug} onChange={(e) => setSlug(e.target.value)} required pattern="[a-z0-9]+(?:-[a-z0-9]+)*" placeholder="super-recruiter" style={{ padding: "10px 14px", borderRadius: 8, border: "1px solid var(--line-strong)", fontSize: 14 }} />
+          <label className="s-stack s-gap-6 s-text-sm s-bold" >
+            Slug * <span className="s-muted" >lowercase, hyphens, unique</span>
+            <Input className="s-padding-10px-14px s-text-sm" aria-label="Course slug" value={slug} onChange={(e) => setSlug(e.target.value)} required pattern="[a-z0-9]+(?:-[a-z0-9]+)*" placeholder="super-recruiter" />
           </label>
-          <label style={{ display: "grid", gap: 6, fontSize: 12.5, fontWeight: 600 }}>
+          <label className="s-stack s-gap-6 s-text-sm s-bold" >
             Description
-            <textarea aria-label="Course description" value={description} onChange={(e) => setDescription(e.target.value)} rows={3} maxLength={2000} style={{ padding: "10px 14px", borderRadius: 8, border: "1px solid var(--line-strong)", fontSize: 14 }} />
+            <Textarea className="s-padding-10px-14px s-text-sm" aria-label="Course description" value={description} onChange={(e) => setDescription(e.target.value)} rows={3} maxLength={2000} />
           </label>
-          <label style={{ display: "grid", gap: 6, fontSize: 12.5, fontWeight: 600 }}>
-            {editing?.offerId ? "Legacy access fallback" : "Access mode"}
-            <select
+          <label className="s-stack s-gap-6 s-text-sm s-bold" >
+            {editing?.offerId ? "Course access" : "Access mode"}
+            <Select className="s-padding-10px-14px s-text-sm"
               aria-label="Access mode"
               value={accessMode}
               onChange={(e) => setAccessMode(e.target.value)}
               disabled={Boolean(editing?.offerId)}
-              style={{ padding: "10px 14px", borderRadius: 8, border: "1px solid var(--line-strong)", fontSize: 14 }}
+
             >
-              {ACCESS_MODES.map((m) => <option key={m} value={m}>{m}</option>)}
-            </select>
+              {ACCESS_MODES.map((m) => <option key={m} value={m}>{humanLabel(m)}</option>)}
+            </Select>
           </label>
-          <p className="help" style={{ fontSize: 12, color: "var(--muted)" }}>
+          <p className="help s-text-sm s-muted" >
             {editing?.offerId
-              ? `Commercial access is owned by linked Offer ${editing.offerId} (${editing.effectiveAccessMode}${editing.offerActive === false ? ", inactive" : ""}). The legacy course field is retained only as a fallback and cannot be edited here.`
-              : "This is the Mission 06 fallback until a Commerce Offer is linked. Only FREE enrolls automatically; paid modes remain fail-closed without checkout."}
+              ? `Access is managed by the linked offer (${humanLabel(editing.effectiveAccessMode)}${editing.offerActive === false ? ", inactive" : ""}). Edit it in Bookings & offers.`
+              : "Free courses allow immediate enrollment. Link an offer in Bookings & offers to manage paid access."}
           </p>
-          <div style={{ display: "flex", gap: 10 }}>
-            <button className="btn primary small" type="submit" disabled={busy === "save"}>
+          <div className="s-row s-gap-10" >
+            <Button className="btn primary small" type="submit" disabled={busy === "save"}>
               {busy === "save" ? "Saving…" : editing ? "Save changes" : "Create draft"}
-            </button>
-            <button className="btn ghost small" type="button" onClick={resetForm}>Cancel</button>
+            </Button>
+            <Button className="btn ghost small" type="button" onClick={resetForm}>Cancel</Button>
           </div>
         </form>
       )}
 
-      <div style={{ display: "grid", gap: 16, marginTop: 20 }}>
+      <div className="s-stack s-gap-16 s-margin-top-20" >
         {initialCourses.length === 0 && (
-          <p className="muted" style={{ fontSize: 13.5 }}>No courses match. Create the first draft to begin the curriculum.</p>
+          <EmptyState icon="courses" title="Your next learning journey starts here" action={<Button variant="primary" onClick={() => { resetForm(); setShowCreate(true); }}>＋ New course</Button>}>Create the first draft to begin the curriculum.</EmptyState>
         )}
         {initialCourses.map((course) => (
-          <div key={course.id} data-course-slug={course.slug} style={{ border: "1px solid var(--line)", borderRadius: "var(--radius-surface)", background: "var(--paper-bright)", padding: "22px 24px", display: "grid", gap: 14 }}>
-            <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap", alignItems: "flex-start" }}>
+          <div className="s-padding-22px-24px s-stack s-gap-14 ui-card" key={course.id} data-course-slug={course.slug} >
+            <div className="s-row s-justify-content-space-between s-gap-12 s-flex-wrap-wrap s-align-items-flex-start" >
               <div>
-                <b style={{ fontSize: 16 }}>{course.title}</b>
-                <p className="muted" style={{ fontSize: 12.5, marginTop: 4 }}>
-                  /{course.slug} · {course.effectiveAccessMode}
-                  {course.offerId ? ` via Offer${course.offerActive === false ? " (inactive)" : ""}` : " legacy"}
+                <b >{course.title}</b>
+                <p className="muted s-text-sm s-margin-top-4" >
+                  /{course.slug} · {humanLabel(course.effectiveAccessMode)}
+                  {course.offerId ? ` via Offer${course.offerActive === false ? " (inactive)" : ""}` : ""}
                   {" · "}{course.enrollmentCount} enrolled
                 </p>
               </div>
               <span className={`lifecycle ${course.status}`}>{course.status.toUpperCase()}</span>
             </div>
-            <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-              <Link className="btn secondary small" href={`/admin/courses/${course.id}/curriculum`} style={{ textDecoration: "none" }}>
+            <div className="s-row s-gap-10 s-flex-wrap-wrap" >
+              <Link className="btn secondary small" href={`/admin/courses/${course.id}/curriculum`} >
                 Curriculum →
               </Link>
-              <button className="btn ghost small" type="button" onClick={() => startEdit(course)}>
+              <Button className="btn ghost small" type="button" onClick={() => startEdit(course)}>
                 Edit
-              </button>
+              </Button>
               {course.status === "draft" && (
-                <button className="btn ghost small" type="button" disabled={busy === `pub-${course.id}`} onClick={() => runAction(`pub-${course.id}`, () => publishCourseAction(course.id))}>
+                <Button className="btn ghost small" type="button" disabled={busy === `pub-${course.id}`} onClick={() => runAction(`pub-${course.id}`, () => publishCourseAction(course.id))}>
                   Publish
-                </button>
+                </Button>
               )}
               {course.status === "published" && (
-                <button className="btn ghost small" type="button" disabled={busy === `unpub-${course.id}`} onClick={() => runAction(`unpub-${course.id}`, () => unpublishCourseAction(course.id))}>
+                <Button className="btn ghost small" type="button" disabled={busy === `unpub-${course.id}`} onClick={() => runAction(`unpub-${course.id}`, () => unpublishCourseAction(course.id))}>
                   Unpublish
-                </button>
+                </Button>
               )}
               {course.status !== "archived" && (
-                              <button className="btn ghost small" type="button" disabled={busy === `arch-${course.id}`} onClick={() => setConfirmModal({ action: "archive", courseId: course.id, courseTitle: course.title })}> 
-                                Archive
-                              </button>
-                            )}
+                <Button className="btn ghost small" type="button" disabled={busy === `arch-${course.id}`} onClick={() => setConfirmModal({ action: "archive", courseId: course.id, courseTitle: course.title })}>
+                  Archive
+                </Button>
+              )}
             </div>
           </div>
         ))}

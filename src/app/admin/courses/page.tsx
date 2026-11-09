@@ -12,7 +12,7 @@ export const metadata = {
 };
 
 export default async function AdminCoursesPage(props: {
-  searchParams: Promise<{ q?: string; status?: string }>;
+  searchParams: Promise<{ q?: string; status?: string; new?: string }>;
 }) {
   await requireAdminPage();
   const searchParams = await props.searchParams;
@@ -41,5 +41,5 @@ export default async function AdminCoursesPage(props: {
     };
   });
 
-  return <CoursesClient initialCourses={initialCourses} initialQ={q} initialStatus={status} />;
+  return <CoursesClient startNew={searchParams.new === "course"} initialCourses={initialCourses} initialQ={q} initialStatus={status} />;
 }

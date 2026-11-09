@@ -1,8 +1,10 @@
 import React from "react";
+import { checkAdmin, getServerSession } from "@/lib/auth";
+import { AppError } from "@/lib/errors";
+import { readStudioAttention } from "./_ui/attention-data";
 import { AdminStudioShell } from "./studio-shell";
 
-// admin group owns the Studio visual layer (STU components extracted from the
-// former root-level studio-tokens.css). Universal tokens/base come from root.
+// Studio styles are scoped to its shell; public pages keep their own visual layer.
 import "./admin.css";
 
 // All Studio admin routes are auth-gated and resolve a live D1 session
@@ -18,10 +20,17 @@ export const metadata = {
   robots: { index: false, follow: false },
 };
 
-export default function AdminLayout({ children }: { children: React.ReactNode }) {
+export default async function AdminLayout({ children }: { children: React.ReactNode }) {
+  const session = await getServerSession();
+  // Navigation counts are optional chrome. The existing page gates still own
+  // redirects, including the login and pre-enrollment security routes.
+  let mayReadAttention = false;
+  try { checkAdmin(session); mayReadAttention = true; }
+  catch (error) { if (!(error instanceof AppError)) throw error; }
+  const attention = mayReadAttention ? await readStudioAttention().then(({ leads, drafts, commerce }) => ({ leads: leads.total, drafts: drafts.length, bookings: commerce.summary.approvalQueue })) : undefined;
   return (
-    <div className="env-studio" style={{ minHeight: "100vh", background: "var(--paper)" }}>
-      <AdminStudioShell>{children}</AdminStudioShell>
+    <div className="env-studio">
+      <AdminStudioShell user={session?.user} attention={attention}>{children}</AdminStudioShell>
     </div>
   );
 }

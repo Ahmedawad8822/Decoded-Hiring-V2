@@ -1,3 +1,4 @@
+import { EmptyState, FilterChips, PageHeader, StatusPill, humanLabel, DataTable } from "../_ui";
 import Link from "next/link";
 import type { Metadata } from "next";
 import { requireAdminPage } from "@/lib/auth";
@@ -60,34 +61,22 @@ export default async function AdminLeadsPage({
     page: Number.isFinite(parsedPage) ? parsedPage : 1,
   });
 
-  return (
-    <div style={{ padding: "24px 28px" }}>
-      <h1 style={{ fontSize: 22, marginBottom: 4 }}>Leads</h1>
-      <p style={{ color: "var(--muted)", marginBottom: 16 }}>
-        {total} {total === 1 ? "lead" : "leads"} ({statusParam === "ALL" ? "all statuses" : statusParam}
-        {kind ? `, ${kind}` : ""}), newest first.
-      </p>
+  const [statusResults, kindResults] = await Promise.all([
+    Promise.all([...LEAD_SUBMISSION_STATUSES, "ALL"].map(async value => [value, (await listLeads({ status: value === "ALL" ? null : value, kind, pageSize: 1 })).total] as const)),
+    Promise.all(LEAD_SUBMISSION_KINDS.map(async value => [value, (await listLeads({ status: statusParam === "ALL" ? null : statusParam, kind: value, pageSize: 1 })).total] as const)),
+  ]);
+  const statusCounts = Object.fromEntries(statusResults);
+  const kindCounts = Object.fromEntries(kindResults);
 
-      <nav aria-label="Filter by status" style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 8 }}>
-        {[...LEAD_SUBMISSION_STATUSES, "ALL"].map((s) => (
-          <Link key={s} href={href(s, kind, 1)} aria-current={statusParam === s ? "page" : undefined}>
-            {statusParam === s ? <b>{s}</b> : s}
-          </Link>
-        ))}
-      </nav>
-      <nav aria-label="Filter by kind" style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 16 }}>
-        <Link href={href(statusParam, null, 1)} aria-current={kind === null ? "page" : undefined}>
-          {kind === null ? <b>All kinds</b> : "All kinds"}
-        </Link>
-        {LEAD_SUBMISSION_KINDS.map((k) => (
-          <Link key={k} href={href(statusParam, k, 1)} aria-current={kind === k ? "page" : undefined}>
-            {kind === k ? <b>{k}</b> : k}
-          </Link>
-        ))}
-      </nav>
+  return (
+    <div >
+
+      <PageHeader eyebrow="Business" title="Leads" description={`${total} ${total === 1 ? "conversation" : "conversations"} to explore. Find the people ready for their next step.`} />
+      <FilterChips label="Filter by status" items={[...LEAD_SUBMISSION_STATUSES, "ALL"].map(value => ({ label: humanLabel(value), active: statusParam === value, href: href(value, kind, 1), count: statusCounts[value] }))} />
+      <FilterChips label="Filter by kind" items={[{ label: "All kinds", active: kind === null, href: href(statusParam, null, 1) }, ...LEAD_SUBMISSION_KINDS.map(value => ({ label: humanLabel(value), active: kind === value, href: href(statusParam, value, 1), count: kindCounts[value] }))]} />
 
       <div className="table-wrap">
-        <table className="data">
+        <DataTable className="data">
           <thead>
             <tr>
               <th>Kind</th>
@@ -103,12 +92,12 @@ export default async function AdminLeadsPage({
           <tbody>
             {leads.length === 0 ? (
               <tr>
-                <td colSpan={8}>No leads match these filters.</td>
+                <td colSpan={8}><EmptyState icon="leads" title="You’re all caught up" action={<Link href="/admin/leads?status=ALL" className="btn secondary">View all leads</Link>}>No leads match these filters.</EmptyState></td>
               </tr>
             ) : (
               leads.map((l) => (
                 <tr key={l.id}>
-                  <td>{l.kind}</td>
+                  <td>{humanLabel(l.kind)}</td>
                   <td>
                     <Link href={`/admin/leads/${l.id}`}>{l.fullName}</Link>
                   </td>
@@ -116,16 +105,16 @@ export default async function AdminLeadsPage({
                   <td>{l.countryCode}</td>
                   <td>{consents(l)}</td>
                   <td>{l.sourceRoute}</td>
-                  <td>{l.status}</td>
+                  <td><StatusPill status={l.status}>{humanLabel(l.status)}</StatusPill></td>
                   <td className="num">{l.createdAt.toISOString().replace("T", " ").slice(0, 19)}</td>
                 </tr>
               ))
             )}
           </tbody>
-        </table>
+        </DataTable>
       </div>
 
-      <div style={{ display: "flex", gap: 16, marginTop: 16, alignItems: "center" }}>
+      <div className="s-row s-gap-16 s-margin-top-16 s-align-items-center" >
         {page > 1 ? <Link href={href(statusParam, kind, page - 1)}>Previous</Link> : <span />}
         <span>
           Page {page} of {pageCount}

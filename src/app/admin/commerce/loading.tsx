@@ -1,32 +1,23 @@
+
+import { PageHeader } from "../_ui";
 export default function CommerceLoading() {
   return (
-    <div style={{ display: "grid", gap: 18 }} aria-busy="true" aria-live="polite">
+    <div className="s-stack s-gap-18" aria-busy="true" aria-live="polite">
       <div>
-        <h1 className="a-h1" style={{ marginBottom: 6 }}>
+        <PageHeader eyebrow="Studio" title={<>
           Scheduling & Commerce
-        </h1>
+        </>} />
         <p className="muted">Loading operational truth…</p>
       </div>
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))",
-          gap: 12,
-        }}
+      <div className="s-stack s-columns-auto s-gap-12"
+
       >
         {Array.from({ length: 6 }, (_, index) => (
-          <div
+          <div className="s-min-height-92 s-padding-18 s-opacity-0-65 ui-card"
             key={index}
-            style={{
-              minHeight: 92,
-              border: "1px solid var(--line)",
-              borderRadius: "var(--radius-surface)",
-              background: "var(--paper-bright)",
-              padding: 18,
-              opacity: 0.65,
-            }}
+
           >
-            <span className="muted" style={{ fontSize: 12 }}>
+            <span className="muted s-text-sm" >
               Loading…
             </span>
           </div>

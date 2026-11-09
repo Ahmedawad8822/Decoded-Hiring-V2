@@ -1,4 +1,5 @@
 "use client";
+import { PageHeader, Button } from "../_ui";
 
 export default function CommerceError({
   error,
@@ -8,33 +9,25 @@ export default function CommerceError({
   reset: () => void;
 }) {
   return (
-    <div
+    <div className="s-padding-24 s-stack s-gap-12 s-max-width-720"
       role="alert"
-      style={{
-        border: "1px solid var(--line)",
-        borderRadius: "var(--radius-surface)",
-        background: "var(--paper-bright)",
-        padding: 24,
-        display: "grid",
-        gap: 12,
-        maxWidth: 720,
-      }}
+
     >
-      <h1 className="a-h1" style={{ margin: 0 }}>
-        Scheduling & Commerce is unavailable
-      </h1>
-      <p className="muted" style={{ margin: 0 }}>
+      <PageHeader eyebrow="Studio" title={<>
+        Bookings & offers is unavailable
+      </>} />
+      <p className="muted s-margin-0" >
         The operational view could not be loaded. No booking, payment or provider
         state was changed.
       </p>
       {error.digest && (
-        <p className="muted" style={{ margin: 0, fontSize: 12 }}>
+        <p className="muted s-margin-0 s-text-sm" >
           Reference: {error.digest}
         </p>
       )}
-      <button className="btn secondary small" type="button" onClick={reset} style={{ justifySelf: "start" }}>
+      <Button className="btn secondary small s-justify-self-start" type="button" onClick={reset} >
         Retry
-      </button>
+      </Button>
     </div>
   );
 }

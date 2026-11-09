@@ -9,8 +9,8 @@ import type {
 export const dynamic = "force-dynamic";
 
 export const metadata = {
-  title: "Scheduling & Commerce · Studio | Decoded Hiring",
-  description: "Offers, booking operations, payment truth and provider readiness.",
+  title: "Bookings & offers · Studio | Decoded Hiring",
+  description: "Bookings, offers, orders and connected services.",
 };
 
 function parsePage(value: string | string[] | undefined): number {
@@ -42,5 +42,7 @@ export default async function AdminCommercePage({
 
   const dashboard = await getCommerceAdminDashboard(request);
 
-  return <CommerceAdminClient initial={dashboard} />;
+  const requestedTab = Array.isArray(params.tab) ? params.tab[0] : params.tab;
+  const tab = ["overview", "bookings", "offers", "booking-types", "orders", "system"].includes(requestedTab || "") ? requestedTab : "overview";
+  return <CommerceAdminClient initial={dashboard} tab={tab} />;
 }

@@ -1,4 +1,5 @@
 "use client";
+import { Button } from "../../_ui";
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
@@ -25,25 +26,25 @@ export function LeadActions({ id, status }: { id: string; status: LeadSubmission
 
   return (
     <div>
-      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+      <div className="s-row s-gap-8 s-flex-wrap-wrap" >
         {status === "NEW" && (
-          <button type="button" className="btn small" disabled={pending} onClick={() => run(reviewLeadAction)}>
+          <Button type="button" className="btn small" disabled={pending} onClick={() => run(reviewLeadAction)}>
             Mark reviewed
-          </button>
+          </Button>
         )}
         {(status === "NEW" || status === "REVIEWED") && (
-          <button type="button" className="btn secondary small" disabled={pending} onClick={() => run(closeLeadAction)}>
+          <Button type="button" className="btn secondary small" disabled={pending} onClick={() => run(closeLeadAction)}>
             Mark closed
-          </button>
+          </Button>
         )}
         {(status === "REVIEWED" || status === "CLOSED") && (
-          <button type="button" className="btn secondary small" disabled={pending} onClick={() => run(reopenLeadAction)}>
+          <Button type="button" className="btn secondary small" disabled={pending} onClick={() => run(reopenLeadAction)}>
             Reopen to NEW
-          </button>
+          </Button>
         )}
       </div>
       {error && (
-        <p role="alert" style={{ color: "var(--danger, #b00020)", marginTop: 8 }}>
+        <p className="s-danger s-margin-top-8" role="alert" >
           {error}
         </p>
       )}

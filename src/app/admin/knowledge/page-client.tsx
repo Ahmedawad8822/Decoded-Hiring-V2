@@ -1,4 +1,5 @@
 "use client";
+import { EmptyState, PageHeader, FileDrop, Input, Textarea, Button, DataTable, StatusPill } from "../_ui";
 
 import { useState, useRef, useTransition } from "react";
 import { ingestKnowledgeAction, archiveKnowledgeAction, reingestKnowledgeAction, deleteKnowledgeAction } from "@/features/editorial-ai/knowledge/actions";
@@ -112,99 +113,91 @@ export function KnowledgePageClient({ initialSources }: KnowledgePageClientProps
     }
   }
 
-  const statusColors: Record<string, string> = {
-    UPLOADED: "#6b7280",
-    INGESTING: "#f59e0b",
-    READY: "#10b981",
-    FAILED: "#ef4444",
-    ARCHIVED: "#6b7280",
-  };
-
   return (
-    <div style={{ padding: "24px", maxWidth: "1200px" }}>
-      <h1 style={{ fontSize: "28px", marginBottom: "8px" }}>Knowledge Library</h1>
-      <p style={{ color: "#6b7280", marginBottom: "24px" }}>Upload, ingest, and manage editorial knowledge sources.</p>
+    <div >
+      <PageHeader eyebrow="Editorial AI" title={<>Knowledge Library</>} />
+      <p className="s-muted s-margin-bottom-24px" >Build the source library behind your editorial drafts.</p>
 
       {/* Upload form */}
-      <div style={{ border: "1px solid var(--ink-border, #e5e7eb)", borderRadius: "8px", padding: "20px", marginBottom: "24px" }}>
-        <h2 style={{ fontSize: "18px", marginBottom: "12px" }}>Upload New Source</h2>
-        <form onSubmit={handleUpload}>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
+      <div className="s-padding-20px s-margin-bottom-24px ui-card" >
+        <h2 className="s-margin-bottom-12px" >Upload New Source</h2>
+        <form id="knowledge-upload" onSubmit={handleUpload}>
+          <div className="s-stack s-columns-2 s-gap-12px" >
             <div>
-              <label style={{ display: "block", fontSize: "13px", fontWeight: 500, marginBottom: "4px" }}>File *</label>
-              <input ref={fileInputRef} type="file" name="file" accept=".txt,.md,text/plain,text/markdown" required disabled={uploading} style={{ width: "100%" }} />
+              <label htmlFor="knowledge-field-4605" className="s-block s-text-sm s-margin-bottom-4px" >File *</label>
+              <FileDrop id="knowledge-field-4605" className="s-full" aria-label="File" ref={fileInputRef} type="file" name="file" accept=".txt,.md,text/plain,text/markdown" required disabled={uploading} />
             </div>
             <div>
-              <label style={{ display: "block", fontSize: "13px", fontWeight: 500, marginBottom: "4px" }}>Title *</label>
-              <input type="text" name="title" placeholder="e.g. Structured hiring interview evidence guide" required disabled={uploading} style={{ width: "100%", padding: "8px", border: "1px solid #d1d5db", borderRadius: "4px" }} />
+              <label htmlFor="knowledge-field-4930" className="s-block s-text-sm s-margin-bottom-4px" >Title *</label>
+              <Input id="knowledge-field-4930" className="s-full s-padding-8px" type="text" name="title" placeholder="e.g. Structured hiring interview evidence guide" required disabled={uploading} />
             </div>
             <div>
-              <label style={{ display: "block", fontSize: "13px", fontWeight: 500, marginBottom: "4px" }}>Author</label>
-              <input type="text" name="author" placeholder="Optional" disabled={uploading} style={{ width: "100%", padding: "8px", border: "1px solid #d1d5db", borderRadius: "4px" }} />
+              <label htmlFor="knowledge-field-5321" className="s-block s-text-sm s-margin-bottom-4px" >Author</label>
+              <Input id="knowledge-field-5321" className="s-full s-padding-8px" type="text" name="author" placeholder="Optional" disabled={uploading} />
             </div>
             <div>
-              <label style={{ display: "block", fontSize: "13px", fontWeight: 500, marginBottom: "4px" }}>Source Label</label>
-              <input type="text" name="sourceLabel" placeholder="e.g. Internal docs, Meeting notes" disabled={uploading} style={{ width: "100%", padding: "8px", border: "1px solid #d1d5db", borderRadius: "4px" }} />
+              <label htmlFor="knowledge-field-5671" className="s-block s-text-sm s-margin-bottom-4px" >Source Label</label>
+              <Input id="knowledge-field-5671" className="s-full s-padding-8px" type="text" name="sourceLabel" placeholder="e.g. Internal docs, Meeting notes" disabled={uploading} />
             </div>
           </div>
-          <div style={{ marginTop: "12px" }}>
-            <label style={{ display: "block", fontSize: "13px", fontWeight: 500, marginBottom: "4px" }}>Notes</label>
-            <textarea name="notes" placeholder="Any context for this source" rows={3} disabled={uploading} style={{ width: "100%", padding: "8px", border: "1px solid #d1d5db", borderRadius: "4px", resize: "vertical" }} />
+          <div className="s-margin-top-12px" >
+            <label htmlFor="knowledge-field-6085" className="s-block s-text-sm s-margin-bottom-4px" >Notes</label>
+            <Textarea id="knowledge-field-6085" className="s-full s-padding-8px s-resize-vertical" name="notes" placeholder="Any context for this source" rows={3} disabled={uploading} />
           </div>
-          {uploadError && <p style={{ color: "#ef4444", marginTop: "8px" }}>{uploadError}</p>}
-          {uploadSuccess && <p style={{ color: "#10b981", marginTop: "8px" }}>{uploadSuccess}</p>}
-          <button type="submit" disabled={uploading} style={{ marginTop: "12px", padding: "8px 16px", background: "#3b82f6", color: "white", border: "none", borderRadius: "4px", cursor: uploading ? "not-allowed" : "pointer" }}>
+          {uploadError && <p className="s-danger s-margin-top-8px" >{uploadError}</p>}
+          {uploadSuccess && <p className="s-success s-margin-top-8px" >{uploadSuccess}</p>}
+          <Button className="s-margin-top-12px s-padding-8px-16px s-muted btn primary" type="submit" disabled={uploading} >
             {uploading ? "Uploading..." : "Upload Source"}
-          </button>
+          </Button>
         </form>
       </div>
 
-      {actionError && <p style={{ color: "#ef4444", marginBottom: "12px" }}>{actionError}</p>}
+      {actionError && <p className="s-danger s-margin-bottom-12px" >{actionError}</p>}
 
       {/* Source list */}
-      <h2 style={{ fontSize: "18px", marginBottom: "12px" }}>Sources</h2>
+      <h2 className="s-margin-bottom-12px" >Sources</h2>
       {sources.length === 0 ? (
-        <p style={{ color: "#6b7280" }}>No knowledge sources yet. Upload one above.</p>
+        <EmptyState icon="knowledge" title="Give your ideas a foundation" action={<a href="#knowledge-upload" className="btn primary">Upload a source</a>}>Add your first source above to start your library.</EmptyState>
       ) : (
-        <table style={{ width: "100%", borderCollapse: "collapse" }}>
+        <DataTable className="s-full" >
           <thead>
             <tr>
-              <th style={{ textAlign: "left", padding: "8px", borderBottom: "2px solid #e5e7eb", fontSize: "13px" }}>Title</th>
-              <th style={{ textAlign: "left", padding: "8px", borderBottom: "2px solid #e5e7eb", fontSize: "13px" }}>Status</th>
-              <th style={{ textAlign: "left", padding: "8px", borderBottom: "2px solid #e5e7eb", fontSize: "13px" }}>Chunks</th>
-              <th style={{ textAlign: "left", padding: "8px", borderBottom: "2px solid #e5e7eb", fontSize: "13px" }}>Created</th>
-              <th style={{ textAlign: "right", padding: "8px", borderBottom: "2px solid #e5e7eb", fontSize: "13px" }}>Actions</th>
+              <th className="s-text-align-left s-padding-8px s-text-sm" >Title</th>
+              <th className="s-text-align-left s-padding-8px s-text-sm" >Status</th>
+              <th className="s-text-align-left s-padding-8px s-text-sm" >Chunks</th>
+              <th className="s-text-align-left s-padding-8px s-text-sm" >Created</th>
+              <th className="s-text-align-right s-padding-8px s-text-sm" >Actions</th>
             </tr>
           </thead>
           <tbody>
             {sources.map((s) => (
               <tr key={s.id}>
-                <td style={{ padding: "8px", borderBottom: "1px solid #e5e7eb" }}>
-                  <a href={`/admin/knowledge/${s.id}`} style={{ fontWeight: 500, textDecoration: "none" }}>{s.title}</a>
+                <td className="s-padding-8px" >
+                  <a href={`/admin/knowledge/${s.id}`} >{s.title}</a>
                 </td>
-                <td style={{ padding: "8px", borderBottom: "1px solid #e5e7eb" }}>
-                  <span style={{ color: statusColors[s.status] || "#6b7280", fontWeight: 600, fontSize: "12px" }}>{s.status}</span>
+                <td className="s-padding-8px" >
+                  <StatusPill >{s.status}</StatusPill>
                 </td>
-                <td style={{ padding: "8px", borderBottom: "1px solid #e5e7eb", fontSize: "13px" }}>{s.chunkCount}</td>
-                <td style={{ padding: "8px", borderBottom: "1px solid #e5e7eb", fontSize: "13px" }}>{new Date(s.createdAt).toLocaleDateString()}</td>
-                <td style={{ padding: "8px", borderBottom: "1px solid #e5e7eb", textAlign: "right" }}>
+                <td className="s-padding-8px s-text-sm" >{s.chunkCount}</td>
+                <td className="s-padding-8px s-text-sm" >{new Date(s.createdAt).toLocaleDateString()}</td>
+                <td className="s-padding-8px s-text-align-right" >
                   {s.status === "UPLOADED" && (
-                    <button onClick={() => handleIngest(s.id)} disabled={isPending} style={{ marginRight: "4px", padding: "4px 8px", fontSize: "12px", background: "#10b981", color: "white", border: "none", borderRadius: "4px", cursor: "pointer" }}>Ingest</button>
+                    <Button className="s-margin-right-4px s-padding-4px-8px s-text-sm s-muted btn primary" onClick={() => handleIngest(s.id)} disabled={isPending} >Ingest</Button>
                   )}
                   {(s.status === "READY" || s.status === "FAILED") && (
-                    <button onClick={() => handleReingest(s.id)} disabled={isPending} style={{ marginRight: "4px", padding: "4px 8px", fontSize: "12px", background: "#3b82f6", color: "white", border: "none", borderRadius: "4px", cursor: "pointer" }}>Reingest</button>
+                    <Button className="s-margin-right-4px s-padding-4px-8px s-text-sm s-muted btn primary" onClick={() => handleReingest(s.id)} disabled={isPending} >Reingest</Button>
                   )}
                   {s.status !== "ARCHIVED" && s.status !== "UPLOADED" && (
-                    <button onClick={() => handleArchive(s.id)} disabled={isPending} style={{ marginRight: "4px", padding: "4px 8px", fontSize: "12px", background: "#f59e0b", color: "white", border: "none", borderRadius: "4px", cursor: "pointer" }}>Archive</button>
+                    <Button className="s-margin-right-4px s-padding-4px-8px s-text-sm s-muted btn primary" onClick={() => handleArchive(s.id)} disabled={isPending} >Archive</Button>
                   )}
                   {s.status !== "READY" && s.status !== "ARCHIVED" && s.status !== "INGESTING" && (
-                    <button onClick={() => handleDelete(s.id)} disabled={isPending} style={{ padding: "4px 8px", fontSize: "12px", background: "#ef4444", color: "white", border: "none", borderRadius: "4px", cursor: "pointer" }}>Delete</button>
+                    <Button className="s-padding-4px-8px s-text-sm s-muted btn danger" onClick={() => handleDelete(s.id)} disabled={isPending} >Delete</Button>
                   )}
                 </td>
               </tr>
             ))}
           </tbody>
-        </table>
+        </DataTable>
       )}
     </div>
   );

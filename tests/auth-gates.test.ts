@@ -6,6 +6,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import "./helpers/env"; // MUST be first: fake TEST-ONLY secret before any app module.
 
+import AdminHomePage, { dynamic as homeDynamic } from "../src/app/admin/page";
 import { isRedirectError } from "next/dist/client/components/redirect-error";
 import {
   getAuth,
@@ -57,4 +58,13 @@ test("requireAdminPage redirects anonymous callers to /admin/login", async () =>
       return true;
     }
   );
+});
+
+test("Studio home stays force-dynamic and redirects anonymous callers before reading dashboard data", async () => {
+  assert.equal(homeDynamic, "force-dynamic");
+  await assert.rejects(() => AdminHomePage(), (err: unknown) => {
+    assert.ok(isRedirectError(err));
+    assert.match((err as { digest: string }).digest, /^NEXT_REDIRECT;[a-z]+;\/admin\/login;/);
+    return true;
+  });
 });

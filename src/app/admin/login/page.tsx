@@ -1,4 +1,5 @@
 "use client";
+import { PageHeader, Input, Button } from "../_ui";
 
 import React, { useState } from "react";
 import Link from "next/link";
@@ -74,104 +75,44 @@ export default function AdminLoginPage() {
     }
   };
 
-  const inputStyle: React.CSSProperties = {
-    padding: "10px 14px",
-    borderRadius: "8px",
-    border: "1px solid var(--line-strong)",
-    fontSize: "14px",
-    background: "var(--paper-bright)",
-  };
-  const buttonStyle: React.CSSProperties = {
-    marginTop: "8px",
-    padding: "12px",
-    borderRadius: "8px",
-    background: "var(--ink)",
-    color: "var(--paper)",
-    fontWeight: 600,
-    fontSize: "14px",
-    cursor: loading ? "wait" : "pointer",
-    border: "none",
-  };
-
   return (
-    <main
+    <main className="login-main"
       id="main"
-      style={{
-        minHeight: "100vh",
-        display: "grid",
-        placeItems: "center",
-        padding: "24px",
-        background: "var(--paper-dim)",
-      }}
-    >
-      <div style={{ width: "100%", maxWidth: "420px" }}>
-        <div
-          style={{
-            border: "1px solid var(--line)",
-            borderRadius: "var(--radius-surface, 12px)",
-            background: "var(--paper-bright)",
-            padding: "clamp(24px, 5vw, 40px)",
-          }}
-        >
-          <div style={{ marginBottom: "28px" }}>
-            <Link
-              href="/"
-              style={{
-                textDecoration: "none",
-                display: "inline-flex",
-                flexDirection: "column",
-                color: "var(--ink)",
-              }}
-            >
-              <strong style={{ fontSize: "16px", fontWeight: 700 }}>Ahmed Awad</strong>
-              <span
-                style={{
-                  fontSize: "9px",
-                  letterSpacing: ".12em",
-                  color: "var(--muted)",
-                  fontWeight: 600,
-                }}
-              >
-                HIRING, DECODED
-              </span>
-            </Link>
-          </div>
 
-          <h1 style={{ fontSize: "22px", fontWeight: 600, margin: "0 0 8px" }}>
+    >
+      <div className="login-wrap" >
+        <div className="login-card"
+
+        >
+          <Link href="/" className="login-brand"><strong>Decoded<span className="s-accent">.</span></strong><span>Studio</span></Link>
+
+          <PageHeader eyebrow="Studio" title={<>
             {challenge ? "Two-factor verification" : "Studio sign-in"}
-          </h1>
-          <p style={{ color: "var(--muted-strong)", fontSize: "13.5px", lineHeight: 1.6, margin: 0 }}>
+          </>} />
+          <p className="s-muted s-text-sm s-line-height-1-6 s-margin-0" >
             {challenge
               ? useBackup
                 ? "Enter one of your single-use backup codes."
                 : "Enter the 6-digit code from your authenticator app."
-              : "Staff & editorial access. Sign in with your registered admin credentials to manage guides and publishing."}
+              : "Your ideas, courses, and conversations. All in one workspace."}
           </p>
 
           {error && (
-            <div
+            <div className="s-margin-top-16px s-padding-10px-14px s-danger s-text-sm"
               role="alert"
-              style={{
-                marginTop: "16px",
-                padding: "10px 14px",
-                borderRadius: "8px",
-                background: "var(--coral-soft, #f5d6cd)",
-                color: "#7c2d12",
-                fontSize: "13px",
-                border: "1px solid rgba(235, 116, 94, 0.4)",
-              }}
+
             >
               {error}
             </div>
           )}
 
           {challenge ? (
-            <form onSubmit={handleVerify} style={{ display: "grid", gap: "16px", marginTop: "20px" }}>
-              <div style={{ display: "grid", gap: "6px" }}>
-                <label htmlFor="twofa-code" style={{ fontSize: "12.5px", fontWeight: 600 }}>
+            <form className="s-stack s-gap-16px s-margin-top-20px" onSubmit={handleVerify} >
+              <div className="s-stack s-gap-6px" >
+                <label className="s-text-sm s-bold" htmlFor="twofa-code" >
                   {useBackup ? "Backup code" : "Authentication code"}
                 </label>
-                <input
+                <Input className="ui-input"
                   id="twofa-code"
                   type="text"
                   inputMode={useBackup ? "text" : "numeric"}
@@ -180,92 +121,70 @@ export default function AdminLoginPage() {
                   value={code}
                   onChange={(e) => setCode(e.target.value)}
                   placeholder={useBackup ? "xxxxx-xxxxx" : "123456"}
-                  style={inputStyle}
+
                 />
               </div>
-              <button type="submit" disabled={loading} className="btn primary wide" style={buttonStyle}>
+              <Button type="submit" disabled={loading} className="btn primary wide btn primary" >
                 {loading ? "Verifying..." : "Verify and continue"}
-              </button>
-              <button
+              </Button>
+              <Button className="s-text-sm btn primary"
                 type="button"
                 onClick={() => {
                   setUseBackup(!useBackup);
                   setCode("");
                   setError(null);
                 }}
-                style={{ background: "none", border: "none", color: "var(--ink)", textDecoration: "underline", textUnderlineOffset: "3px", fontSize: "12.5px", cursor: "pointer" }}
+
               >
                 {useBackup ? "Use authenticator app instead" : "Use a backup code"}
-              </button>
+              </Button>
             </form>
           ) : (
-          <form onSubmit={handleSubmit} style={{ display: "grid", gap: "16px", marginTop: "20px" }}>
-            <div style={{ display: "grid", gap: "6px" }}>
-              <label htmlFor="email" style={{ fontSize: "12.5px", fontWeight: 600 }}>
-                Admin Email <span style={{ color: "var(--coral)" }}>*</span>
-              </label>
-              <input
-                id="email"
-                type="email"
-                required
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="admin@decodedhiring.local"
-                style={{
-                  padding: "10px 14px",
-                  borderRadius: "8px",
-                  border: "1px solid var(--line-strong)",
-                  fontSize: "14px",
-                  background: "var(--paper-bright)",
-                }}
-              />
-            </div>
+            <form className="s-stack s-gap-16px s-margin-top-20px" onSubmit={handleSubmit} >
+              <div className="s-stack s-gap-6px" >
+                <label className="s-text-sm s-bold" htmlFor="email" >
+                  Admin Email <span className="s-danger" >*</span>
+                </label>
+                <Input className="s-padding-10px-14px s-text-sm"
+                  id="email"
+                  type="email"
+                  required
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="admin@decodedhiring.local"
 
-            <div style={{ display: "grid", gap: "6px" }}>
-              <label htmlFor="password" style={{ fontSize: "12.5px", fontWeight: 600 }}>
-                Password <span style={{ color: "var(--coral)" }}>*</span>
-              </label>
-              <input
-                id="password"
-                type="password"
-                required
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="••••••••••••"
-                style={{
-                  padding: "10px 14px",
-                  borderRadius: "8px",
-                  border: "1px solid var(--line-strong)",
-                  fontSize: "14px",
-                  background: "var(--paper-bright)",
-                }}
-              />
-            </div>
+                />
+              </div>
 
-            <button
-              type="submit"
-              disabled={loading}
-              className="btn primary wide"
-              style={{
-                marginTop: "8px",
-                padding: "12px",
-                borderRadius: "8px",
-                background: "var(--ink)",
-                color: "var(--paper)",
-                fontWeight: 600,
-                fontSize: "14px",
-                cursor: loading ? "wait" : "pointer",
-                border: "none",
-              }}
-            >
-              {loading ? "Signing in..." : "Sign in to Studio"}
-            </button>
-          </form>
+              <div className="s-stack s-gap-6px" >
+                <label className="s-text-sm s-bold" htmlFor="password" >
+                  Password <span className="s-danger" >*</span>
+                </label>
+                <Input className="s-padding-10px-14px s-text-sm"
+                  id="password"
+                  type="password"
+                  required
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="••••••••••••"
+
+                />
+              </div>
+
+              <Button
+                type="submit"
+                disabled={loading}
+                className="btn primary wide s-margin-top-8px s-padding-12px s-bold s-text-sm btn primary"
+
+              >
+                {loading ? "Signing in..." : "Sign in to Studio"}
+              </Button>
+            </form>
           )}
 
-          <p style={{ fontSize: "12px", color: "var(--muted)", marginTop: "18px", textAlign: "center" }}>
+          <p className="s-text-sm s-muted s-margin-top-18px s-text-align-center" >
             Learner?{" "}
-            <Link href="/" style={{ color: "var(--ink)", textDecoration: "underline", textUnderlineOffset: "3px" }}>
+            <Link href="/" >
               Return to public website →
             </Link>
           </p>

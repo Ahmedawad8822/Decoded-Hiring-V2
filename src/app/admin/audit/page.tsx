@@ -1,3 +1,4 @@
+import { EmptyState, FilterChips, PageHeader, RelativeTime, humanLabel, DataTable } from "../_ui";
 import Link from "next/link";
 import { requireAdminPage } from "@/lib/auth";
 import { AUDIT_ENTITY_TYPES, listAdminAudit } from "@/features/audit/service";
@@ -38,29 +39,15 @@ export default async function AdminAuditPage({
   });
 
   return (
-    <div style={{ padding: "24px 28px" }}>
-      <h1 style={{ fontSize: 22, marginBottom: 4 }}>Audit log</h1>
-      <p style={{ color: "var(--muted)", marginBottom: 16 }}>
-        Read-only trail of admin changes. {total} {total === 1 ? "entry" : "entries"}
-        {entityType ? ` for ${entityType}` : ""}.
-      </p>
-
-      <nav aria-label="Filter by entity type" style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 16 }}>
-        <Link href={href(null, 1)} aria-current={entityType === null ? "page" : undefined}>
-          {entityType === null ? <b>All</b> : "All"}
-        </Link>
-        {AUDIT_ENTITY_TYPES.map((t) => (
-          <Link key={t} href={href(t, 1)} aria-current={entityType === t ? "page" : undefined}>
-            {entityType === t ? <b>{t}</b> : t}
-          </Link>
-        ))}
-      </nav>
+    <div >
+      <PageHeader eyebrow="Admin" title="Audit log" description={`A clear record of your Studio changes. ${total} ${total === 1 ? "entry" : "entries"}${entityType ? ` for ${humanLabel(entityType)}` : ""}.`} />
+      <FilterChips label="Filter by entity type" items={[{ label: "All", href: href(null, 1), active: entityType === null }, ...AUDIT_ENTITY_TYPES.map(value => ({ label: humanLabel(value), href: href(value, 1), active: entityType === value }))]} />
 
       <div className="table-wrap">
-        <table className="data">
+        <DataTable className="data">
           <thead>
             <tr>
-              <th>When (UTC)</th>
+              <th>When</th>
               <th>Actor</th>
               <th>Action</th>
               <th>Entity</th>
@@ -70,16 +57,16 @@ export default async function AdminAuditPage({
           <tbody>
             {entries.length === 0 ? (
               <tr>
-                <td colSpan={5}>No audit entries yet.</td>
+                <td colSpan={5}><EmptyState icon="audit" title="A clean slate">Your Studio changes will appear here.</EmptyState></td>
               </tr>
             ) : (
               entries.map((e) => (
                 <tr key={e.id}>
-                  <td className="num">{e.createdAt.toISOString().replace("T", " ").slice(0, 19)}</td>
+                  <td className="num"><RelativeTime date={e.createdAt} now={new Date().getTime()} /></td>
                   <td>{e.actorEmail ?? e.actorId}</td>
-                  <td>{e.action}</td>
+                  <td>{humanLabel(e.action)}</td>
                   <td>
-                    <div className="cell-main">{e.entityType}</div>
+                    <div className="cell-main">{humanLabel(e.entityType)}</div>
                     <div className="cell-sub">{e.entityId}</div>
                   </td>
                   <td className="num">{e.details ?? ""}</td>
@@ -87,10 +74,10 @@ export default async function AdminAuditPage({
               ))
             )}
           </tbody>
-        </table>
+        </DataTable>
       </div>
 
-      <div style={{ display: "flex", gap: 16, marginTop: 16, alignItems: "center" }}>
+      <div className="s-row s-gap-16 s-margin-top-16 s-align-items-center" >
         {page > 1 ? <Link href={href(entityType, page - 1)}>Previous</Link> : <span />}
         <span>
           Page {page} of {pageCount}

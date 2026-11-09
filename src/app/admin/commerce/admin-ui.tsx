@@ -11,33 +11,6 @@ import type {
 
 export type ActionResult = { ok: boolean; error?: string };
 
-export const cardStyle: React.CSSProperties = {
-  border: "1px solid var(--line)",
-  borderRadius: "var(--radius-surface)",
-  background: "var(--paper-bright)",
-  padding: "20px 22px",
-};
-
-export const fieldStyle: React.CSSProperties = {
-  padding: "9px 11px",
-  borderRadius: 8,
-  border: "1px solid var(--line-strong)",
-  fontSize: 13,
-  width: "100%",
-};
-
-export const labelStyle: React.CSSProperties = {
-  display: "grid",
-  gap: 5,
-  fontSize: 12,
-  fontWeight: 600,
-};
-
-export const sectionTitleStyle: React.CSSProperties = {
-  fontSize: 18,
-  margin: 0,
-};
-
 export function nullable(value: FormDataEntryValue | null): string | null {
   const text = String(value ?? "").trim();
   return text ? text : null;
@@ -78,38 +51,14 @@ export function money(amountMinor: number | null, currency: string | null): stri
   }
 }
 
-export function StatusPill({ children }: { children: React.ReactNode }) {
-  return (
-    <span
-      style={{
-        display: "inline-flex",
-        alignItems: "center",
-        border: "1px solid var(--line)",
-        borderRadius: 999,
-        padding: "3px 8px",
-        fontSize: 11,
-        fontWeight: 700,
-        letterSpacing: ".02em",
-      }}
-    >
-      {children}
-    </span>
-  );
-}
+export { StatusPill } from "../_ui";
 
 export function ErrorBanner({ error }: { error: string | null }) {
   if (!error) return null;
   return (
-    <div
+    <div className="s-padding-10px-14px s-danger s-text-sm"
       role="alert"
-      style={{
-        padding: "10px 14px",
-        borderRadius: 8,
-        background: "var(--coral-soft, #f5d6cd)",
-        color: "#7c2d12",
-        border: "1px solid rgba(235,116,94,.4)",
-        fontSize: 13,
-      }}
+
     >
       {error}
     </div>
@@ -124,7 +73,7 @@ export function BoundedListNote<T>({
   label: string;
 }) {
   return (
-    <p className="muted" style={{ margin: "6px 0 0", fontSize: 12 }}>
+    <p className="muted s-margin-6px-0-0 s-text-sm" >
       Showing {list.items.length} of {list.total} {label}
       {list.totalPages > 1 ? ` · page ${list.page} of ${list.totalPages}` : ""}.
     </p>
@@ -150,13 +99,13 @@ export function PageControls<T>({
   };
 
   return (
-    <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+    <div className="s-row s-gap-8 s-align-items-center s-flex-wrap-wrap" >
       {list.page > 1 && (
         <Link className="btn ghost small" href={href(list.page - 1)}>
           Previous
         </Link>
       )}
-      <span className="muted" style={{ fontSize: 11 }}>
+      <span className="muted s-text-xs" >
         Page {list.page} of {list.totalPages}
       </span>
       {list.page < list.totalPages && (

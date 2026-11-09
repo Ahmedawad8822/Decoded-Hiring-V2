@@ -1,4 +1,5 @@
 "use client";
+import { EmptyState, StatCard, humanLabel, PageHeader, DataTable, StatusPill, Button } from "../_ui";
 
 import { useTransition } from "react";
 import Link from "next/link";
@@ -12,14 +13,6 @@ interface EditorialListClientProps {
 
 export function EditorialListClient({ initialDrafts }: EditorialListClientProps) {
   const [isPending] = useTransition();
-
-  const statusColors: Record<string, string> = {
-    DRAFT: "#6b7280",
-    IN_REVIEW: "#3b82f6",
-    APPROVED: "#10b981",
-    REJECTED: "#ef4444",
-    PUBLISHED: "#8b5cf6",
-  };
 
   async function handleApprove(id: string) {
     try {
@@ -54,64 +47,59 @@ export function EditorialListClient({ initialDrafts }: EditorialListClientProps)
   const approvedCount = initialDrafts.filter((d) => d.status === "APPROVED").length;
 
   return (
-    <div style={{ padding: "24px", maxWidth: "1200px" }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px" }}>
-        <h1 style={{ fontSize: "28px" }}>Editorial Drafts</h1>
-        <Link href="/admin/editorial/new" style={{ padding: "8px 16px", background: "#3b82f6", color: "white", textDecoration: "none", borderRadius: "4px", fontSize: "13px" }}>
-          + New Generation
-        </Link>
-      </div>
+    <div >
 
-      <div style={{ display: "flex", gap: "16px", marginBottom: "16px", fontSize: "13px" }}>
-        <span style={{ color: "#6b7280" }}>Total: {initialDrafts.length}</span>
-        <span style={{ color: "#3b82f6" }}>In Review: {pendingCount}</span>
-        <span style={{ color: "#10b981" }}>Approved: {approvedCount}</span>
+      <PageHeader eyebrow="Editorial AI" title="Editorial Drafts" description="Turn your knowledge into a draft worth refining. Every piece stays in your hands." action={<Link href="/admin/editorial/new" className="btn primary">+ New Generation</Link>} />
+      <div className="stat-grid">
+        <StatCard icon="content" label="All drafts" value={initialDrafts.length} />
+        <StatCard icon="clock" label="In review" value={pendingCount} attention />
+        <StatCard icon="check" label="Approved" value={approvedCount} />
       </div>
 
       {initialDrafts.length === 0 ? (
-        <p style={{ color: "#6b7280" }}>No drafts yet. Create one to get started.</p>
+        <EmptyState icon="sparkles" title="Your next draft starts with a spark" action={<Link href="/admin/editorial/new" className="btn primary">New AI draft</Link>}>Create with the knowledge you’ve collected.</EmptyState>
       ) : (
-        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "13px" }}>
+        <DataTable className="s-full s-text-sm" >
           <thead>
             <tr>
-              <th style={{ textAlign: "left", padding: "8px", borderBottom: "2px solid #e5e7eb" }}>Title</th>
-              <th style={{ textAlign: "left", padding: "8px", borderBottom: "2px solid #e5e7eb" }}>Type</th>
-              <th style={{ textAlign: "left", padding: "8px", borderBottom: "2px solid #e5e7eb" }}>Status</th>
-              <th style={{ textAlign: "left", padding: "8px", borderBottom: "2px solid #e5e7eb" }}>Skill</th>
-              <th style={{ textAlign: "left", padding: "8px", borderBottom: "2px solid #e5e7eb" }}>Created</th>
-              <th style={{ textAlign: "right", padding: "8px", borderBottom: "2px solid #e5e7eb" }}>Actions</th>
+              <th className="s-text-align-left s-padding-8px" >Title</th>
+              <th className="s-text-align-left s-padding-8px" >Type</th>
+              <th className="s-text-align-left s-padding-8px" >Status</th>
+              <th className="s-text-align-left s-padding-8px" >Skill</th>
+              <th className="s-text-align-left s-padding-8px" >Created</th>
+              <th className="s-text-align-right s-padding-8px" >Actions</th>
             </tr>
           </thead>
           <tbody>
             {initialDrafts.map((draft) => (
               <tr key={draft.id}>
-                <td style={{ padding: "8px", borderBottom: "1px solid #e5e7eb" }}>
-                  <Link href={`/admin/editorial/${draft.id}`} style={{ fontWeight: 500, textDecoration: "none" }}>{draft.title}</Link>
+                <td className="s-padding-8px" >
+                  <Link href={`/admin/editorial/${draft.id}`} >{draft.title}</Link>
                 </td>
-                <td style={{ padding: "8px", borderBottom: "1px solid #e5e7eb" }}>{draft.contentType}</td>
-                <td style={{ padding: "8px", borderBottom: "1px solid #e5e7eb" }}>
-                  <span style={{ color: statusColors[draft.status] || "#6b7280", fontWeight: 600, fontSize: "12px" }}>{draft.status}</span>
+                <td className="s-padding-8px" >{humanLabel(draft.contentType)}</td>
+                <td className="s-padding-8px" >
+                  <StatusPill >{draft.status}</StatusPill>
                 </td>
-                <td style={{ padding: "8px", borderBottom: "1px solid #e5e7eb", fontSize: "12px" }}>{draft.skillId}</td>
-                <td style={{ padding: "8px", borderBottom: "1px solid #e5e7eb", fontSize: "12px" }}>{new Date(draft.createdAt).toLocaleDateString()}</td>
-                <td style={{ padding: "8px", borderBottom: "1px solid #e5e7eb", textAlign: "right" }}>
+                <td className="s-padding-8px s-text-sm" >{draft.skillId}</td>
+                <td className="s-padding-8px s-text-sm" >{new Date(draft.createdAt).toLocaleDateString()}</td>
+                <td className="s-padding-8px s-text-align-right" >
                   {draft.status === "IN_REVIEW" && (
                     <>
-                      <button onClick={() => handleApprove(draft.id)} disabled={isPending} style={{ marginRight: "4px", padding: "4px 8px", fontSize: "11px", background: "#10b981", color: "white", border: "none", borderRadius: "4px", cursor: "pointer" }}>Approve</button>
-                      <button onClick={() => handleReject(draft.id)} disabled={isPending} style={{ marginRight: "4px", padding: "4px 8px", fontSize: "11px", background: "#ef4444", color: "white", border: "none", borderRadius: "4px", cursor: "pointer" }}>Reject</button>
+                      <Button className="s-margin-right-4px s-padding-4px-8px s-text-xs s-muted btn primary" onClick={() => handleApprove(draft.id)} disabled={isPending} >Approve</Button>
+                      <Button className="s-margin-right-4px s-padding-4px-8px s-text-xs s-muted btn danger" onClick={() => handleReject(draft.id)} disabled={isPending} >Reject</Button>
                     </>
                   )}
                   {draft.status === "APPROVED" && (
-                    <button onClick={() => handlePublish(draft.id)} disabled={isPending} style={{ padding: "4px 8px", fontSize: "11px", background: "#8b5cf6", color: "white", border: "none", borderRadius: "4px", cursor: "pointer" }}>Publish</button>
+                    <Button className="s-padding-4px-8px s-text-xs s-muted btn primary" onClick={() => handlePublish(draft.id)} disabled={isPending} >Publish</Button>
                   )}
                   {draft.status === "PUBLISHED" && draft.publishedEntityId && (
-                    <a href={`/admin/content`} style={{ fontSize: "11px", color: "#6b7280", textDecoration: "underline" }}>Published</a>
+                    <a className="s-text-xs s-muted" href={`/admin/content`} >Published</a>
                   )}
                 </td>
               </tr>
             ))}
           </tbody>
-        </table>
+        </DataTable>
       )}
     </div>
   );

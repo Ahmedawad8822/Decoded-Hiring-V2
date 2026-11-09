@@ -1,4 +1,5 @@
 "use client";
+import { humanLabel, PageHeader, StatusPill, DataTable, Button, Input, Textarea } from "../../_ui";
 
 import { useState, useTransition } from "react";
 import Link from "next/link";
@@ -24,14 +25,6 @@ export function DraftDetailClient({ draft }: DraftDetailClientProps) {
   const [actionError, setActionError] = useState<string | null>(null);
   const [actionSuccess, setActionSuccess] = useState<string | null>(null);
   const [isEditing, setIsEditing] = useState(false);
-
-  const statusColors: Record<string, string> = {
-    DRAFT: "#6b7280",
-    IN_REVIEW: "#3b82f6",
-    APPROVED: "#10b981",
-    REJECTED: "#ef4444",
-    PUBLISHED: "#8b5cf6",
-  };
 
   async function runAction(fn: (id: string, input?: { note?: string }) => Promise<ActionResult<unknown>>, label: string, input?: { note?: string }) {
     startTransition(() => {
@@ -97,179 +90,176 @@ export function DraftDetailClient({ draft }: DraftDetailClientProps) {
   }
 
   return (
-    <div style={{ padding: "24px", maxWidth: "1000px" }}>
-      <Link href="/admin/editorial" style={{ color: "#6b7280", fontSize: "13px", textDecoration: "none" }}>Back to Drafts</Link>
+    <div >
+      <Link className="s-muted s-text-sm" href="/admin/editorial" >Back to Drafts</Link>
 
       {/* Header */}
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginTop: "12px", marginBottom: "16px" }}>
+      <div className="s-row s-justify-content-space-between s-align-items-flex-start s-margin-top-12px s-margin-bottom-16px" >
         <div>
-          <h1 style={{ fontSize: "24px", marginBottom: "4px" }}>{draft.title}</h1>
-          <p style={{ color: "#6b7280", fontSize: "13px" }}>Slug: <code>{draft.slug}</code></p>
+          <PageHeader eyebrow="Editorial AI" title={<>{draft.title}</>} />
+          <p className="s-muted s-text-sm" >Slug: <code>{draft.slug}</code></p>
         </div>
-        <span style={{ color: statusColors[draft.status] || "#6b7280", fontWeight: 600, fontSize: "12px", padding: "4px 8px", border: `1px solid ${statusColors[draft.status] || "#d1d5db"}`, borderRadius: "4px" }}>
+        <StatusPill >
           {draft.status}
-        </span>
+        </StatusPill>
       </div>
 
       {/* Meta */}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px", marginBottom: "20px", fontSize: "13px" }}>
+      <div className="s-stack s-columns-2 s-gap-16px s-margin-bottom-20px s-text-sm" >
         <div>
-          <table style={{ borderCollapse: "collapse", width: "100%" }}>
+          <DataTable className="s-full" >
             <tbody>
-              <tr><td style={{ padding: "2px 0", color: "#6b7280" }}>Skill</td><td style={{ padding: "2px 0" }}>{draft.skillId} v{draft.skillVersion}</td></tr>
-              <tr><td style={{ padding: "2px 0", color: "#6b7280" }}>Provider</td><td style={{ padding: "2px 0" }}>{draft.provider} ({draft.model})</td></tr>
-              <tr><td style={{ padding: "2px 0", color: "#6b7280" }}>Type</td><td style={{ padding: "2px 0" }}>{draft.contentType}</td></tr>
-              <tr><td style={{ padding: "2px 0", color: "#6b7280" }}>Created</td><td style={{ padding: "2px 0" }}>{new Date(draft.createdAt).toLocaleString()}</td></tr>
+              <tr><td className="s-padding-2px-0 s-muted" >Skill</td><td className="s-padding-2px-0" >{draft.skillId} v{draft.skillVersion}</td></tr>
+              <tr><td className="s-padding-2px-0 s-muted" >Provider</td><td className="s-padding-2px-0" >{draft.provider} ({draft.model})</td></tr>
+              <tr><td className="s-padding-2px-0 s-muted" >Type</td><td className="s-padding-2px-0" >{humanLabel(draft.contentType)}</td></tr>
+              <tr><td className="s-padding-2px-0 s-muted" >Created</td><td className="s-padding-2px-0" >{new Date(draft.createdAt).toLocaleString()}</td></tr>
             </tbody>
-          </table>
+          </DataTable>
         </div>
-        {actionError && <p style={{ color: "#ef4444", fontSize: "13px" }}>{actionError}</p>}
-        {actionSuccess && <p style={{ color: "#10b981", fontSize: "13px" }}>{actionSuccess}</p>}
+        {actionError && <p className="s-danger s-text-sm" >{actionError}</p>}
+        {actionSuccess && <p className="s-success s-text-sm" >{actionSuccess}</p>}
       </div>
 
       {/* Meta fields */}
       {draft.excerpt && (
-        <div style={{ marginBottom: "16px" }}>
-          <strong style={{ fontSize: "13px", color: "#6b7280" }}>Excerpt:</strong>
-          <p style={{ fontSize: "14px", marginTop: "4px" }}>{draft.excerpt}</p>
+        <div className="s-margin-bottom-16px" >
+          <strong className="s-text-sm s-muted" >Excerpt:</strong>
+          <p className="s-text-sm s-margin-top-4px" >{draft.excerpt}</p>
         </div>
       )}
 
       {/* Only DRAFT content is editable. Review/approved/published states are immutable. */}
       {draft.status === "DRAFT" && (
-        <div style={{ marginBottom: isEditing ? "8px" : "24px" }}>
-          <button
+        <div >
+          <Button className="btn secondary"
             onClick={() => setIsEditing(!isEditing)}
             type="button"
-            style={{
-              padding: "6px 12px", fontSize: "12px", background: isEditing ? "#ef4444" : "#6b7280",
-              color: "white", border: "none", borderRadius: "4px", cursor: "pointer",
-            }}
+
           >
             {isEditing ? "Cancel edit" : "Edit draft"}
-          </button>
+          </Button>
           {isEditing && (
-            <form id="edit-draft-form" onSubmit={handleEdit} style={{ marginTop: "12px", display: "grid", gap: "12px" }}>
+            <form className="s-margin-top-12px s-stack s-gap-12px" id="edit-draft-form" onSubmit={handleEdit} >
               <div>
-                <label style={{ display: "block", fontSize: "12px", fontWeight: 500, marginBottom: "2px" }}>Title</label>
-                <input
+                <label htmlFor="[id]-field-6241" className="s-block s-text-sm s-margin-bottom-2px" >Title</label>
+                <Input id="[id]-field-6241" className="s-full s-padding-6px-8px s-text-sm"
                   type="text" name="title" defaultValue={draft.title}
-                  style={{ width: "100%", padding: "6px 8px", border: "1px solid #d1d5db", borderRadius: "4px", fontSize: "13px" }}
+
                 />
               </div>
               <div>
-                <label style={{ display: "block", fontSize: "12px", fontWeight: 500, marginBottom: "2px" }}>Excerpt</label>
-                <textarea
+                <label htmlFor="[id]-field-6650" className="s-block s-text-sm s-margin-bottom-2px" >Excerpt</label>
+                <Textarea id="[id]-field-6650" className="s-full s-padding-6px-8px s-text-sm s-resize-vertical"
                   name="excerpt" rows={2} defaultValue={draft.excerpt ?? ""}
-                  style={{ width: "100%", padding: "6px 8px", border: "1px solid #d1d5db", borderRadius: "4px", fontSize: "13px", resize: "vertical" }}
+
                 />
               </div>
               <div>
-                <label style={{ display: "block", fontSize: "12px", fontWeight: 500, marginBottom: "2px" }}>Meta Title</label>
-                <input
+                <label htmlFor="[id]-field-7092" className="s-block s-text-sm s-margin-bottom-2px" >Meta Title</label>
+                <Input id="[id]-field-7092" className="s-full s-padding-6px-8px s-text-sm"
                   type="text" name="metaTitle" defaultValue={draft.metaTitle ?? ""}
-                  style={{ width: "100%", padding: "6px 8px", border: "1px solid #d1d5db", borderRadius: "4px", fontSize: "13px" }}
+
                 />
               </div>
               <div>
-                <label style={{ display: "block", fontSize: "12px", fontWeight: 500, marginBottom: "2px" }}>Meta Description</label>
-                <textarea
+                <label htmlFor="[id]-field-7524" className="s-block s-text-sm s-margin-bottom-2px" >Meta Description</label>
+                <Textarea id="[id]-field-7524" className="s-full s-padding-6px-8px s-text-sm s-resize-vertical"
                   name="metaDescription" rows={2} defaultValue={draft.metaDescription ?? ""}
-                  style={{ width: "100%", padding: "6px 8px", border: "1px solid #d1d5db", borderRadius: "4px", fontSize: "13px", resize: "vertical" }}
+
                 />
               </div>
-              <div style={{ display: "flex", gap: "8px" }}>
-                <button
+              <div className="s-row s-gap-8px" >
+                <Button className="s-padding-6px-12px s-text-sm s-muted btn primary"
                   type="submit"
                   disabled={isPending}
-                  style={{ padding: "6px 12px", fontSize: "12px", background: "#10b981", color: "white", border: "none", borderRadius: "4px", cursor: "pointer" }}
+
                 >
                   {isPending ? "Saving..." : "Save changes"}
-                </button>
-                <button
+                </Button>
+                <Button className="btn secondary"
                   type="button"
                   onClick={() => setIsEditing(false)}
-                  style={{ padding: "6px 12px", fontSize: "12px", background: "#ef4444", color: "white", border: "none", borderRadius: "4px", cursor: "pointer" }}
+
                 >
                   Cancel
-                </button>
+                </Button>
               </div>
-              {actionError && <p style={{ color: "#ef4444", fontSize: "12px" }}>{actionError}</p>}
-              {actionSuccess && <p style={{ color: "#10b981", fontSize: "12px" }}>{actionSuccess}</p>}
+              {actionError && <p className="s-danger s-text-sm" >{actionError}</p>}
+              {actionSuccess && <p className="s-success s-text-sm" >{actionSuccess}</p>}
             </form>
           )}
         </div>
-  
+
       )}
       {/* Body */}
-      <div style={{ marginBottom: "24px" }}>
-        <h2 style={{ fontSize: "16px", marginBottom: "12px" }}>Content</h2>
-        <div style={{ border: "1px solid #e5e7eb", borderRadius: "8px", padding: "20px", background: "var(--paper, #fff)" }}>
+      <div className="s-margin-bottom-24px" >
+        <h2 className="s-margin-bottom-12px" >Content</h2>
+        <div className="s-padding-20px ui-card" >
           {renderContentBlocks(draft.body)}
         </div>
       </div>
 
       {/* Source provenance */}
-      <div style={{ marginBottom: "24px" }}>
-        <h2 style={{ fontSize: "16px", marginBottom: "12px" }}>Source Provenance ({draft.sources.length})</h2>
+      <div className="s-margin-bottom-24px" >
+        <h2 className="s-margin-bottom-12px" >Source Provenance ({draft.sources.length})</h2>
         {draft.sources.length === 0 ? (
-          <p style={{ color: "#6b7280", fontSize: "13px" }}>No knowledge chunks were used for this draft.</p>
+          <p className="s-muted s-text-sm" >No knowledge chunks were used for this draft.</p>
         ) : (
-          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "12px" }}>
+          <DataTable className="s-full s-text-sm" >
             <thead>
               <tr>
-                <th style={{ textAlign: "left", padding: "6px", borderBottom: "1px solid #e5e7eb" }}>Rank</th>
-                <th style={{ textAlign: "left", padding: "6px", borderBottom: "1px solid #e5e7eb" }}>Source</th>
-                <th style={{ textAlign: "left", padding: "6px", borderBottom: "1px solid #e5e7eb" }}>Chunk</th>
-                <th style={{ textAlign: "left", padding: "6px", borderBottom: "1px solid #e5e7eb" }}>Heading</th>
+                <th className="s-text-align-left s-padding-6px" >Rank</th>
+                <th className="s-text-align-left s-padding-6px" >Source</th>
+                <th className="s-text-align-left s-padding-6px" >Chunk</th>
+                <th className="s-text-align-left s-padding-6px" >Heading</th>
               </tr>
             </thead>
             <tbody>
               {draft.sources.map((s) => (
                 <tr key={s.chunkId}>
-                  <td style={{ padding: "6px" }}>{s.rank}</td>
-                  <td style={{ padding: "6px" }}>{s.sourceTitle}</td>
-                  <td style={{ padding: "6px" }}>#{s.ordinal}</td>
-                  <td style={{ padding: "6px", color: "#6b7280" }}>{s.heading || "-"}</td>
+                  <td className="s-padding-6px" >{s.rank}</td>
+                  <td className="s-padding-6px" >{s.sourceTitle}</td>
+                  <td className="s-padding-6px" >#{s.ordinal}</td>
+                  <td className="s-padding-6px s-muted" >{s.heading || "-"}</td>
                 </tr>
               ))}
             </tbody>
-          </table>
+          </DataTable>
         )}
       </div>
 
       {/* Review metadata */}
       {(draft.submittedAt || draft.approvedAt || draft.rejectedAt || draft.publishedAt) && (
-        <div style={{ marginBottom: "24px", padding: "12px", background: "#f9fafb", borderRadius: "8px", fontSize: "12px" }}>
-          {draft.submittedAt && <p><span style={{ color: "#6b7280" }}>Submitted:</span> {new Date(draft.submittedAt).toLocaleString()}</p>}
-          {draft.approvedAt && <p><span style={{ color: "#6b7280" }}>Approved:</span> {new Date(draft.approvedAt).toLocaleString()}</p>}
-          {draft.rejectedAt && <p><span style={{ color: "#6b7280" }}>Rejected:</span> {new Date(draft.rejectedAt).toLocaleString()}</p>}
-          {draft.publishedAt && <p><span style={{ color: "#6b7280" }}>Published:</span> {new Date(draft.publishedAt).toLocaleString()} → <code>{draft.publishedEntityType}#{draft.publishedEntityId}</code></p>}
+        <div className="s-margin-bottom-24px s-padding-12px s-text-sm" >
+          {draft.submittedAt && <p><span className="s-muted" >Submitted:</span> {new Date(draft.submittedAt).toLocaleString()}</p>}
+          {draft.approvedAt && <p><span className="s-muted" >Approved:</span> {new Date(draft.approvedAt).toLocaleString()}</p>}
+          {draft.rejectedAt && <p><span className="s-muted" >Rejected:</span> {new Date(draft.rejectedAt).toLocaleString()}</p>}
+          {draft.publishedAt && <p><span className="s-muted" >Published:</span> {new Date(draft.publishedAt).toLocaleString()} → <code>{draft.publishedEntityType}#{draft.publishedEntityId}</code></p>}
         </div>
       )}
 
       {/* Lifecycle actions */}
-      <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", paddingBottom: "24px" }}>
+      <div className="s-row s-gap-8px s-flex-wrap-wrap s-padding-bottom-24px" >
         {draft.status === "DRAFT" && (
-          <button onClick={() => runAction(submitForReviewAction, "Submitted")} disabled={isPending} style={{ padding: "8px 16px", fontSize: "13px", background: "#3b82f6", color: "white", border: "none", borderRadius: "4px", cursor: "pointer" }}>Submit for Review</button>
+          <Button className="s-padding-8px-16px s-text-sm s-muted btn primary" onClick={() => runAction(submitForReviewAction, "Submitted")} disabled={isPending} >Submit for Review</Button>
         )}
         {draft.status === "IN_REVIEW" && (
           <>
-            <button onClick={() => runAction(sendBackAction, "Sent back")} disabled={isPending} style={{ padding: "8px 16px", fontSize: "13px", background: "#f59e0b", color: "white", border: "none", borderRadius: "4px", cursor: "pointer" }}>Send Back</button>
-            <button onClick={() => runAction(approveAction, "Approved")} disabled={isPending} style={{ padding: "8px 16px", fontSize: "13px", background: "#10b981", color: "white", border: "none", borderRadius: "4px", cursor: "pointer" }}>Approve</button>
-            <button onClick={() => runAction(rejectDraftAction, "Rejected")} disabled={isPending} style={{ padding: "8px 16px", fontSize: "13px", background: "#ef4444", color: "white", border: "none", borderRadius: "4px", cursor: "pointer" }}>Reject</button>
+            <Button className="s-padding-8px-16px s-text-sm s-muted btn primary" onClick={() => runAction(sendBackAction, "Sent back")} disabled={isPending} >Send Back</Button>
+            <Button className="s-padding-8px-16px s-text-sm s-muted btn primary" onClick={() => runAction(approveAction, "Approved")} disabled={isPending} >Approve</Button>
+            <Button className="s-padding-8px-16px s-text-sm s-muted btn danger" onClick={() => runAction(rejectDraftAction, "Rejected")} disabled={isPending} >Reject</Button>
           </>
         )}
         {draft.status === "REJECTED" && (
-          <button onClick={() => runAction(recoverRejectedAction, "Recovered")} disabled={isPending} style={{ padding: "8px 16px", fontSize: "13px", background: "#3b82f6", color: "white", border: "none", borderRadius: "4px", cursor: "pointer" }}>Recover to DRAFT</button>
+          <Button className="s-padding-8px-16px s-text-sm s-muted btn primary" onClick={() => runAction(recoverRejectedAction, "Recovered")} disabled={isPending} >Recover to DRAFT</Button>
         )}
         {draft.status === "APPROVED" && (
-          <button onClick={handlePublish} disabled={isPending} style={{ padding: "8px 16px", fontSize: "13px", background: "#8b5cf6", color: "white", border: "none", borderRadius: "4px", cursor: "pointer" }}>
+          <Button className="s-padding-8px-16px s-text-sm s-muted btn primary" onClick={handlePublish} disabled={isPending} >
             {isPending ? "Publishing..." : `Publish to ${draft.contentType === "GUIDE" ? "Guide" : "Field Note"}`}
-          </button>
+          </Button>
         )}
         {draft.status === "PUBLISHED" && draft.publishedEntityId && (
-          <Link href={`/admin/content`} style={{ padding: "8px 16px", fontSize: "13px", background: "#8b5cf6", color: "white", textDecoration: "none", borderRadius: "4px" }}>View Published</Link>
+          <Link className="s-padding-8px-16px s-text-sm s-muted btn primary" href={`/admin/content`} >View Published</Link>
         )}
       </div>
     </div>
@@ -278,30 +268,30 @@ export function DraftDetailClient({ draft }: DraftDetailClientProps) {
 
 function renderContentBlocks(blocks: LlmBlock[]): React.ReactNode {
   if (!blocks || blocks.length === 0) {
-    return <p style={{ color: "#6b7280", fontSize: "13px" }}>(no content)</p>;
+    return <p className="s-muted s-text-sm" >(no content)</p>;
   }
 
   return blocks.map((block, i) => {
     const key = `${block.type}-${i}`;
     switch (block.type) {
       case "heading":
-        return block.level === 2 ? <h2 key={key} style={{ fontSize: "20px", marginTop: "16px", marginBottom: "8px" }}>{block.text}</h2> : <h3 key={key} style={{ fontSize: "18px", marginTop: "16px", marginBottom: "8px" }}>{block.text}</h3>;
+        return block.level === 2 ? <h2 className="s-margin-top-16px s-margin-bottom-8px" key={key} >{block.text}</h2> : <h3 className="s-margin-top-16px s-margin-bottom-8px" key={key} >{block.text}</h3>;
       case "paragraph":
-        return <p key={key} style={{ marginBottom: "12px", lineHeight: "1.6" }}>{block.text}</p>;
+        return <p className="s-margin-bottom-12px s-line-height-1-6" key={key} >{block.text}</p>;
       case "blockquote":
-        return <blockquote key={key} style={{ borderLeft: "3px solid #3b82f6", margin: "12px 0", padding: "8px 16px", fontStyle: "italic", color: "#374151" }}>{block.text}</blockquote>;
+        return <blockquote className="s-border-left-3px-solid-3b82f6 s-margin-12px-0 s-padding-8px-16px s-font-style-italic s-muted" key={key} >{block.text}</blockquote>;
       case "callout":
         return (
-          <div key={key} style={{ border: "1px solid #e5e7eb", borderRadius: "6px", padding: "10px 14px", margin: "12px 0", fontSize: "13px" }}>
-            <strong style={{ color: block.tone === "evidence" ? "#10b981" : "#3b82f6" }}>{block.label}</strong>
-            <p style={{ margin: "4px 0 0 0" }}>{block.text}</p>
+          <div className="s-padding-10px-14px s-margin-12px-0 s-text-sm ui-card" key={key} >
+            <strong >{block.label}</strong>
+            <p className="s-margin-4px-0-0-0" >{block.text}</p>
           </div>
         );
       case "list":
         return block.style === "ordered" ? (
-          <ol key={key} style={{ marginBottom: "12px", paddingLeft: "20px" }}>{block.items.map((item, j) => <li key={j} style={{ marginBottom: "4px" }}>{item}</li>)}</ol>
+          <ol className="s-margin-bottom-12px s-padding-left-20px" key={key} >{block.items.map((item, j) => <li className="s-margin-bottom-4px" key={j} >{item}</li>)}</ol>
         ) : (
-          <ul key={key} style={{ marginBottom: "12px", paddingLeft: "20px" }}>{block.items.map((item, j) => <li key={j} style={{ marginBottom: "4px" }}>{item}</li>)}</ul>
+          <ul className="s-margin-bottom-12px s-padding-left-20px" key={key} >{block.items.map((item, j) => <li className="s-margin-bottom-4px" key={j} >{item}</li>)}</ul>
         );
       default:
         return null;

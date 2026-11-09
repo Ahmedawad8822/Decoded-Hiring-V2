@@ -1,4 +1,6 @@
 "use client";
+import { PageHeader, humanLabel } from "../../../_ui";
+import { Button, Input, DataTable, FileDrop } from "../../../_ui";
 
 import React, { useState } from "react";
 import Link from "next/link";
@@ -193,109 +195,110 @@ export function CurriculumClient({
 
   return (
     <div>
-      <div className="editor-subhead" style={{ margin: "-24px -20px 20px", borderRadius: 0 }}>
-        <Link href="/admin/courses" className="btn ghost small" style={{ textDecoration: "none" }}>
+      <PageHeader eyebrow="Courses" title={course.title} description="Shape the learning path: sections, lessons and downloadable files." />
+      <div className="editor-subhead s-margin-24px--20px-20px" >
+        <Link href="/admin/courses" className="btn ghost small" >
           ← Courses
         </Link>
         <span className="es-title">{course.title}</span>
         <span className={`lifecycle ${course.status}`}>{course.status.toUpperCase()}</span>
         <span className="es-spacer"></span>
-        <span className="a-micro">{course.accessMode}</span>
+        <span className="a-micro">{humanLabel(course.accessMode)}</span>
       </div>
 
-      <p className="muted" style={{ marginBottom: 20, fontSize: 12.5 }}>
-        Sections → lessons. ↑↓ buttons reorder everywhere (no drag dependency). Required flags drive honest progress.{" "}
-        {enrollmentCount} learner{enrollmentCount === 1 ? "" : "s"} {enrollmentCount === 1 ? "is" : "are"} mid-course — reorder is safe, deletes are guarded.
+      <p className="muted s-margin-bottom-20 s-text-sm" >
+        Arrange sections and lessons in the order learners should follow. Mark essential lessons as required.{" "}
+        {enrollmentCount} learner{enrollmentCount === 1 ? "" : "s"} {enrollmentCount === 1 ? "is" : "are"} learning here. Reordering keeps their progress intact.
       </p>
 
       {error && (
-        <div role="alert" style={{ marginBottom: 16, padding: "10px 14px", borderRadius: 8, background: "var(--coral-soft, #f5d6cd)", color: "#7c2d12", fontSize: 13, border: "1px solid rgba(235, 116, 94, 0.4)" }}>
+        <div className="s-margin-bottom-16 s-padding-10px-14px s-danger s-text-sm" role="alert" >
           {error}
         </div>
       )}
       {notice && (
-        <div role="status" style={{ marginBottom: 16, padding: "10px 14px", borderRadius: 8, background: "var(--mint-soft, #e3f2e9)", color: "#14532d", fontSize: 13, border: "1px solid rgba(31, 122, 82, 0.35)" }}>
+        <div className="s-margin-bottom-16 s-padding-10px-14px s-success s-text-sm ui-card" role="status" >
           {notice}
         </div>
       )}
 
-      <div style={{ display: "grid", gap: 16 }}>
+      <div className="s-stack s-gap-16" >
         {sections.map((entry) => (
-          <section key={entry.section.id} className="settings-section" style={{ padding: 0, overflow: "hidden" }} aria-label={entry.section.title}>
-            <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "14px 18px", background: "var(--paper)" }}>
-              <button className="btn ghost small" type="button" aria-label={`Move section ${entry.section.title} up`} disabled={busy === `ms-${entry.section.id}`} onClick={() => runAction(`ms-${entry.section.id}`, async () => { const r = await moveSectionAction(entry.section.id, "up"); return { ok: r.ok, error: r.error }; })}>
+          <section key={entry.section.id} className="settings-section s-padding-0 s-overflow-hidden" aria-label={entry.section.title}>
+            <div className="s-row s-align-items-center s-gap-10 s-padding-14px-18px" >
+              <Button className="btn ghost small" type="button" aria-label={`Move section ${entry.section.title} up`} disabled={busy === `ms-${entry.section.id}`} onClick={() => runAction(`ms-${entry.section.id}`, async () => { const r = await moveSectionAction(entry.section.id, "up"); return { ok: r.ok, error: r.error }; })}>
                 ↑
-              </button>
-              <button className="btn ghost small" type="button" aria-label={`Move section ${entry.section.title} down`} disabled={busy === `ms-${entry.section.id}`} onClick={() => runAction(`ms-${entry.section.id}`, async () => { const r = await moveSectionAction(entry.section.id, "down"); return { ok: r.ok, error: r.error }; })}>
+              </Button>
+              <Button className="btn ghost small" type="button" aria-label={`Move section ${entry.section.title} down`} disabled={busy === `ms-${entry.section.id}`} onClick={() => runAction(`ms-${entry.section.id}`, async () => { const r = await moveSectionAction(entry.section.id, "down"); return { ok: r.ok, error: r.error }; })}>
                 ↓
-              </button>
+              </Button>
               {renamingId === entry.section.id ? (
-                <form onSubmit={(e) => { e.preventDefault(); handleRename(entry.section.id); }} style={{ display: "flex", gap: 8, flex: 1 }}>
-                  <input aria-label="Section title" value={renameValue} onChange={(e) => setRenameValue(e.target.value)} required maxLength={160} style={{ flex: 1, padding: "6px 10px", borderRadius: 6, border: "1px solid var(--line-strong)", fontSize: 13 }} />
-                  <button className="btn primary small" type="submit">Save</button>
-                  <button className="btn ghost small" type="button" onClick={() => setRenamingId(null)}>Cancel</button>
+                <form className="s-row s-gap-8 s-flex-1" onSubmit={(e) => { e.preventDefault(); handleRename(entry.section.id); }} >
+                  <Input className="s-flex-1 s-padding-6px-10px s-text-sm" aria-label="Section title" value={renameValue} onChange={(e) => setRenameValue(e.target.value)} required maxLength={160} />
+                  <Button className="btn primary small" type="submit">Save</Button>
+                  <Button className="btn ghost small" type="button" onClick={() => setRenamingId(null)}>Cancel</Button>
                 </form>
               ) : (
                 <>
-                  <b style={{ fontSize: 14, flex: 1 }}>{entry.section.title}</b>
+                  <b className="s-text-sm s-flex-1" >{entry.section.title}</b>
                   <span className="a-micro">{entry.lessons.length} LESSONS</span>
-                  <button className="btn ghost small" type="button" onClick={() => { setRenamingId(entry.section.id); setRenameValue(entry.section.title); }}>
+                  <Button className="btn ghost small" type="button" onClick={() => { setRenamingId(entry.section.id); setRenameValue(entry.section.title); }}>
                     Rename
-                  </button>
+                  </Button>
                 </>
               )}
             </div>
 
             <div className="table-scroll">
-              <table className="data">
+              <DataTable className="data">
                 <thead>
-                  <tr><th style={{ width: 80 }}></th><th>Lesson</th><th>Required</th><th>State</th><th className="num">Completions</th><th>Actions</th></tr>
+                  <tr><th className="s-width-80" ></th><th>Lesson</th><th>Required</th><th>State</th><th className="num">Completions</th><th>Actions</th></tr>
                 </thead>
                 <tbody>
                   {entry.lessons.length === 0 && (
-                    <tr><td colSpan={6} className="muted" style={{ fontSize: 12.5 }}>No lessons yet — add the first one below.</td></tr>
+                    <tr><td colSpan={6} className="muted s-text-sm" >No lessons yet — add the first one below.</td></tr>
                   )}
                   {entry.lessons.map(({ lesson, completions, resources }) => (
                     <React.Fragment key={lesson.id}>
                       <tr>
                         <td>
-                          <button className="btn ghost small" type="button" aria-label={`Move lesson ${lesson.title} up`} onClick={() => runAction(`ml-${lesson.id}`, async () => { const r = await moveLessonAction(lesson.id, "up"); return { ok: r.ok, error: r.error }; })}>↑</button>
-                          <button className="btn ghost small" type="button" aria-label={`Move lesson ${lesson.title} down`} onClick={() => runAction(`ml-${lesson.id}`, async () => { const r = await moveLessonAction(lesson.id, "down"); return { ok: r.ok, error: r.error }; })}>↓</button>
+                          <Button className="btn ghost small" type="button" aria-label={`Move lesson ${lesson.title} up`} onClick={() => runAction(`ml-${lesson.id}`, async () => { const r = await moveLessonAction(lesson.id, "up"); return { ok: r.ok, error: r.error }; })}>↑</Button>
+                          <Button className="btn ghost small" type="button" aria-label={`Move lesson ${lesson.title} down`} onClick={() => runAction(`ml-${lesson.id}`, async () => { const r = await moveLessonAction(lesson.id, "down"); return { ok: r.ok, error: r.error }; })}>↓</Button>
                         </td>
                         <td>
                           <span className="cell-main">{lesson.title}</span>
-                          <span className="cell-sub" style={{ display: "block", fontSize: 11.5 }}>/{lesson.slug}{lesson.videoUrl ? " · ▶ video" : ""}{resources.length > 0 ? ` · ${resources.length} PDF${resources.length === 1 ? "" : "s"}` : ""}</span>
+                          <span className="cell-sub s-block s-text-xs" >/{lesson.slug}{lesson.videoUrl ? " · ▶ video" : ""}{resources.length > 0 ? ` · ${resources.length} PDF${resources.length === 1 ? "" : "s"}` : ""}</span>
                         </td>
                         <td>
-                          <input type="checkbox" checked={lesson.required} aria-label={`Required: ${lesson.title}`} disabled={busy === `req-${lesson.id}`} onChange={() => runAction(`req-${lesson.id}`, async () => { const r = await updateLessonAction({ id: lesson.id, required: !lesson.required }); return { ok: r.ok, error: r.error }; })} />
+                          <Input type="checkbox" checked={lesson.required} aria-label={`Required: ${lesson.title}`} disabled={busy === `req-${lesson.id}`} onChange={() => runAction(`req-${lesson.id}`, async () => { const r = await updateLessonAction({ id: lesson.id, required: !lesson.required }); return { ok: r.ok, error: r.error }; })} />
                         </td>
                         <td><span className={`lifecycle ${lesson.status}`}>{lesson.status.toUpperCase()}</span></td>
                         <td className="num">{completions}</td>
                         <td>
-                          <button className="btn ghost small" type="button" onClick={() => openLessonEditor({ lesson, completions, resources })}>Edit</button>{" "}
+                          <Button className="btn ghost small" type="button" onClick={() => openLessonEditor({ lesson, completions, resources })}>Edit</Button>{" "}
                           {lesson.status === "draft" ? (
-                            <button className="btn ghost small" type="button" onClick={() => runAction(`pls-${lesson.id}`, async () => { const r = await publishLessonAction(lesson.id); return { ok: r.ok, error: r.error, notice: r.ok ? "Lesson published — live for learners on next load." : undefined }; })}>Publish</button>
+                            <Button className="btn ghost small" type="button" onClick={() => runAction(`pls-${lesson.id}`, async () => { const r = await publishLessonAction(lesson.id); return { ok: r.ok, error: r.error, notice: r.ok ? "Lesson published — live for learners on next load." : undefined }; })}>Publish</Button>
                           ) : lesson.status === "published" ? (
-                            <button className="btn ghost small" type="button" onClick={() => runAction(`upls-${lesson.id}`, async () => { const r = await unpublishLessonAction(lesson.id); return { ok: r.ok, error: r.error }; })}>Unpublish</button>
+                            <Button className="btn ghost small" type="button" onClick={() => runAction(`upls-${lesson.id}`, async () => { const r = await unpublishLessonAction(lesson.id); return { ok: r.ok, error: r.error }; })}>Unpublish</Button>
                           ) : null}{" "}
-                          <button className="btn ghost small" type="button" onClick={() => { setUploadingTo(uploadingTo === lesson.id ? null : lesson.id); setUploadTitle(""); }}>
+                          <Button className="btn ghost small" type="button" onClick={() => { setUploadingTo(uploadingTo === lesson.id ? null : lesson.id); setUploadTitle(""); }}>
                             ＋ PDF
-                          </button>
+                          </Button>
                         </td>
                       </tr>
                       {uploadingTo === lesson.id && (
                         <tr>
                           <td colSpan={6}>
-                            <form onSubmit={(e) => handleResourceUpload(e, lesson.id)} style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", padding: "8px 0" }}>
-                              <input id={`pdf-${lesson.id}`} type="file" accept="application/pdf" aria-label={`PDF file for ${lesson.title}`} style={{ fontSize: 12.5 }} />
-                              <input aria-label="Resource title" value={uploadTitle} onChange={(e) => setUploadTitle(e.target.value)} placeholder="Resource title (optional)" maxLength={160} style={{ padding: "6px 10px", borderRadius: 6, border: "1px solid var(--line-strong)", fontSize: 12.5, minWidth: 200 }} />
-                              <button className="btn primary small" type="submit" disabled={busy === `upload-${lesson.id}`}>
+                            <form className="s-row s-gap-8 s-flex-wrap-wrap s-align-items-center s-padding-8px-0" onSubmit={(e) => handleResourceUpload(e, lesson.id)} >
+                              <FileDrop className="s-text-sm" id={`pdf-${lesson.id}`} type="file" accept="application/pdf" aria-label={`PDF file for ${lesson.title}`} />
+                              <Input className="s-padding-6px-10px s-text-sm s-min-width-200" aria-label="Resource title" value={uploadTitle} onChange={(e) => setUploadTitle(e.target.value)} placeholder="Resource title (optional)" maxLength={160} />
+                              <Button className="btn primary small" type="submit" disabled={busy === `upload-${lesson.id}`}>
                                 {busy === `upload-${lesson.id}` ? "Uploading…" : "Upload PDF"}
-                              </button>
-                              <span className="help" style={{ fontSize: 11.5 }}>PDF only · 10 MB max · enrolled learners only</span>
+                              </Button>
+                              <span className="help s-text-xs" >PDF only · 10 MB max · enrolled learners only</span>
                             </form>
                             {resources.length > 0 && (
-                              <ul style={{ fontSize: 12.5, margin: "4px 0 8px", paddingLeft: 18 }}>
+                              <ul className="s-text-sm s-margin-4px-0-8px s-padding-left-18" >
                                 {resources.map((r) => (
                                   <li key={r.id}>{r.title} <span className="muted">({r.filename} · {(r.size / 1024).toFixed(0)} KB)</span></li>
                                 ))}
@@ -307,78 +310,78 @@ export function CurriculumClient({
                     </React.Fragment>
                   ))}
                 </tbody>
-              </table>
+              </DataTable>
             </div>
 
-            <div style={{ padding: "10px 18px", borderTop: "1px dashed var(--line)" }}>
+            <div className="s-padding-10px-18px s-border-top-1px-dashed-line" >
               {addingLessonTo === entry.section.id ? (
-                <form onSubmit={(e) => handleCreateLesson(e, entry.section.id)} style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-                  <input aria-label="New lesson title" value={lessonTitle} onChange={(e) => setLessonTitle(e.target.value)} required minLength={3} maxLength={160} placeholder="Lesson title" style={{ padding: "6px 10px", borderRadius: 6, border: "1px solid var(--line-strong)", fontSize: 12.5, minWidth: 220 }} />
-                  <input aria-label="New lesson slug" value={lessonSlug} onChange={(e) => setLessonSlug(e.target.value)} required pattern="[a-z0-9]+(?:-[a-z0-9]+)*" placeholder="lesson-slug" style={{ padding: "6px 10px", borderRadius: 6, border: "1px solid var(--line-strong)", fontSize: 12.5, minWidth: 160 }} />
-                  <button className="btn primary small" type="submit" disabled={busy === `add-lesson-${entry.section.id}`}>Add lesson</button>
-                  <button className="btn ghost small" type="button" onClick={() => setAddingLessonTo(null)}>Cancel</button>
+                <form className="s-row s-gap-8 s-flex-wrap-wrap s-align-items-center" onSubmit={(e) => handleCreateLesson(e, entry.section.id)} >
+                  <Input className="s-padding-6px-10px s-text-sm s-min-width-220" aria-label="New lesson title" value={lessonTitle} onChange={(e) => setLessonTitle(e.target.value)} required minLength={3} maxLength={160} placeholder="Lesson title" />
+                  <Input className="s-padding-6px-10px s-text-sm s-min-width-160" aria-label="New lesson slug" value={lessonSlug} onChange={(e) => setLessonSlug(e.target.value)} required pattern="[a-z0-9]+(?:-[a-z0-9]+)*" placeholder="lesson-slug" />
+                  <Button className="btn primary small" type="submit" disabled={busy === `add-lesson-${entry.section.id}`}>Add lesson</Button>
+                  <Button className="btn ghost small" type="button" onClick={() => setAddingLessonTo(null)}>Cancel</Button>
                 </form>
               ) : (
-                <button className="btn ghost small" type="button" onClick={() => { setAddingLessonTo(entry.section.id); setLessonTitle(""); setLessonSlug(""); }}>
+                <Button className="btn ghost small" type="button" onClick={() => { setAddingLessonTo(entry.section.id); setLessonTitle(""); setLessonSlug(""); }}>
                   ＋ Add lesson
-                </button>
+                </Button>
               )}
             </div>
           </section>
         ))}
       </div>
 
-      <form onSubmit={handleCreateSection} style={{ display: "flex", gap: 8, marginTop: 20, flexWrap: "wrap" }}>
-        <input aria-label="New section title" value={newSectionTitle} onChange={(e) => setNewSectionTitle(e.target.value)} required maxLength={160} placeholder="New section title…" style={{ padding: "8px 12px", borderRadius: 8, border: "1px solid var(--line-strong)", fontSize: 13, minWidth: 240 }} />
-        <button className="btn secondary small" type="submit" disabled={busy === "new-section"}>
+      <form className="s-row s-gap-8 s-margin-top-20 s-flex-wrap-wrap" onSubmit={handleCreateSection} >
+        <Input className="s-padding-8px-12px s-text-sm s-min-width-240" aria-label="New section title" value={newSectionTitle} onChange={(e) => setNewSectionTitle(e.target.value)} required maxLength={160} placeholder="New section title…" />
+        <Button className="btn secondary small" type="submit" disabled={busy === "new-section"}>
           ＋ Add section
-        </button>
+        </Button>
       </form>
 
-      <div className="settings-section danger-zone" style={{ marginTop: 20 }}>
+      <div className="settings-section danger-zone s-margin-top-20" >
         <h3>Danger zone</h3>
         <p className="ss-hint">
           {enrollmentCount > 0
             ? `This course has ${enrollmentCount} active enrollment${enrollmentCount === 1 ? "" : "s"}. Permanent delete is blocked while real progress depends on it.`
-            : "No enrollments yet. Permanent delete is not exposed in Mission 06 — archive instead."}
+            : "No enrollments yet. Archive this course when you no longer need it."}
         </p>
-        <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-          <button className="btn danger small" type="button" disabled title={enrollmentCount > 0 ? `Blocked: ${enrollmentCount} active enrollments depend on this course` : "Permanent delete is not available in Mission 06"} aria-disabled="true">
+        <div className="s-row s-gap-10 s-flex-wrap-wrap" >
+          <Button className="btn danger small" type="button" disabled title={enrollmentCount > 0 ? `Blocked: ${enrollmentCount} active enrollments depend on this course` : "Permanent delete is not available"} aria-disabled="true">
             Delete permanently — {enrollmentCount > 0 ? `blocked by ${enrollmentCount} enrollments` : "not available"}
-          </button>
+          </Button>
         </div>
       </div>
 
       {editingLesson && (
-        <div role="dialog" aria-label={`Edit lesson ${editingLesson.lesson.title}`} style={{ position: "fixed", inset: 0, zIndex: 60, background: "rgba(0,0,0,0.45)", display: "grid", placeItems: "center", padding: 16 }}>
-          <div style={{ width: "100%", maxWidth: 760, maxHeight: "90vh", overflow: "auto", background: "var(--paper-bright)", borderRadius: 12, padding: "24px clamp(18px, 4vw, 32px)" }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
-              <b style={{ fontSize: 16 }}>Edit lesson</b>
-              <button className="btn secondary small" type="button" onClick={() => setEditingLesson(null)}>Close</button>
+        <div className="s-position-fixed s-inset-0 s-z-index-60 s-stack s-place-items-center s-padding-16" role="dialog" aria-label={`Edit lesson ${editingLesson.lesson.title}`} >
+          <div className="s-full s-max-width-760 s-max-height-90vh s-overflow-auto s-padding-24px-clamp-18px-4vw-32px" >
+            <div className="s-row s-justify-content-space-between s-align-items-center s-gap-12" >
+              <b >Edit lesson</b>
+              <Button className="btn secondary small" type="button" onClick={() => setEditingLesson(null)}>Close</Button>
             </div>
-            <form onSubmit={handleSaveLesson} style={{ display: "grid", gap: 14, marginTop: 16 }}>
-              <label style={{ display: "grid", gap: 6, fontSize: 12.5, fontWeight: 600 }}>
+            <form className="s-stack s-gap-14 s-margin-top-16" onSubmit={handleSaveLesson} >
+              <label className="s-stack s-gap-6 s-text-sm s-bold" >
                 Title *
-                <input aria-label="Lesson title" value={editTitle} onChange={(e) => setEditTitle(e.target.value)} required minLength={3} maxLength={160} style={{ padding: "10px 14px", borderRadius: 8, border: "1px solid var(--line-strong)", fontSize: 14 }} />
+                <Input className="s-padding-10px-14px s-text-sm" aria-label="Lesson title" value={editTitle} onChange={(e) => setEditTitle(e.target.value)} required minLength={3} maxLength={160} />
               </label>
-              <label style={{ display: "grid", gap: 6, fontSize: 12.5, fontWeight: 600 }}>
-                Slug * <span style={{ fontWeight: 400, color: "var(--muted)" }}>unique inside this course</span>
-                <input aria-label="Lesson slug" value={editSlug} onChange={(e) => setEditSlug(e.target.value)} required pattern="[a-z0-9]+(?:-[a-z0-9]+)*" style={{ padding: "10px 14px", borderRadius: 8, border: "1px solid var(--line-strong)", fontSize: 14 }} />
+              <label className="s-stack s-gap-6 s-text-sm s-bold" >
+                Slug * <span className="s-muted" >unique inside this course</span>
+                <Input className="s-padding-10px-14px s-text-sm" aria-label="Lesson slug" value={editSlug} onChange={(e) => setEditSlug(e.target.value)} required pattern="[a-z0-9]+(?:-[a-z0-9]+)*" />
               </label>
-              <label style={{ display: "grid", gap: 6, fontSize: 12.5, fontWeight: 600 }}>
-                YouTube video <span style={{ fontWeight: 400, color: "var(--muted)" }}>optional — watch / youtu.be / embed / ID</span>
-                <input aria-label="Lesson YouTube video URL" value={editVideo} onChange={(e) => setEditVideo(e.target.value)} placeholder="https://www.youtube.com/watch?v=…" maxLength={500} style={{ padding: "10px 14px", borderRadius: 8, border: "1px solid var(--line-strong)", fontSize: 14 }} />
+              <label className="s-stack s-gap-6 s-text-sm s-bold" >
+                YouTube video <span className="s-muted" >optional — watch / youtu.be / embed / ID</span>
+                <Input className="s-padding-10px-14px s-text-sm" aria-label="Lesson YouTube video URL" value={editVideo} onChange={(e) => setEditVideo(e.target.value)} placeholder="https://www.youtube.com/watch?v=…" maxLength={500} />
               </label>
-              <label style={{ display: "flex", gap: 8, alignItems: "center", fontSize: 13, fontWeight: 600 }}>
-                <input type="checkbox" checked={editRequired} onChange={(e) => setEditRequired(e.target.checked)} aria-label="Lesson required" />
-                Required <span style={{ fontWeight: 400, color: "var(--muted)" }}>(counts toward progress + completion)</span>
+              <label className="s-row s-gap-8 s-align-items-center s-text-sm s-bold" >
+                <Input type="checkbox" checked={editRequired} onChange={(e) => setEditRequired(e.target.checked)} aria-label="Lesson required" />
+                Required <span className="s-muted" >(counts toward progress + completion)</span>
               </label>
               <StructuredBlockEditor blocks={editBlocks} onChange={setEditBlocks} allowedBlockTypes={LESSON_BLOCK_TYPES} eyebrowHint="LESSON BODY" />
-              <div style={{ display: "flex", gap: 10 }}>
-                <button className="btn primary small" type="submit" disabled={busy === `save-lesson-${editingLesson.lesson.id}`}>
+              <div className="s-row s-gap-10" >
+                <Button className="btn primary small" type="submit" disabled={busy === `save-lesson-${editingLesson.lesson.id}`}>
                   {busy === `save-lesson-${editingLesson.lesson.id}` ? "Saving…" : "Save lesson"}
-                </button>
-                <button className="btn ghost small" type="button" onClick={() => setEditingLesson(null)}>Cancel</button>
+                </Button>
+                <Button className="btn ghost small" type="button" onClick={() => setEditingLesson(null)}>Cancel</Button>
               </div>
             </form>
           </div>
