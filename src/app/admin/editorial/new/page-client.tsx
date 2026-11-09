@@ -1,4 +1,5 @@
 "use client";
+import { PageHeader, Select, Input, Textarea, Button } from "../../_ui";
 
 import { useState, useTransition } from "react";
 import Link from "next/link";
@@ -53,75 +54,75 @@ export function NewDraftClient({ sources }: NewDraftClientProps) {
   const readySources = sources.filter((s) => s.status === "READY");
 
   return (
-    <div style={{ padding: "24px", maxWidth: "800px" }}>
-      <Link href="/admin/editorial" style={{ color: "#6b7280", fontSize: "13px", textDecoration: "none" }}>&larr; Back to Drafts</Link>
-      <h1 style={{ fontSize: "24px", marginTop: "8px", marginBottom: "8px" }}>New Editorial Draft</h1>
-      <p style={{ color: "#6b7280", fontSize: "13px", marginBottom: "20px" }}>
-        Configure the generation parameters and the AI will produce a draft grounded in your knowledge library.
+    <div >
+      <Link className="s-muted s-text-sm" href="/admin/editorial" >&larr; Back to Drafts</Link>
+      <PageHeader eyebrow="Editorial AI" title={<>New Editorial Draft</>} />
+      <p className="s-muted s-text-sm s-margin-bottom-20px" >
+        Choose a topic and the sources to draw from. You’ll review and refine the draft before publishing.
       </p>
 
-      <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
+      <form className="ui-card s-row s-column s-gap-16px" onSubmit={handleSubmit} >
         <div>
-          <label style={{ display: "block", fontSize: "13px", fontWeight: 500, marginBottom: "4px" }}>Content Type *</label>
-          <select name="contentType" defaultValue="GUIDE" required disabled={isGenerating} style={{ width: "100%", padding: "8px", border: "1px solid #d1d5db", borderRadius: "4px", fontSize: "14px" }}>
+          <label htmlFor="new-field-2816" className="s-block s-text-sm s-margin-bottom-4px" >Content Type *</label>
+          <Select id="new-field-2816" className="s-full s-padding-8px s-text-sm" name="contentType" defaultValue="GUIDE" required disabled={isGenerating} >
             <option value="GUIDE">Guide (Aha Authority article)</option>
             <option value="FIELD_NOTE">Field Note (Quick insight)</option>
-          </select>
+          </Select>
         </div>
 
         <div>
-          <label style={{ display: "block", fontSize: "13px", fontWeight: 500, marginBottom: "4px" }}>Topic *</label>
-          <input type="text" name="topic" placeholder="e.g. Why structured intake improves hiring signal" required disabled={isGenerating} style={{ width: "100%", padding: "8px", border: "1px solid #d1d5db", borderRadius: "4px", fontSize: "14px" }} />
-          <p style={{ color: "#9ca3af", fontSize: "11px", marginTop: "2px" }}>The central subject for the draft. This drives knowledge retrieval.</p>
+          <label htmlFor="new-field-3334" className="s-block s-text-sm s-margin-bottom-4px" >Topic *</label>
+          <Input id="new-field-3334" className="s-full s-padding-8px s-text-sm" type="text" name="topic" placeholder="e.g. Why structured intake improves hiring signal" required disabled={isGenerating} />
+          <p className="s-muted s-text-xs s-margin-top-2px" >The central subject for the draft. This drives knowledge retrieval.</p>
         </div>
 
         <div>
-          <label style={{ display: "block", fontSize: "13px", fontWeight: 500, marginBottom: "4px" }}>Working Title</label>
-          <input type="text" name="workingTitle" placeholder="Optional guidance, you may revise" disabled={isGenerating} style={{ width: "100%", padding: "8px", border: "1px solid #d1d5db", borderRadius: "4px", fontSize: "14px" }} />
+          <label htmlFor="new-field-3890" className="s-block s-text-sm s-margin-bottom-4px" >Working Title</label>
+          <Input id="new-field-3890" className="s-full s-padding-8px s-text-sm" type="text" name="workingTitle" placeholder="Optional guidance, you may revise" disabled={isGenerating} />
         </div>
 
         <div>
-          <label style={{ display: "block", fontSize: "13px", fontWeight: 500, marginBottom: "4px" }}>Audience</label>
-          <input type="text" name="audience" placeholder="e.g. Talent acquisition leaders building evidence-based hiring processes" disabled={isGenerating} style={{ width: "100%", padding: "8px", border: "1px solid #d1d5db", borderRadius: "4px", fontSize: "14px" }} />
+          <label htmlFor="new-field-4273" className="s-block s-text-sm s-margin-bottom-4px" >Audience</label>
+          <Input id="new-field-4273" className="s-full s-padding-8px s-text-sm" type="text" name="audience" placeholder="e.g. Talent acquisition leaders building evidence-based hiring processes" disabled={isGenerating} />
         </div>
 
         <div>
-          <label style={{ display: "block", fontSize: "13px", fontWeight: 500, marginBottom: "4px" }}>Angle</label>
-          <input type="text" name="angle" placeholder="e.g. Why experience alone can hide weak hiring evidence" disabled={isGenerating} style={{ width: "100%", padding: "8px", border: "1px solid #d1d5db", borderRadius: "4px", fontSize: "14px" }} />
+          <label htmlFor="new-field-4688" className="s-block s-text-sm s-margin-bottom-4px" >Angle</label>
+          <Input id="new-field-4688" className="s-full s-padding-8px s-text-sm" type="text" name="angle" placeholder="e.g. Why experience alone can hide weak hiring evidence" disabled={isGenerating} />
         </div>
 
         <div>
-          <label style={{ display: "block", fontSize: "13px", fontWeight: 500, marginBottom: "4px" }}>Objective</label>
-          <textarea name="objective" placeholder="What should the reader be able to do after reading?" rows={2} disabled={isGenerating} style={{ width: "100%", padding: "8px", border: "1px solid #d1d5db", borderRadius: "4px", fontSize: "14px", resize: "vertical" }} />
+          <label htmlFor="new-field-5087" className="s-block s-text-sm s-margin-bottom-4px" >Objective</label>
+          <Textarea id="new-field-5087" className="s-full s-padding-8px s-text-sm s-resize-vertical" name="objective" placeholder="What should the reader be able to do after reading?" rows={2} disabled={isGenerating} />
         </div>
 
         <div>
-          <label style={{ display: "block", fontSize: "13px", fontWeight: 500, marginBottom: "4px" }}>Additional Notes</label>
-          <textarea name="notes" placeholder="Any specific points to address" rows={3} disabled={isGenerating} style={{ width: "100%", padding: "8px", border: "1px solid #d1d5db", borderRadius: "4px", fontSize: "14px", resize: "vertical" }} />
+          <label htmlFor="new-field-5513" className="s-block s-text-sm s-margin-bottom-4px" >Additional Notes</label>
+          <Textarea id="new-field-5513" className="s-full s-padding-8px s-text-sm s-resize-vertical" name="notes" placeholder="Any specific points to address" rows={3} disabled={isGenerating} />
         </div>
 
         {readySources.length > 0 && (
           <div>
-            <label style={{ display: "block", fontSize: "13px", fontWeight: 500, marginBottom: "4px" }}>
+            <label className="s-block s-text-sm s-margin-bottom-4px" >
               Source Filter (optional — leave empty to search all sources)
             </label>
-            <div style={{ display: "flex", flexDirection: "column", gap: "4px", maxHeight: "120px", overflow: "auto", border: "1px solid #d1d5db", borderRadius: "4px", padding: "4px" }}>
+            <div className="s-row s-column s-gap-4px s-max-height-120px s-overflow-auto s-padding-4px ui-card" >
               {readySources.map((s) => (
-                <label key={s.id} style={{ display: "flex", alignItems: "center", gap: "6px", padding: "4px 8px", fontSize: "13px", cursor: "pointer" }}>
-                  <input type="checkbox" name="sourceIds" value={s.id} disabled={isGenerating} />
+                <label className="s-row s-align-items-center s-gap-6px s-padding-4px-8px s-text-sm" key={s.id} >
+                  <Input type="checkbox" name="sourceIds" value={s.id} disabled={isGenerating} />
                   <span>{s.title}</span>
-                  <span style={{ color: "#6b7280", fontSize: "11px" }}>({s.chunkCount} chunks)</span>
+                  <span className="s-muted s-text-xs" >({s.chunkCount} chunks)</span>
                 </label>
               ))}
             </div>
           </div>
         )}
 
-        {error && <p style={{ color: "#ef4444", fontSize: "13px" }}>{error}</p>}
+        {error && <p className="s-danger s-text-sm" >{error}</p>}
 
-        <button type="submit" disabled={isGenerating || isPending} style={{ padding: "10px 20px", background: "#3b82f6", color: "white", border: "none", borderRadius: "6px", fontSize: "14px", cursor: isGenerating ? "not-allowed" : "pointer", alignSelf: "flex-start" }}>
+        <Button className="s-padding-10px-20px s-muted s-text-sm s-align-self-flex-start btn primary" type="submit" disabled={isGenerating || isPending} >
           {isGenerating ? "Generating..." : "Generate Draft"}
-        </button>
+        </Button>
       </form>
     </div>
   );

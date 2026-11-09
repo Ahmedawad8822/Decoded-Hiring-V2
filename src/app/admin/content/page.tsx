@@ -8,9 +8,10 @@ export const metadata = {
   description: "Real Guide and Field Notes publishing management.",
 };
 
-export default async function AdminContentPage() {
+export default async function AdminContentPage({ searchParams }: { searchParams: Promise<{ new?: string }> }) {
   const session = await requireAdminPage();
 
+  const intent = (await searchParams).new;
   const [guides, fieldNotes] = await Promise.all([
     getAllAdminGuides(),
     getAllAdminFieldNotes(),
@@ -18,6 +19,7 @@ export default async function AdminContentPage() {
 
   return (
     <ContentWorkspaceClient
+      initialIntent={intent}
       initialGuides={guides}
       initialFieldNotes={fieldNotes}
       currentUser={session.user}

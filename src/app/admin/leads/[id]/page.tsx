@@ -1,3 +1,4 @@
+import { Card, PageHeader, humanLabel } from "../../_ui";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";
@@ -34,8 +35,8 @@ export default async function AdminLeadDetailPage({
   if (!lead) notFound();
 
   const fields: Array<[string, string | number | boolean | null]> = [
-    ["Kind", lead.kind],
-    ["Status", lead.status],
+    ["Kind", humanLabel(lead.kind)],
+    ["Status", humanLabel(lead.status)],
     ["Full name", lead.fullName],
     ["Email", lead.email],
     ["Phone", lead.phoneE164],
@@ -62,24 +63,24 @@ export default async function AdminLeadDetailPage({
   ];
 
   return (
-    <div style={{ padding: "24px 28px" }}>
-      <p style={{ marginBottom: 8 }}>
+    <div >
+      <p className="s-margin-bottom-8" >
         <Link href="/admin/leads">← Back to leads</Link>
       </p>
-      <h1 style={{ fontSize: 22, marginBottom: 16 }}>Lead: {lead.fullName}</h1>
+      <PageHeader eyebrow="Leads" title={`Lead: ${lead.fullName}`} description="Contact details, context, and consent in one place." />
 
-      <div style={{ marginBottom: 20 }}>
+      <div className="s-margin-bottom-20" >
         <LeadActions id={lead.id} status={lead.status} />
       </div>
 
-      <dl style={{ display: "grid", gridTemplateColumns: "max-content 1fr", gap: "8px 24px" }}>
+      <Card><dl className="s-stack s-definition-grid s-gap-8px-24px" >
         {fields.map(([label, value]) => (
-          <div key={label} style={{ display: "contents" }}>
-            <dt style={{ color: "var(--muted)" }}>{label}</dt>
-            <dd style={{ margin: 0, whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{show(value)}</dd>
+          <div className="s-contents" key={label} >
+            <dt className="s-muted" >{label}</dt>
+            <dd className="s-margin-0 s-white-space-pre-wrap s-overflow-wrap-anywhere" >{show(value)}</dd>
           </div>
         ))}
-      </dl>
+      </dl></Card>
     </div>
   );
 }

@@ -220,7 +220,7 @@ test.describe("Mission 08 final integrated certification", () => {
       await signInAdmin(page);
       await page.goto("/admin/commerce");
       await expect(
-        page.getByRole("heading", { name: "Scheduling & Commerce" }),
+        page.getByRole("heading", { name: "Bookings & offers" }),
       ).toBeVisible();
       const funnel = page.getByRole("region", {
         name: "30-day commerce funnel",
@@ -228,10 +228,6 @@ test.describe("Mission 08 final integrated certification", () => {
       await expect(funnel).toBeVisible();
       await expect(funnel.getByText("Booking starts", { exact: true })).toBeVisible();
       await expect(funnel.getByText("Confirmed", { exact: true })).toBeVisible();
-      await expect(
-        page.getByRole("heading", { name: "Provider readiness" }),
-      ).toBeVisible();
-      await expect(page.getByText("NOT CONFIGURED").first()).toBeVisible();
 
       for (const label of [
         "CTA clicks",
@@ -247,6 +243,12 @@ test.describe("Mission 08 final integrated certification", () => {
           `${label} should be non-zero after the certified booking flow`,
         ).toBeGreaterThan(0);
       }
+      await page.getByRole("navigation", { name: "Bookings & offers views" }).getByRole("link", { name: "Providers & system", exact: true }).click();
+      await expect(page).toHaveURL(/tab=system/);
+      await expect(
+        page.getByRole("heading", { name: "Provider readiness" }),
+      ).toBeVisible();
+      await expect(page.getByText("NOT CONFIGURED").first()).toBeVisible();
     });
 
     await test.step("server projections do not leak provider-secret shapes", async () => {

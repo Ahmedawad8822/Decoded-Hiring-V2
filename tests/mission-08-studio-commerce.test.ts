@@ -596,7 +596,7 @@ test("STUDIO 08.7: Studio modules are discoverable, decomposed and cannot activa
   );
 
   assert.match(shell, /\/admin\/commerce/);
-  assert.match(shell, /Scheduling & Commerce/);
+  assert.match(shell, /Bookings & offers/);
   assert.match(client, /CommerceOverview/);
   assert.match(client, /BookingOperations/);
   assert.match(client, /OffersSection/);

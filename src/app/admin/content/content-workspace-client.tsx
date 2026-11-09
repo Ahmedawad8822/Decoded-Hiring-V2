@@ -1,69 +1,38 @@
 "use client";
 
+import { PageHeader, Tabs } from "../_ui";
 import { useState } from "react";
 import { Guide, FieldNote } from "@/lib/db";
 import { GuideManagerClient } from "./guide-manager-client";
 import { FieldNotesManagerClient } from "./field-notes-manager-client";
 
 interface ContentWorkspaceClientProps {
+  initialIntent?: string;
   initialGuides: Guide[];
   initialFieldNotes: FieldNote[];
   currentUser: { id: string; email: string; name?: string | null };
 }
 
-// ============================================================================
-// CONTENT WORKSPACE TABS (Mission 05)
-// ----------------------------------------------------------------------------
-// Single /admin/content surface for both publishing verticals. Guides keep
-// their existing manager untouched; Field Notes get their own lighter
-// manager. No second admin shell, no redesign of Admin Studio.
-// ============================================================================
-
 export function ContentWorkspaceClient({
+  initialIntent,
   initialGuides,
   initialFieldNotes,
   currentUser,
 }: ContentWorkspaceClientProps) {
-  const [tab, setTab] = useState<"guides" | "field-notes">("guides");
+  const [tab, setTab] = useState<"guides" | "field-notes">(initialIntent === "field-note" ? "field-notes" : "guides");
 
   return (
     <div>
-      <div
-        role="tablist"
-        aria-label="Content types"
-        style={{
-          display: "flex",
-          gap: "8px",
-          marginBottom: "20px",
-          borderBottom: "1px solid var(--line)",
-          paddingBottom: "12px",
-        }}
-      >
-        <button
-          role="tab"
-          aria-selected={tab === "guides"}
-          type="button"
-          onClick={() => setTab("guides")}
-          className={`btn small ${tab === "guides" ? "primary" : "ghost"}`}
-        >
-          Guides ({initialGuides.length})
-        </button>
-        <button
-          role="tab"
-          aria-selected={tab === "field-notes"}
-          type="button"
-          onClick={() => setTab("field-notes")}
-          className={`btn small ${tab === "field-notes" ? "primary" : "ghost"}`}
-        >
-          Field Notes ({initialFieldNotes.length})
-        </button>
-      </div>
+      <PageHeader eyebrow="Publish" title="Content" description="Ideas worth sharing. Write, refine, and publish your next piece." />
+      <Tabs panelId="content-panel" label="Content types" value={tab} onChange={value => setTab(value as "guides" | "field-notes")} tabs={[{ value: "guides", label: `Guides (${initialGuides.length})` }, { value: "field-notes", label: `Field Notes (${initialFieldNotes.length})` }]} />
 
-      {tab === "guides" ? (
-        <GuideManagerClient initialGuides={initialGuides} currentUser={currentUser} />
-      ) : (
-        <FieldNotesManagerClient initialNotes={initialFieldNotes} />
-      )}
+      <div role="tabpanel" id="content-panel" aria-label={tab === "guides" ? "Guides" : "Field Notes"}>
+        {tab === "guides" ? (
+          <GuideManagerClient startNew={initialIntent === "guide"} initialGuides={initialGuides} currentUser={currentUser} />
+        ) : (
+          <FieldNotesManagerClient startNew={initialIntent === "field-note"} initialNotes={initialFieldNotes} />
+        )}
+      </div>
     </div>
   );
 }

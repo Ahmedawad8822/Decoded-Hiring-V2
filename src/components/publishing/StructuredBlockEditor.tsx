@@ -1,23 +1,10 @@
 "use client";
 
 import React from "react";
+import { IconButton } from "@/app/admin/_ui";
 import type { ContentBlock } from "@/features/publishing/types";
 
-// ============================================================================
-// SHARED STRUCTURED BLOCK EDITOR (Mission 05 review correction)
-// ----------------------------------------------------------------------------
-// The Guide manager and the Field Notes manager previously implemented the
-// same block mechanics inline (create / edit / move / delete / list editing /
-// add-block controls). This component owns those mechanics once, over the
-// shared ContentBlock model. Visual markup and class names are unchanged
-// (block-list, block-item, bi-bar, bi-kind, bi-tools, bi-body, block-add)
-// so both editors render exactly as before.
-// 
-// The "resource" block type is reserved in ContentBlock for backward
-// compatibility with legacy stored content, but is NOT offered for creation
-// (no fake download/email CTA functionality). Existing resource blocks
-// render as static cards via ContentBlockRenderer.
-// ============================================================================
+// Shared editing mechanics for the Studio publishing and curriculum screens.
 
 export type StructuredBlockType = Exclude<ContentBlock["type"], "resource">;
 
@@ -86,7 +73,7 @@ export function StructuredBlockEditor({
 
   return (
     <div>
-      <p className="a-micro" style={{ marginBottom: "12px", fontWeight: 600, fontSize: "11px", letterSpacing: "0.08em" }}>
+      <p className="a-micro" >
         BODY · {blocks.length} BLOCKS{eyebrowHint ? ` · ${eyebrowHint}` : ""}
       </p>
 
@@ -98,20 +85,9 @@ export function StructuredBlockEditor({
                 {block.type} {block.type === "heading" ? `(H${block.level})` : ""}
               </span>
               <div className="bi-tools">
-                <button type="button" title="Move up" disabled={idx === 0} onClick={() => handleMoveBlock(idx, "up")}>
-                  ↑
-                </button>
-                <button
-                  type="button"
-                  title="Move down"
-                  disabled={idx === blocks.length - 1}
-                  onClick={() => handleMoveBlock(idx, "down")}
-                >
-                  ↓
-                </button>
-                <button type="button" title="Delete" onClick={() => handleDeleteBlock(block.id)} style={{ color: "var(--coral)" }}>
-                  ✕
-                </button>
+                <IconButton type="button" icon="up" label="Move up" disabled={idx === 0} onClick={() => handleMoveBlock(idx, "up")} />
+                <IconButton type="button" icon="down" label="Move down" disabled={idx === blocks.length - 1} onClick={() => handleMoveBlock(idx, "down")} />
+                <IconButton type="button" icon="trash" label="Delete" onClick={() => handleDeleteBlock(block.id)} className="s-danger" />
               </div>
             </div>
             <div className="bi-body">
@@ -120,11 +96,11 @@ export function StructuredBlockEditor({
                   type="text"
                   value={block.text}
                   onChange={(e) => handleUpdateBlockText(block.id, e.target.value)}
-                  style={{ width: "100%", padding: "8px 10px", fontSize: "18px", fontWeight: 600 }}
+                  aria-label={`Heading block ${idx + 1}`}
                 />
               ) : block.type === "list" ? (
                 <textarea
-                  rows={3}
+                  rows={6} aria-label={`Body block ${idx + 1}`}
                   value={block.items.join("\n")}
                   onChange={(e) => {
                     const lines = e.target.value.split("\n");
@@ -134,7 +110,7 @@ export function StructuredBlockEditor({
                 />
               ) : (
                 <textarea
-                  rows={3}
+                  rows={6} aria-label={`Body block ${idx + 1}`}
                   value={"text" in block ? block.text : ""}
                   onChange={(e) => handleUpdateBlockText(block.id, e.target.value)}
                 />
@@ -144,7 +120,7 @@ export function StructuredBlockEditor({
         ))}
       </div>
 
-      <div className="block-add" style={{ marginTop: "16px" }}>
+      <div className="block-add" >
         {allowedBlockTypes.map((type) => (
           <button key={type} type="button" onClick={() => handleAddBlock(type)}>
             ＋ {ADD_BUTTON_LABELS[type]}

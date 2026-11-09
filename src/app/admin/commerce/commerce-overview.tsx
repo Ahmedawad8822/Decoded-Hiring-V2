@@ -1,7 +1,9 @@
 "use client";
 
+import Link from "next/link";
+import { Card, StatCard, Icon } from "../_ui";
 import type { CommerceAdminDashboard } from "@/features/commerce/admin-model";
-import { BoundedListNote, PageControls, StatusPill, cardStyle, sectionTitleStyle } from "./admin-ui";
+import { BoundedListNote, PageControls, StatusPill } from "./admin-ui";
 
 function formatEventTimestampUtc(value: string): string {
   return new Intl.DateTimeFormat("en-GB", {
@@ -11,99 +13,75 @@ function formatEventTimestampUtc(value: string): string {
   }).format(new Date(value)) + " UTC";
 }
 
-export function CommerceOverview({ initial }: { initial: CommerceAdminDashboard }) {
-  const summaryCards = [
-    ["Active Offers", initial.summary.activeOffers],
-    ["Booking Types", initial.summary.activeBookingTypes],
-    ["Approval Queue", initial.summary.approvalQueue],
-    ["Requests", initial.summary.requestedBookings],
-    ["Upcoming", initial.summary.upcomingBookings],
-    ["Open Orders", initial.summary.openOrders],
-    ["Blocked Effects", initial.summary.blockedEffects],
-  ] as const;
-
-  return (
-    <>
-      <section aria-label="Commerce summary" style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(145px, 1fr))", gap:12 }}>
-        {summaryCards.map(([label,value]) => (
-          <div key={label} style={cardStyle}>
-            <div className="muted" style={{fontSize:11,fontWeight:700}}>{label}</div>
-            <div style={{fontSize:28,fontWeight:800,marginTop:6}}>{value}</div>
+export function CommerceProviders({ initial }: { initial: CommerceAdminDashboard }) {
+  return <div className="page-stack">      <section className="s-stack s-gap-14" >
+    <div>
+      <h2 className="section-title" >Provider readiness</h2>
+      <p className="muted s-text-sm s-margin-5px-0-0" >Check which services are ready for bookings and payments.</p>
+    </div>
+    <div className="s-stack s-columns-auto s-gap-12" >
+      {initial.providers.map((provider) => (
+        <div className="ui-card" key={provider.kind} >
+          <div className="s-row s-justify-content-space-between s-gap-8" >
+            <b >{provider.kind}</b>
+            <StatusPill>{provider.configured ? "CONFIGURED" : "NOT CONFIGURED"}</StatusPill>
           </div>
-        ))}
-      </section>
+          <p className="muted s-text-sm s-margin-bottom-0" >{provider.provider || "Not connected"}</p>
+          {provider.statusError && <p className="s-text-sm s-danger" >{provider.statusError}</p>}
+        </div>
+      ))}
+    </div>
+  </section>
 
-      <section aria-label="30-day commerce funnel" style={{display:"grid",gap:14}}>
-        <div>
-          <h2 style={sectionTitleStyle}>30-day business funnel</h2>
-          <p className="muted" style={{fontSize:12.5,margin:"5px 0 0"}}>
-            Reconstructable, provider-neutral events. Sensitive qualification answers are never emitted.
-          </p>
-        </div>
-        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit, minmax(145px, 1fr))",gap:12}}>
-          {[
-            ["CTA clicks", initial.observability.counts.offer_cta_clicked],
-            ["Booking starts", initial.observability.counts.booking_started],
-            ["Slots held", initial.observability.counts.slot_held],
-            ["Requests", initial.observability.counts.booking_requested],
-            ["Confirmed", initial.observability.counts.booking_confirmed],
-            ["Checkout starts", initial.observability.counts.checkout_started],
-            ["Payments confirmed", initial.observability.counts.payment_confirmed],
-            ["Payments failed", initial.observability.counts.payment_failed],
-          ].map(([label,value]) => (
-            <div key={String(label)} style={cardStyle}>
-              <div className="muted" style={{fontSize:11,fontWeight:700}}>{label}</div>
-              <div style={{fontSize:24,fontWeight:800,marginTop:6}}>{value}</div>
-            </div>
-          ))}
-        </div>
-        <p className="muted" style={{fontSize:11,margin:0}}>
-          {initial.observability.lastEventAt
-            ? `Last event ${formatEventTimestampUtc(initial.observability.lastEventAt)} · ${initial.observability.total} events in window.`
-            : "No business events recorded in this window yet."}
-        </p>
-      </section>
-
-      <section style={{display:"grid",gap:14}}>
-        <div>
-          <h2 style={sectionTitleStyle}>Provider readiness</h2>
-          <p className="muted" style={{fontSize:12.5,margin:"5px 0 0"}}>Read-only status. Provider activation and credentials are intentionally unavailable here.</p>
-        </div>
-        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit, minmax(190px,1fr))",gap:12}}>
-          {initial.providers.map((provider)=>(
-            <div key={provider.kind} style={cardStyle}>
-              <div style={{display:"flex",justifyContent:"space-between",gap:8}}>
-                <b style={{textTransform:"capitalize"}}>{provider.kind}</b>
-                <StatusPill>{provider.configured ? "CONFIGURED" : "NOT CONFIGURED"}</StatusPill>
+    <section className="s-stack s-gap-14" id="effects" >
+      <div className="s-row s-justify-content-space-between s-gap-12 s-flex-wrap-wrap" >
+        <h2 className="section-title" >Orchestration health</h2>
+        <PageControls pageKey="effects" list={initial.orchestrationEffects} anchor="effects" />
+      </div>
+      <div className="ui-card" >
+        {initial.orchestrationEffects.items.length === 0 ? <span className="muted">No background tasks waiting.</span> : (
+          <div className="s-stack s-gap-8" >
+            {initial.orchestrationEffects.items.map((effect) => (
+              <div className="s-stack s-grid-template-columns-minmax-0-1fr-auto s-gap-10 s-align-items-center s-text-sm s-padding-bottom-8 s-min-width-0" key={effect.id} >
+                <span className="s-min-width-0 s-overflow-wrap-anywhere" ><b>{effect.effectType}</b><span className="muted"> · {effect.subjectType}:{effect.subjectId}</span></span>
+                <StatusPill>{effect.status}</StatusPill>
+                <span className="muted s-grid-column-1--1 s-overflow-wrap-anywhere" >{effect.providerKind}</span>
+                {effect.lastErrorMessage && <span className="s-grid-column-1--1 s-danger" >{effect.lastErrorCode}: {effect.lastErrorMessage}</span>}
               </div>
-              <p className="muted" style={{fontSize:12,marginBottom:0}}>{provider.provider || "Provider-neutral adapter"}</p>
-              {provider.statusError && <p style={{fontSize:12,color:"#7c2d12"}}>{provider.statusError}</p>}
-            </div>
-          ))}
-        </div>
-      </section>
+            ))}
+          </div>
+        )}
+        <BoundedListNote list={initial.orchestrationEffects} label="background tasks" />
+      </div>
+    </section>
+  </div>;
+}
 
-      <section id="effects" style={{display:"grid",gap:14}}>
-        <div style={{display:"flex",justifyContent:"space-between",gap:12,flexWrap:"wrap"}}>
-          <h2 style={sectionTitleStyle}>Orchestration health</h2>
-          <PageControls pageKey="effects" list={initial.orchestrationEffects} anchor="effects" />
-        </div>
-        <div style={cardStyle}>
-          {initial.orchestrationEffects.items.length === 0 ? <span className="muted">No durable side effects queued yet.</span> : (
-            <div style={{display:"grid",gap:8}}>
-              {initial.orchestrationEffects.items.map((effect)=>(
-                <div key={effect.id} style={{display:"grid",gridTemplateColumns:"minmax(0,1fr) auto",gap:10,alignItems:"center",fontSize:12,paddingBottom:8,borderBottom:"1px solid var(--line)",minWidth:0}}>
-                  <span style={{minWidth:0,overflowWrap:"anywhere"}}><b>{effect.effectType}</b><span className="muted"> · {effect.subjectType}:{effect.subjectId}</span></span>
-                  <StatusPill>{effect.status}</StatusPill>
-                  <span className="muted" style={{gridColumn:"1 / -1",overflowWrap:"anywhere"}}>{effect.providerKind}</span>
-                  {effect.lastErrorMessage && <span style={{gridColumn:"1 / -1",color:"#7c2d12"}}>{effect.lastErrorCode}: {effect.lastErrorMessage}</span>}
-                </div>
-              ))}
-            </div>
-          )}
-          <BoundedListNote list={initial.orchestrationEffects} label="orchestration effects" />
-        </div>
-      </section>
-    </>
-  );
+export function CommerceOverview({ initial }: { initial: CommerceAdminDashboard }) {
+  const stages = [
+    ["CTA clicks", initial.observability.counts.offer_cta_clicked],
+    ["Booking starts", initial.observability.counts.booking_started],
+    ["Slots held", initial.observability.counts.slot_held],
+    ["Requests", initial.observability.counts.booking_requested],
+    ["Confirmed", initial.observability.counts.booking_confirmed],
+    ["Checkout starts", initial.observability.counts.checkout_started],
+    ["Payments confirmed", initial.observability.counts.payment_confirmed],
+    ["Payments failed", initial.observability.counts.payment_failed],
+  ] as const;
+  const max = Math.max(1, ...stages.map(([, value]) => value));
+  return <>
+    <section className="stat-grid" aria-label="Commerce summary">
+      <StatCard icon="calendar" label="Approval Queue" value={initial.summary.approvalQueue} attention href="?tab=bookings" />
+      <StatCard icon="inbox" label="Requests" value={initial.summary.requestedBookings} attention href="?tab=bookings" />
+      <StatCard icon="clock" label="Upcoming" value={initial.summary.upcomingBookings} href="?tab=bookings" />
+      <StatCard icon="orders" label="Open Orders" value={initial.summary.openOrders} attention href="?tab=orders" />
+      <StatCard icon="content" label="Active Offers" value={initial.summary.activeOffers} href="?tab=offers" />
+      <StatCard icon="calendar" label="Booking Types" value={initial.summary.activeBookingTypes} href="?tab=booking-types" />
+    </section>
+    <Card><section aria-label="30-day commerce funnel"><div className="section-heading"><div><p className="page-eyebrow">The last 30 days</p><h2>From interest to booking</h2><p className="muted">Follow each step from a first click to a confirmed session.</p></div><Icon name="arrow" /></div>
+      <div className="funnel-row">{stages.map(([label, value]) => <div className="funnel-stage" key={label}><div className="funnel-label">{label}</div><div className="funnel-value">{value}</div><meter min={0} max={max} value={value} aria-label={label}>{value}</meter></div>)}</div>
+      <p className="help">{initial.observability.lastEventAt ? `Last event ${formatEventTimestampUtc(initial.observability.lastEventAt)} · ${initial.observability.total} events in window.` : "Your activity will appear here as people explore and book."}</p>
+    </section></Card>
+    <Card className="system-summary"><div><h2>Connected &amp; running</h2><p className="muted">{initial.providers.filter(p => p.configured).length} of {initial.providers.length} providers configured · {initial.summary.blockedEffects} tasks blocked</p></div><Link href="?tab=system" className="btn secondary">Providers &amp; system <Icon name="arrow" /></Link></Card>
+  </>;
 }

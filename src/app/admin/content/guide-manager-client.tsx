@@ -1,5 +1,6 @@
 "use client";
 
+import { EmptyState, Toast, Card, FileDrop, StatusFilters, humanLabel, Button, Input, DataTable, Textarea, Select } from "../_ui";
 import React, { useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -18,16 +19,17 @@ import {
 } from "@/features/guides/actions";
 
 interface GuideManagerClientProps {
+  startNew?: boolean;
   initialGuides: Guide[];
   currentUser: { id: string; email: string; name?: string | null };
 }
 
-export function GuideManagerClient({ initialGuides }: GuideManagerClientProps) {
+export function GuideManagerClient({ startNew = false, initialGuides }: GuideManagerClientProps) {
   const router = useRouter();
   const [isPending] = useTransition();
 
   // View state: "list" | "editor"
-  const [view, setView] = useState<"list" | "editor">("list");
+  const [view, setView] = useState<"list" | "editor">(startNew ? "editor" : "list");
   const guides = initialGuides;
 
   // Filters
@@ -41,7 +43,7 @@ export function GuideManagerClient({ initialGuides }: GuideManagerClientProps) {
   const [category, setCategory] = useState("Strategy");
   const [excerpt, setExcerpt] = useState("");
   const [coverImage, setCoverImage] = useState("");
-  const [blocks, setBlocks] = useState<GuideBlock[]>([]);
+  const [blocks, setBlocks] = useState<GuideBlock[]>(startNew ? [{ id: "b-initial-1", type: "paragraph", text: "Start writing the guide content here..." }] : []);
   const [metaTitle, setMetaTitle] = useState("");
   const [metaDescription, setMetaDescription] = useState("");
   const [currentStatus, setCurrentStatus] = useState<"draft" | "published" | "archived">("draft");
@@ -178,69 +180,69 @@ export function GuideManagerClient({ initialGuides }: GuideManagerClientProps) {
     }
 
     if (editingGuideId) {
-        // Update existing guide
-        const res = await updateGuideAction({
-          id: editingGuideId,
-          title,
-          slug,
-          excerpt,
-          category,
-          coverImage: coverImage || null,
-          metaTitle: metaTitle || title,
-          metaDescription: metaDescription || excerpt,
-          body: blocks,
-        });
+      // Update existing guide
+      const res = await updateGuideAction({
+        id: editingGuideId,
+        title,
+        slug,
+        excerpt,
+        category,
+        coverImage: coverImage || null,
+        metaTitle: metaTitle || title,
+        metaDescription: metaDescription || excerpt,
+        body: blocks,
+      });
 
-        if (!res.ok) {
-          showToast("Update Failed", res.error || "Could not save guide", "error");
-          return;
+      if (!res.ok) {
+        showToast("Update Failed", res.error || "Could not save guide", "error");
+        return;
+      }
+
+      if (publishImmediately) {
+        const pubRes = await publishGuideAction(editingGuideId);
+        if (pubRes.ok) {
+          setCurrentStatus("published");
+          showToast("Published!", "Guide is now live on the public site.");
+        } else {
+          showToast("Publish Failed", pubRes.error || "Failed to publish", "error");
         }
+      } else {
+        showToast("Saved", "Guide draft saved successfully.");
+      }
+    } else {
+      // Create new guide
+      const res = await createGuideAction({
+        title,
+        slug,
+        excerpt,
+        category,
+        author: "Decoded Editorial",
+        coverImage: coverImage || null,
+        metaTitle: metaTitle || title,
+        metaDescription: metaDescription || excerpt,
+        body: blocks,
+      });
 
+      if (!res.ok) {
+        showToast("Creation Failed", res.error || "Could not create guide", "error");
+        return;
+      }
+
+      if (res.data?.id) {
+        setEditingGuideId(res.data.id);
         if (publishImmediately) {
-          const pubRes = await publishGuideAction(editingGuideId);
+          const pubRes = await publishGuideAction(res.data.id);
           if (pubRes.ok) {
             setCurrentStatus("published");
             showToast("Published!", "Guide is now live on the public site.");
-          } else {
-            showToast("Publish Failed", pubRes.error || "Failed to publish", "error");
           }
         } else {
-          showToast("Saved", "Guide draft saved successfully.");
-        }
-      } else {
-        // Create new guide
-        const res = await createGuideAction({
-          title,
-          slug,
-          excerpt,
-          category,
-          author: "Decoded Editorial",
-          coverImage: coverImage || null,
-          metaTitle: metaTitle || title,
-          metaDescription: metaDescription || excerpt,
-          body: blocks,
-        });
-
-        if (!res.ok) {
-          showToast("Creation Failed", res.error || "Could not create guide", "error");
-          return;
-        }
-
-        if (res.data?.id) {
-          setEditingGuideId(res.data.id);
-          if (publishImmediately) {
-            const pubRes = await publishGuideAction(res.data.id);
-            if (pubRes.ok) {
-              setCurrentStatus("published");
-              showToast("Published!", "Guide is now live on the public site.");
-            }
-          } else {
-            showToast("Created", "New guide draft created.");
-          }
+          showToast("Created", "New guide draft created.");
         }
       }
+    }
 
-      router.refresh();
+    router.refresh();
   };
 
   const handleConfirmAction = async () => {
@@ -249,32 +251,32 @@ export function GuideManagerClient({ initialGuides }: GuideManagerClientProps) {
     setConfirmModal(null);
 
     if (action === "publish") {
-        const res = await publishGuideAction(guideId);
-        if (res.ok) {
-          setCurrentStatus("published");
-          showToast("Published", "Guide published to live site.");
-        } else {
-          showToast("Action Failed", res.error || "Publish failed", "error");
-        }
-      } else if (action === "unpublish") {
-        const res = await unpublishGuideAction(guideId);
-        if (res.ok) {
-          setCurrentStatus("draft");
-          showToast("Unpublished", "Guide returned to draft status.");
-        } else {
-          showToast("Action Failed", res.error || "Unpublish failed", "error");
-        }
-      } else if (action === "archive") {
-        const res = await archiveGuideAction(guideId);
-        if (res.ok) {
-          setCurrentStatus("archived");
-          showToast("Archived", "Guide has been archived.");
-        } else {
-          showToast("Action Failed", res.error || "Archive failed", "error");
-        }
+      const res = await publishGuideAction(guideId);
+      if (res.ok) {
+        setCurrentStatus("published");
+        showToast("Published", "Guide published to live site.");
+      } else {
+        showToast("Action Failed", res.error || "Publish failed", "error");
       }
+    } else if (action === "unpublish") {
+      const res = await unpublishGuideAction(guideId);
+      if (res.ok) {
+        setCurrentStatus("draft");
+        showToast("Unpublished", "Guide returned to draft status.");
+      } else {
+        showToast("Action Failed", res.error || "Unpublish failed", "error");
+      }
+    } else if (action === "archive") {
+      const res = await archiveGuideAction(guideId);
+      if (res.ok) {
+        setCurrentStatus("archived");
+        showToast("Archived", "Guide has been archived.");
+      } else {
+        showToast("Action Failed", res.error || "Archive failed", "error");
+      }
+    }
 
-      router.refresh();
+    router.refresh();
   };
 
   // Filtered guides for list view
@@ -289,21 +291,80 @@ export function GuideManagerClient({ initialGuides }: GuideManagerClientProps) {
     return matchesSearch && matchesStatus;
   });
 
+  const renderActions = (g: Guide) => (<div className="row-actions" >
+    <Button
+      className="btn secondary small"
+      type="button"
+      onClick={() => handleEditGuide(g)}
+    >
+      Edit
+    </Button>
+    <Link
+      href={`/guides/${g.slug}?preview=true`}
+      target="_blank"
+      className="btn ghost small"
+
+    >
+      Preview
+    </Link>
+    {g.status === "published" ? (
+      <Button
+        className="btn ghost small"
+        type="button"
+        onClick={() =>
+          setConfirmModal({
+            action: "unpublish",
+            guideId: g.id,
+            guideTitle: g.title,
+          })
+        }
+      >
+        Unpublish
+      </Button>
+    ) : g.status === "draft" ? (
+      <Button
+        className="btn ghost small"
+        type="button"
+        onClick={() =>
+          setConfirmModal({
+            action: "publish",
+            guideId: g.id,
+            guideTitle: g.title,
+          })
+        }
+      >
+        Publish
+      </Button>
+    ) : null}
+    {g.status !== "archived" && (
+      <Button
+        className="btn ghost small"
+        type="button"
+        onClick={() =>
+          setConfirmModal({
+            action: "archive",
+            guideId: g.id,
+            guideTitle: g.title,
+          })
+        }
+      >
+        Archive
+      </Button>
+    )}
+  </div>);
+
   return (
     <>
       {/* Toast Stack */}
       {toast && (
         <div className="toast-stack">
-          <div className={`toast ${toast.type === "error" ? "error" : ""}`}>
-            <b>{toast.title}</b>
-            <span>{toast.message}</span>
-          </div>
+          <Toast title={toast.title} error={toast.type === "error"}>{toast.message}</Toast>
         </div>
       )}
 
       {/* Confirmation Dialog */}
       {confirmModal && (
-        <div className="dialog" style={{ display: "grid", placeItems: "center" }}>
+        <div className="dialog s-stack s-place-items-center" >
           <div className="dg-panel">
             <h3>Confirm {confirmModal.action.toUpperCase()}</h3>
             <div className="dg-body">
@@ -330,20 +391,20 @@ export function GuideManagerClient({ initialGuides }: GuideManagerClientProps) {
               )}
             </div>
             <div className="dg-actions">
-              <button
+              <Button
                 type="button"
                 className="btn ghost small"
                 onClick={() => setConfirmModal(null)}
               >
                 Cancel
-              </button>
-              <button
+              </Button>
+              <Button
                 type="button"
                 className={`btn ${confirmModal.action === "archive" ? "danger" : "primary"} small`}
                 onClick={handleConfirmAction}
               >
                 Confirm {confirmModal.action}
-              </button>
+              </Button>
             </div>
           </div>
         </div>
@@ -354,19 +415,11 @@ export function GuideManagerClient({ initialGuides }: GuideManagerClientProps) {
       {/* ========================================================================= */}
       {view === "list" && (
         <div>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: "12px", flexWrap: "wrap" }}>
-            <h1 className="a-h1" style={{ fontSize: "24px", fontWeight: 700, margin: 0 }}>
-              Content
-            </h1>
-            <span style={{ fontSize: "12.5px", color: "var(--muted)" }}>
-              Guides publishing slice — Admin creates, drafts, publishes & archives.
-            </span>
-          </div>
 
           {/* Filter Bar */}
-          <div className="filter-bar" style={{ marginTop: "18px" }}>
+          <div className="filter-bar s-margin-top-18px" >
             <div className="search">
-              <input
+              <Input
                 type="search"
                 placeholder="Search title, slug, tag…"
                 value={search}
@@ -374,33 +427,21 @@ export function GuideManagerClient({ initialGuides }: GuideManagerClientProps) {
                 aria-label="Search content"
               />
             </div>
-            <select aria-label="Filter kind" defaultValue="Guides">
-              <option value="Guides">Guides</option>
-            </select>
-            <select
-              aria-label="Filter status"
-              value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value)}
-            >
-              <option value="all">All statuses</option>
-              <option value="published">Published</option>
-              <option value="draft">Draft</option>
-              <option value="archived">Archived</option>
-            </select>
-            <button
-              className="btn primary small"
+            <StatusFilters value={statusFilter} onChange={setStatusFilter} items={[{ value: "all", label: "All", count: guides.length }, ...["published", "draft", "archived"].map(value => ({ value, label: humanLabel(value), count: guides.filter(item => item.status === value).length }))]} />
+            <Button
+              className="btn primary small s-bold"
               type="button"
               onClick={handleNewGuide}
-              style={{ fontWeight: 600 }}
+
             >
               ＋ New Guide
-            </button>
+            </Button>
           </div>
 
           {/* Desktop Table */}
-          <div className="table-wrap" style={{ marginTop: "12px" }}>
+          <div className="table-wrap s-margin-top-12px" >
             <div className="table-scroll">
-              <table className="data">
+              <DataTable className="data">
                 <thead>
                   <tr>
                     <th>Title & Slug</th>
@@ -413,8 +454,8 @@ export function GuideManagerClient({ initialGuides }: GuideManagerClientProps) {
                 <tbody>
                   {filteredGuides.length === 0 ? (
                     <tr>
-                      <td colSpan={5} style={{ textAlign: "center", padding: "32px", color: "var(--muted)" }}>
-                        No guides match the selected filters.
+                      <td className="s-text-align-center s-padding-32px s-muted" colSpan={5} >
+                        <EmptyState icon="content" title="Make room for your next idea" action={<Button variant="primary" onClick={handleNewGuide}>＋ New Guide</Button>}>No guides match the selected filters.</EmptyState>
                       </td>
                     </tr>
                   ) : (
@@ -427,10 +468,10 @@ export function GuideManagerClient({ initialGuides }: GuideManagerClientProps) {
                       return (
                         <tr key={g.id}>
                           <td>
-                            <span className="cell-main" style={{ display: "block" }}>
+                            <span className="cell-main s-block" >
                               {g.title}
                             </span>
-                            <span className="cell-sub" style={{ display: "block" }}>
+                            <span className="cell-sub s-block" >
                               /guides/{g.slug}
                             </span>
                           </td>
@@ -442,78 +483,19 @@ export function GuideManagerClient({ initialGuides }: GuideManagerClientProps) {
                           </td>
                           <td className="num">{updatedFormatted}</td>
                           <td>
-                            <div style={{ display: "flex", gap: "6px" }}>
-                              <button
-                                className="btn secondary small"
-                                type="button"
-                                onClick={() => handleEditGuide(g)}
-                              >
-                                Edit
-                              </button>
-                              <Link
-                                href={`/guides/${g.slug}?preview=true`}
-                                target="_blank"
-                                className="btn ghost small"
-                                style={{ textDecoration: "none" }}
-                              >
-                                Preview
-                              </Link>
-                              {g.status === "published" ? (
-                                <button
-                                  className="btn ghost small"
-                                  type="button"
-                                  onClick={() =>
-                                    setConfirmModal({
-                                      action: "unpublish",
-                                      guideId: g.id,
-                                      guideTitle: g.title,
-                                    })
-                                  }
-                                >
-                                  Unpublish
-                                </button>
-                              ) : g.status === "draft" ? (
-                                <button
-                                  className="btn ghost small"
-                                  type="button"
-                                  onClick={() =>
-                                    setConfirmModal({
-                                      action: "publish",
-                                      guideId: g.id,
-                                      guideTitle: g.title,
-                                    })
-                                  }
-                                >
-                                  Publish
-                                </button>
-                              ) : null}
-                              {g.status !== "archived" && (
-                                <button
-                                  className="btn ghost small"
-                                  type="button"
-                                  onClick={() =>
-                                    setConfirmModal({
-                                      action: "archive",
-                                      guideId: g.id,
-                                      guideTitle: g.title,
-                                    })
-                                  }
-                                >
-                                  Archive
-                                </button>
-                              )}
-                            </div>
+                            {renderActions(g)}
                           </td>
                         </tr>
                       );
                     })
                   )}
                 </tbody>
-              </table>
+              </DataTable>
             </div>
 
             {/* Mobile Cards */}
             <div className="data-card-list">
+              {filteredGuides.length === 0 && <EmptyState icon="content" title="No guides here yet" action={<Button variant="primary" onClick={handleNewGuide}>{"＋ New Guide"}</Button>}>Try another filter, or start a fresh draft.</EmptyState>}
               {filteredGuides.map((g) => (
                 <div className="data-card" key={`card-${g.id}`}>
                   <div className="dc-head">
@@ -524,19 +506,7 @@ export function GuideManagerClient({ initialGuides }: GuideManagerClientProps) {
                     <span>/guides/{g.slug}</span>
                     <span>Updated {new Date(g.updatedAt).toLocaleDateString()}</span>
                   </p>
-                  <div className="dc-actions">
-                    <button className="btn secondary small" type="button" onClick={() => handleEditGuide(g)}>
-                      Edit
-                    </button>
-                    <Link
-                      href={`/guides/${g.slug}?preview=true`}
-                      target="_blank"
-                      className="btn ghost small"
-                      style={{ textDecoration: "none" }}
-                    >
-                      Preview
-                    </Link>
-                  </div>
+                  {renderActions(g)}
                 </div>
               ))}
             </div>
@@ -550,13 +520,13 @@ export function GuideManagerClient({ initialGuides }: GuideManagerClientProps) {
       {view === "editor" && (
         <div>
           {/* Editor Subhead */}
-          <div className="editor-subhead" style={{ top: "56px", borderRadius: "8px 8px 0 0", margin: "-8px -8px 20px" }}>
+          <div className="editor-subhead" >
             <span className="es-title">{title || "Untitled Guide"}</span>
             <span className={`lifecycle ${currentStatus}`}>{currentStatus.toUpperCase()}</span>
             <span className="es-saved">✓ {isPending ? "Saving..." : "Ready"}</span>
             <span className="es-spacer"></span>
 
-            <button
+            <Button
               className="btn ghost small"
               type="button"
               onClick={() => {
@@ -565,40 +535,40 @@ export function GuideManagerClient({ initialGuides }: GuideManagerClientProps) {
               }}
             >
               ← Back to list
-            </button>
+            </Button>
 
             {slug && (
               <Link
                 href={`/guides/${slug}?preview=true`}
                 target="_blank"
                 className="btn secondary small"
-                style={{ textDecoration: "none" }}
+
               >
                 Preview ↗
               </Link>
             )}
 
-            <button
-              className="btn primary small"
+            <Button
+              className="btn secondary small"
               type="button"
               disabled={isPending}
               onClick={() => handleSave(false)}
             >
               {isPending ? "Saving..." : "Save Draft"}
-            </button>
+            </Button>
 
             {currentStatus === "draft" ? (
-              <button
-                className="btn secondary small"
+              <Button
+                className="btn primary small"
                 type="button"
                 disabled={isPending}
                 onClick={() => handleSave(true)}
-                style={{ background: "var(--mint-soft)", borderColor: "var(--mint-strong)", color: "#14532d", fontWeight: 600 }}
+
               >
                 Publish Now
-              </button>
+              </Button>
             ) : currentStatus === "published" ? (
-              <button
+              <Button
                 className="btn ghost small"
                 type="button"
                 disabled={isPending}
@@ -609,192 +579,161 @@ export function GuideManagerClient({ initialGuides }: GuideManagerClientProps) {
                 }}
               >
                 Unpublish
-              </button>
+              </Button>
             ) : null}
           </div>
 
           {/* Form and Block Editor Grid */}
-          <div style={{ display: "grid", gap: "24px" }} className="settings-layout">
-            <div style={{ minWidth: 0 }}>
-              <div className="settings-section" style={{ padding: "20px" }}>
-                <h3 style={{ margin: "0 0 16px" }}>Guide Metadata</h3>
-                <div style={{ display: "grid", gap: "16px" }}>
-                  <div>
-                    <label style={{ display: "block", fontSize: "12px", fontWeight: 600, marginBottom: "6px" }}>
-                      Title <span style={{ color: "var(--coral)" }}>*</span>
-                    </label>
-                    <input
-                      type="text"
-                      value={title}
-                      onChange={(e) => handleTitleChange(e.target.value)}
-                      placeholder="e.g. Talent Acquisition Strategy Is Not a Hiring Plan"
-                      style={{ width: "100%", padding: "8px 12px", borderRadius: "6px", border: "1px solid var(--line-strong)" }}
-                    />
-                  </div>
+          <div className="publishing-editor"><div className="editor-main"><Card className="editor-copy"><div>
+            <label htmlFor="content-field-21889" className="s-block s-text-sm s-bold s-margin-bottom-6px" >
+              Title <span className="s-danger" >*</span>
+            </label>
+            <Input id="content-field-21889" className="s-full s-padding-8px-12px"
+              type="text"
+              value={title}
+              onChange={(e) => handleTitleChange(e.target.value)}
+              placeholder="e.g. Talent Acquisition Strategy Is Not a Hiring Plan"
 
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px" }}>
-                    <div>
-                      <label style={{ display: "block", fontSize: "12px", fontWeight: 600, marginBottom: "6px" }}>
-                        Slug (URL identifier) <span style={{ color: "var(--coral)" }}>*</span>
-                      </label>
-                      <input
-                        type="text"
-                        value={slug}
-                        onChange={(e) => setSlug(e.target.value.toLowerCase().trim().replace(/[^a-z0-9-]+/g, "-"))}
-                        placeholder="talent-acquisition-strategy"
-                        className="mono"
-                        style={{ width: "100%", padding: "8px 12px", borderRadius: "6px", border: "1px solid var(--line-strong)" }}
-                      />
-                    </div>
-                    <div>
-                      <label style={{ display: "block", fontSize: "12px", fontWeight: 600, marginBottom: "6px" }}>
-                        Category
-                      </label>
-                      <select
-                        value={category}
-                        onChange={(e) => setCategory(e.target.value)}
-                        style={{ width: "100%", padding: "8px 12px", borderRadius: "6px", border: "1px solid var(--line-strong)" }}
-                      >
-                        <option value="Strategy">Strategy</option>
-                        <option value="Assessment">Assessment</option>
-                        <option value="AI">AI</option>
-                        <option value="Operations">Operations</option>
-                      </select>
-                    </div>
-                  </div>
+            />
+          </div><div>
+              <label htmlFor="content-field-22511" className="s-block s-text-sm s-bold s-margin-bottom-6px" >
+                Excerpt / Dek
+              </label>
+              <Textarea id="content-field-22511" className="s-full s-padding-8px-12px"
+                rows={2}
+                value={excerpt}
+                onChange={(e) => setExcerpt(e.target.value)}
+                placeholder="A short, compelling summary of the guide..."
 
-                  <div>
-                    <label style={{ display: "block", fontSize: "12px", fontWeight: 600, marginBottom: "6px" }}>
-                      Excerpt / Dek
-                    </label>
-                    <textarea
-                      rows={2}
-                      value={excerpt}
-                      onChange={(e) => setExcerpt(e.target.value)}
-                      placeholder="A short, compelling summary of the guide..."
-                      style={{ width: "100%", padding: "8px 12px", borderRadius: "6px", border: "1px solid var(--line-strong)" }}
-                    />
-                  </div>
+              />
+            </div></Card><StructuredBlockEditor
+              blocks={blocks}
+              onChange={setBlocks}
+              allowedBlockTypes={["heading", "paragraph", "blockquote", "callout", "list"]}
+              createBlock={createGuideBlock}
+              eyebrowHint="Build your story, one block at a time"
+            /></div><aside className="editor-sidebar"><div className="settings-section s-padding-16px-18px" >
+              <h3 className="s-text-sm s-margin-0-0-8px" >Publishing</h3>
+              <p className="s-text-sm s-muted s-margin-0-0-12px s-line-height-1-5" >
+                Status: <strong >{currentStatus}</strong>
+              </p>
+              <div className="s-stack s-gap-8px" >
+                {currentStatus === "draft" ? (
+                  <Button
+                    type="button"
+                    className="btn primary small s-full"
+                    onClick={() => handleSave(true)}
 
-                  <div>
-                    <label style={{ display: "block", fontSize: "12px", fontWeight: 600, marginBottom: "6px" }}>
-                      Cover Image (Cloudflare R2)
-                    </label>
-                    <div style={{ display: "flex", gap: "12px", alignItems: "center" }}>
-                      <input
-                        type="file"
-                        accept="image/*"
-                        onChange={handleImageUpload}
-                        disabled={uploadingImage}
-                        style={{ fontSize: "13px" }}
-                      />
-                      {uploadingImage && <span style={{ fontSize: "12px", color: "var(--blue)" }}>Uploading to R2...</span>}
-                    </div>
-                    {coverImage && (
-                      <p style={{ fontSize: "11.5px", color: "var(--muted)", marginTop: "4px" }}>
-                        Referenced: <code>{coverImage}</code>
-                      </p>
-                    )}
-                  </div>
-                </div>
-              </div>
-
-              {/* Block Editor (shared structured mechanics; Guide block types retained) */}
-              <div style={{ marginTop: "24px" }}>
-                <StructuredBlockEditor
-                  blocks={blocks}
-                  onChange={setBlocks}
-                  allowedBlockTypes={["heading", "paragraph", "blockquote", "callout", "list"]}
-                  createBlock={createGuideBlock}
-                  eyebrowHint="TYPED, NO EXEC ARBITRARY HTML"
-                />
-              </div>
-            </div>
-
-            {/* Right-hand Rail (Publish state & SEO preview) */}
-            <aside style={{ display: "grid", gap: "16px", alignContent: "start" }}>
-              <div className="settings-section" style={{ padding: "16px 18px" }}>
-                <h3 style={{ fontSize: "14px", margin: "0 0 8px" }}>Publishing State</h3>
-                <p style={{ fontSize: "12.5px", color: "var(--muted)", margin: "0 0 12px", lineHeight: 1.5 }}>
-                  Status: <strong style={{ textTransform: "capitalize" }}>{currentStatus}</strong>
-                </p>
-                <div style={{ display: "grid", gap: "8px" }}>
-                  {currentStatus === "draft" ? (
-                    <button
-                      type="button"
-                      className="btn primary small"
-                      onClick={() => handleSave(true)}
-                      style={{ width: "100%" }}
-                    >
-                      Publish to Live Site
-                    </button>
-                  ) : currentStatus === "published" ? (
-                    <button
-                      type="button"
-                      className="btn secondary small"
-                      onClick={() => {
-                        if (editingGuideId) {
-                          setConfirmModal({ action: "unpublish", guideId: editingGuideId, guideTitle: title });
-                        }
-                      }}
-                      style={{ width: "100%" }}
-                    >
-                      Unpublish (Return to Draft)
-                    </button>
-                  ) : null}
-
-                  {editingGuideId && currentStatus !== "archived" && (
-                    <button
-                      type="button"
-                      className="btn ghost small"
-                      onClick={() =>
-                        setConfirmModal({
-                          action: "archive",
-                          guideId: editingGuideId,
-                          guideTitle: title,
-                        })
+                  >
+                    Publish to Live Site
+                  </Button>
+                ) : currentStatus === "published" ? (
+                  <Button
+                    type="button"
+                    className="btn secondary small s-full"
+                    onClick={() => {
+                      if (editingGuideId) {
+                        setConfirmModal({ action: "unpublish", guideId: editingGuideId, guideTitle: title });
                       }
-                      style={{ color: "var(--coral)", width: "100%" }}
-                    >
-                      Archive Guide
-                    </button>
-                  )}
-                </div>
-              </div>
+                    }}
 
-              {/* SEO Quick View */}
-              <div className="settings-section" style={{ padding: "16px 18px" }}>
-                <h3 style={{ fontSize: "14px", margin: "0 0 8px" }}>SEO Quick View</h3>
-                <div className="seo-preview" style={{ marginTop: "10px" }}>
+                  >
+                    Unpublish (Return to Draft)
+                  </Button>
+                ) : null}
+
+                {editingGuideId && currentStatus !== "archived" && (
+                  <Button
+                    type="button"
+                    className="btn ghost small s-danger s-full"
+                    onClick={() =>
+                      setConfirmModal({
+                        action: "archive",
+                        guideId: editingGuideId,
+                        guideTitle: title,
+                      })
+                    }
+
+                  >
+                    Archive Guide
+                  </Button>
+                )}
+              </div>
+            </div><Card className="editor-address"><h3>Address &amp; discovery</h3><div>
+              <label htmlFor="content-field-25712" className="s-block s-text-sm s-bold s-margin-bottom-6px" >
+                Slug (URL identifier) <span className="s-danger" >*</span>
+              </label>
+              <Input id="content-field-25712"
+                type="text"
+                value={slug}
+                onChange={(e) => setSlug(e.target.value.toLowerCase().trim().replace(/[^a-z0-9-]+/g, "-"))}
+                placeholder="talent-acquisition-strategy"
+                className="mono s-full s-padding-8px-12px"
+
+              />
+            </div><div>
+                  <label htmlFor="content-field-26405" className="s-block s-text-sm s-bold s-margin-bottom-6px" >
+                    Category
+                  </label>
+                  <Select id="content-field-26405" className="s-full s-padding-8px-12px"
+                    value={category}
+                    onChange={(e) => setCategory(e.target.value)}
+
+                  >
+                    <option value="Strategy">Strategy</option>
+                    <option value="Assessment">Assessment</option>
+                    <option value="AI">AI</option>
+                    <option value="Operations">Operations</option>
+                  </Select>
+                </div></Card><Card><h3>Cover image</h3><div>
+                  <label className="s-block s-text-sm s-bold s-margin-bottom-6px" >
+                    Choose a cover image
+                  </label>
+                  <div className="s-row s-gap-12px s-align-items-center" >
+                    <FileDrop className="s-text-sm"
+                      type="file"
+                      accept="image/*"
+                      onChange={handleImageUpload}
+                      disabled={uploadingImage}
+
+                      aria-label="Cover image" />
+                    {uploadingImage && <span className="s-text-sm s-accent" >Uploading...</span>}
+                  </div>
+                  {coverImage && (
+                    <p className="s-text-xs s-muted s-margin-top-4px" >
+                      Referenced: <code>{coverImage}</code>
+                    </p>
+                  )}
+                </div></Card><div className="settings-section s-padding-16px-18px" >
+                <h3 className="s-text-sm s-margin-0-0-8px" >Search preview</h3>
+                <div className="seo-preview s-margin-top-10px" >
                   <div className="sp-url">decodedhiring.com › guides › {slug || "slug"}</div>
                   <div className="sp-title">{metaTitle || title || "Guide Title"}</div>
                   <div className="sp-desc">{metaDescription || excerpt || "Guide excerpt will appear here in search engine previews."}</div>
                 </div>
-                <div style={{ marginTop: "12px", display: "grid", gap: "8px" }}>
+                <div className="s-margin-top-12px s-stack s-gap-8px" >
                   <div>
-                    <label style={{ fontSize: "11px", fontWeight: 600, display: "block" }}>Custom SEO Title</label>
-                    <input
+                    <label htmlFor="content-field-28874" className="s-text-xs s-bold s-block" >Custom SEO Title</label>
+                    <Input id="content-field-28874" className="s-full s-padding-6px-8px s-text-sm"
                       type="text"
                       value={metaTitle}
                       onChange={(e) => setMetaTitle(e.target.value)}
                       placeholder={title}
-                      style={{ width: "100%", padding: "6px 8px", fontSize: "12px", borderRadius: "4px", border: "1px solid var(--line)" }}
+
                     />
                   </div>
                   <div>
-                    <label style={{ fontSize: "11px", fontWeight: 600, display: "block" }}>Custom Meta Description</label>
-                    <textarea
+                    <label htmlFor="content-field-29421" className="s-text-xs s-bold s-block" >Custom Meta Description</label>
+                    <Textarea id="content-field-29421" className="s-full s-padding-6px-8px s-text-sm"
                       rows={2}
                       value={metaDescription}
                       onChange={(e) => setMetaDescription(e.target.value)}
                       placeholder={excerpt}
-                      style={{ width: "100%", padding: "6px 8px", fontSize: "12px", borderRadius: "4px", border: "1px solid var(--line)" }}
+
                     />
                   </div>
                 </div>
-              </div>
-            </aside>
-          </div>
+              </div></aside></div>
         </div>
       )}
     </>

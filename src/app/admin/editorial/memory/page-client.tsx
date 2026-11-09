@@ -1,4 +1,5 @@
 "use client";
+import { EmptyState, IconButton, StatusPill, PageHeader, Button, Select, Textarea, DataTable } from "../../_ui";
 
 import { useState, useTransition } from "react";
 import { createMemoryAction, updateMemoryAction, archiveMemoryAction, unarchiveMemoryAction } from "@/features/editorial-ai/memory/actions";
@@ -89,88 +90,89 @@ export function MemoryPageClient({ initialMemory }: MemoryPageClientProps) {
   const archivedCount = memory.filter((m) => m.archivedAt).length;
 
   return (
-    <div style={{ padding: "24px", maxWidth: "1000px" }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px" }}>
+    <div >
+      <div className="s-row s-justify-content-space-between s-align-items-center s-margin-bottom-16px" >
         <div>
-          <h1 style={{ fontSize: "24px", marginBottom: "4px" }}>Editorial Memory</h1>
-          <p style={{ color: "#6b7280", fontSize: "13px" }}>{activeCount} active · {archivedCount} archived · {memory.length} total</p>
+          <PageHeader eyebrow="Editorial AI" title={<>Editorial Memory</>} />
+          <p className="s-muted s-text-sm" >{activeCount} active · {archivedCount} archived · {memory.length} total</p>
         </div>
-        <button onClick={() => setShowCreate(!showCreate)} style={{ padding: "8px 16px", background: "#10b981", color: "white", border: "none", borderRadius: "4px", fontSize: "13px", cursor: "pointer" }}>
+        <Button className="s-padding-8px-16px s-muted s-text-sm btn primary" onClick={() => setShowCreate(!showCreate)} >
           {showCreate ? "✕ Cancel" : "+ New Memory"}
-        </button>
+        </Button>
       </div>
 
-      {actionError && <p style={{ color: "#ef4444", fontSize: "13px", marginBottom: "12px" }}>{actionError}</p>}
-      {actionSuccess && <p style={{ color: "#10b981", fontSize: "13px", marginBottom: "12px" }}>{actionSuccess}</p>}
+      {actionError && <p className="s-danger s-text-sm s-margin-bottom-12px" >{actionError}</p>}
+      {actionSuccess && <p className="s-success s-text-sm s-margin-bottom-12px" >{actionSuccess}</p>}
 
       {/* Create form */}
       {showCreate && (
-        <div style={{ border: "1px solid #e5e7eb", borderRadius: "8px", padding: "16px", marginBottom: "16px" }}>
-          <h2 style={{ fontSize: "16px", marginBottom: "12px" }}>New Memory Item</h2>
-          <div style={{ marginBottom: "8px" }}>
-            <label style={{ display: "block", fontSize: "12px", fontWeight: 500, marginBottom: "4px" }}>Category</label>
-            <select value={createCategory} onChange={(e) => setCreateCategory(e.target.value as MemoryCategory)} style={{ width: "100%", padding: "6px", border: "1px solid #d1d5db", borderRadius: "4px", fontSize: "13px" }}>
+        <div className="s-padding-16px s-margin-bottom-16px ui-card" >
+          <h2 className="s-margin-bottom-12px" >New Memory Item</h2>
+          <div className="s-margin-bottom-8px" >
+            <label htmlFor="memory-field-4473" className="s-block s-text-sm s-margin-bottom-4px" >Category</label>
+            <Select id="memory-field-4473" className="s-full s-padding-6px s-text-sm" value={createCategory} onChange={(e) => setCreateCategory(e.target.value as MemoryCategory)} >
               {MEMORY_CATEGORIES.map((c) => (
                 <option key={c} value={c}>{MEMORY_CATEGORY_LABELS[c]}</option>
               ))}
-            </select>
+            </Select>
           </div>
-          <div style={{ marginBottom: "12px" }}>
-            <label style={{ display: "block", fontSize: "12px", fontWeight: 500, marginBottom: "4px" }}>Content</label>
-            <textarea value={createContent} onChange={(e) => setCreateContent(e.target.value)} placeholder="The editorial rule or guidance" rows={3} style={{ width: "100%", padding: "8px", border: "1px solid #d1d5db", borderRadius: "4px", fontSize: "13px", resize: "vertical" }} />
+          <div className="s-margin-bottom-12px" >
+            <label htmlFor="memory-field-5048" className="s-block s-text-sm s-margin-bottom-4px" >Content</label>
+            <Textarea id="memory-field-5048" className="s-full s-padding-8px s-text-sm s-resize-vertical" value={createContent} onChange={(e) => setCreateContent(e.target.value)} placeholder="The editorial rule or guidance" rows={3} />
           </div>
-          <button onClick={handleCreate} disabled={!createContent.trim() || isPending} style={{ padding: "6px 12px", fontSize: "12px", background: "#3b82f6", color: "white", border: "none", borderRadius: "4px", cursor: "pointer" }}>Create</button>
+          <Button className="s-padding-6px-12px s-text-sm s-muted btn primary" onClick={handleCreate} disabled={!createContent.trim() || isPending} >Create</Button>
         </div>
       )}
 
       {/* Memory list */}
-      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "13px" }}>
+      <DataTable className="s-full s-text-sm" >
         <thead>
           <tr>
-            <th style={{ textAlign: "left", padding: "8px", borderBottom: "2px solid #e5e7eb" }}>Category</th>
-            <th style={{ textAlign: "left", padding: "8px", borderBottom: "2px solid #e5e7eb" }}>Content</th>
-            <th style={{ textAlign: "left", padding: "8px", borderBottom: "2px solid #e5e7eb" }}>Status</th>
-            <th style={{ textAlign: "right", padding: "8px", borderBottom: "2px solid #e5e7eb" }}>Actions</th>
+            <th className="s-text-align-left s-padding-8px" >Category</th>
+            <th className="s-text-align-left s-padding-8px" >Content</th>
+            <th className="s-text-align-left s-padding-8px" >Status</th>
+            <th className="s-text-align-right s-padding-8px" >Actions</th>
           </tr>
         </thead>
         <tbody>
+          {memory.length === 0 && <tr><td colSpan={4}><EmptyState icon="memory" title="Set the tone for every draft" action={<Button variant="primary" onClick={() => setShowCreate(true)}>+ New Memory</Button>}>Save a rule or preference for your editorial work.</EmptyState></td></tr>}
           {memory.map((item) => (
             <tr key={item.id}>
-              <td style={{ padding: "8px", borderBottom: "1px solid #e5e7eb", fontSize: "12px" }}>
+              <td className="s-padding-8px s-text-sm" >
                 {editingId === item.id ? (
-                  <select value={editCategory} onChange={(e) => setEditCategory(e.target.value as MemoryCategory)} style={{ width: "100%", padding: "4px", border: "1px solid #d1d5db", borderRadius: "4px", fontSize: "12px" }}>
+                  <Select className="s-full s-padding-4px s-text-sm" value={editCategory} onChange={(e) => setEditCategory(e.target.value as MemoryCategory)} >
                     {MEMORY_CATEGORIES.map((c) => (
                       <option key={c} value={c}>{MEMORY_CATEGORY_LABELS[c]}</option>
                     ))}
-                  </select>
+                  </Select>
                 ) : (
-                  MEMORY_CATEGORY_LABELS[item.category as MemoryCategory] || item.category
+                  <StatusPill status="scheduled">{MEMORY_CATEGORY_LABELS[item.category as MemoryCategory] || item.category}</StatusPill>
                 )}
               </td>
-              <td style={{ padding: "8px", borderBottom: "1px solid #e5e7eb" }}>
+              <td className="s-padding-8px" >
                 {editingId === item.id ? (
-                  <textarea value={editContent} onChange={(e) => setEditContent(e.target.value)} rows={2} style={{ width: "100%", padding: "4px", border: "1px solid #d1d5db", borderRadius: "4px", fontSize: "12px", resize: "vertical" }} />
+                  <Textarea className="s-full s-padding-4px s-text-sm s-resize-vertical" value={editContent} onChange={(e) => setEditContent(e.target.value)} rows={2} />
                 ) : (
-                  <span style={{ maxWidth: "400px", display: "block", fontSize: "12px" }}>{item.content}</span>
+                  <span className="s-max-width-400px s-block s-text-sm" >{item.content}</span>
                 )}
               </td>
-              <td style={{ padding: "8px", borderBottom: "1px solid #e5e7eb", fontSize: "12px" }}>
-                {item.active ? <span style={{ color: "#10b981" }}>Active</span> : <span style={{ color: "#6b7280" }}>Inactive</span>}
-                {item.archivedAt && <span style={{ color: "#9ca3af", marginLeft: "8px" }}>Archived</span>}
+              <td className="s-padding-8px s-text-sm" >
+                {item.active ? <StatusPill>Active</StatusPill> : <StatusPill>Inactive</StatusPill>}
+                {item.archivedAt && <StatusPill>Archived</StatusPill>}
               </td>
-              <td style={{ padding: "8px", borderBottom: "1px solid #e5e7eb", textAlign: "right" }}>
+              <td className="s-padding-8px s-text-align-right" >
                 {editingId === item.id ? (
                   <>
-                    <button onClick={() => handleUpdate(item.id)} disabled={isPending} style={{ marginRight: "4px", padding: "4px 8px", fontSize: "11px", background: "#10b981", color: "white", border: "none", borderRadius: "4px", cursor: "pointer" }}>Save</button>
-                    <button onClick={() => setEditingId(null)} style={{ padding: "4px 8px", fontSize: "11px", background: "#6b7280", color: "white", border: "none", borderRadius: "4px", cursor: "pointer" }}>Cancel</button>
+                    <Button className="s-margin-right-4px s-padding-4px-8px s-text-xs s-muted btn primary" onClick={() => handleUpdate(item.id)} disabled={isPending} >Save</Button>
+                    <Button className="s-padding-4px-8px s-text-xs s-muted" onClick={() => setEditingId(null)} >Cancel</Button>
                   </>
                 ) : (
                   <>
-                    <button onClick={() => { setEditingId(item.id); setEditContent(item.content); setEditCategory(item.category as MemoryCategory); }} style={{ marginRight: "4px", padding: "4px 8px", fontSize: "11px", background: "#3b82f6", color: "white", border: "none", borderRadius: "4px", cursor: "pointer" }}>Edit</button>
+                    <IconButton icon="edit" label="Edit" onClick={() => { setEditingId(item.id); setEditContent(item.content); setEditCategory(item.category as MemoryCategory); }} />
                     {item.active && !item.archivedAt ? (
-                      <button onClick={() => handleArchive(item.id)} disabled={isPending} style={{ padding: "4px 8px", fontSize: "11px", background: "#f59e0b", color: "white", border: "none", borderRadius: "4px", cursor: "pointer" }}>Archive</button>
+                      <IconButton icon="archive" label="Archive" onClick={() => handleArchive(item.id)} disabled={isPending} />
                     ) : (
-                      <button onClick={() => handleUnarchive(item.id)} disabled={isPending} style={{ padding: "4px 8px", fontSize: "11px", background: "#10b981", color: "white", border: "none", borderRadius: "4px", cursor: "pointer" }}>Restore</button>
+                      <Button className="s-padding-4px-8px s-text-xs s-muted btn primary" onClick={() => handleUnarchive(item.id)} disabled={isPending} >Restore</Button>
                     )}
                   </>
                 )}
@@ -178,7 +180,7 @@ export function MemoryPageClient({ initialMemory }: MemoryPageClientProps) {
             </tr>
           ))}
         </tbody>
-      </table>
+      </DataTable>
     </div>
   );
 }

@@ -1,42 +1,11 @@
 "use client";
+import { Input, PageHeader, Button } from "../_ui";
 
 import React, { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { authClient } from "@/lib/auth/client";
 
 type Step = "idle" | "password" | "enroll" | "codes" | "regenerate" | "disable";
-
-const box: React.CSSProperties = {
-  border: "1px solid var(--line)",
-  borderRadius: "12px",
-  background: "var(--paper-bright)",
-  padding: "24px",
-  maxWidth: "560px",
-};
-const input: React.CSSProperties = {
-  padding: "10px 14px",
-  borderRadius: "8px",
-  border: "1px solid var(--line-strong)",
-  fontSize: "14px",
-  background: "var(--paper-bright)",
-  width: "100%",
-};
-const primary: React.CSSProperties = {
-  padding: "10px 16px",
-  borderRadius: "8px",
-  background: "var(--ink)",
-  color: "var(--paper)",
-  fontWeight: 600,
-  fontSize: "14px",
-  border: "none",
-  cursor: "pointer",
-};
-const secondary: React.CSSProperties = {
-  ...primary,
-  background: "transparent",
-  color: "var(--ink)",
-  border: "1px solid var(--line-strong)",
-};
 
 export function SecurityClient({
   enabled,
@@ -168,128 +137,128 @@ export function SecurityClient({
     type = "text",
     extra?: React.InputHTMLAttributes<HTMLInputElement>
   ) => (
-    <div style={{ display: "grid", gap: "6px" }}>
-      <label htmlFor={id} style={{ fontSize: "12.5px", fontWeight: 600 }}>{label}</label>
-      <input id={id} type={type} value={value} onChange={(e) => set(e.target.value)} style={input} {...extra} />
+    <div className="s-stack s-gap-6px" >
+      <label className="s-text-sm s-bold" htmlFor={id} >{label}</label>
+      <Input className="ui-input" id={id} type={type} value={value} onChange={(e) => set(e.target.value)}  {...extra} />
     </div>
   );
 
   return (
-    <main id="main" style={{ padding: "32px 24px" }}>
-      <h1 style={{ fontSize: "22px", fontWeight: 600, margin: "0 0 8px" }}>Security</h1>
-      <p style={{ color: "var(--muted-strong)", fontSize: "13.5px", lineHeight: 1.6, margin: "0 0 20px" }}>
+    <div className="page-stack">
+      <PageHeader eyebrow="Admin" title={<>Security</>} />
+      <p className="s-muted s-text-sm s-line-height-1-6 s-margin-0-0-20px" >
         Two-factor authentication protects the Studio ({email}) with a code from an authenticator app.
       </p>
 
       {!enabled && required && step === "idle" && (
-        <div role="status" style={{ ...box, marginBottom: "16px", background: "var(--paper-dim)" }}>
+        <div className="ui-card security-card s-margin-bottom-16px" role="status" >
           Studio admins must enable two-factor authentication before using the rest of the Studio.
         </div>
       )}
 
       {error && (
-        <div role="alert" style={{ ...box, marginBottom: "16px", color: "#7c2d12", background: "var(--coral-soft, #f5d6cd)" }}>
+        <div className="ui-card security-card s-margin-bottom-16px s-danger" role="alert" >
           {error}
         </div>
       )}
 
-      <section style={box} aria-labelledby="twofa-heading">
-        <h2 id="twofa-heading" style={{ fontSize: "16px", fontWeight: 600, margin: "0 0 4px" }}>
+      <section className="ui-card security-card" aria-labelledby="twofa-heading">
+        <h2 className="s-bold s-margin-0-0-4px" id="twofa-heading" >
           Authenticator app (TOTP)
         </h2>
-        <p data-testid="twofa-status" style={{ margin: "0 0 16px", fontSize: "13.5px" }}>
+        <p className="s-margin-0-0-16px s-text-sm" data-testid="twofa-status" >
           Status: <strong>{enabled || step === "codes" ? "Enabled" : "Not enabled"}</strong>
         </p>
 
         {step === "idle" && !enabled && (
-          <button type="button" style={primary} onClick={() => reset("password")}>
+          <Button className="btn primary" type="button" onClick={() => reset("password")}>
             Enable two-factor authentication
-          </button>
+          </Button>
         )}
 
         {step === "idle" && enabled && (
-          <div style={{ display: "flex", gap: "12px", flexWrap: "wrap" }}>
-            <button type="button" style={secondary} onClick={() => reset("regenerate")}>
+          <div className="s-row s-gap-12px s-flex-wrap-wrap" >
+            <Button className="btn secondary" type="button" onClick={() => reset("regenerate")}>
               Regenerate backup codes
-            </button>
-            <button type="button" style={secondary} onClick={() => reset("disable")}>
+            </Button>
+            <Button className="btn secondary" type="button" onClick={() => reset("disable")}>
               Disable
-            </button>
+            </Button>
           </div>
         )}
 
         {step === "password" && (
-          <form onSubmit={startEnroll} style={{ display: "grid", gap: "14px" }}>
+          <form className="s-stack s-gap-14px" onSubmit={startEnroll} >
             {field("twofa-password", "Confirm your password", password, setPassword, "password", { autoComplete: "current-password", required: true })}
-            <div style={{ display: "flex", gap: "12px" }}>
-              <button type="submit" style={primary} disabled={busy}>Continue</button>
-              <button type="button" style={secondary} onClick={() => reset("idle")}>Cancel</button>
+            <div className="s-row s-gap-12px" >
+              <Button className="btn primary" type="submit" disabled={busy}>Continue</Button>
+              <Button className="btn secondary" type="button" onClick={() => reset("idle")}>Cancel</Button>
             </div>
           </form>
         )}
 
         {step === "enroll" && (
-          <form onSubmit={confirmEnroll} style={{ display: "grid", gap: "14px" }}>
-            <p style={{ margin: 0, fontSize: "13.5px", lineHeight: 1.6 }}>
+          <form className="s-stack s-gap-14px" onSubmit={confirmEnroll} >
+            <p className="s-margin-0 s-text-sm s-line-height-1-6" >
               Scan this QR code with your authenticator app, or enter the secret manually, then type the 6-digit code it shows.
             </p>
             {qrSrc && (
               // eslint-disable-next-line @next/next/no-img-element
-              <img src={qrSrc} alt="TOTP QR code" width={200} height={200} style={{ background: "#fff", border: "1px solid var(--line)" }} />
+              <img src={qrSrc} alt="TOTP QR code" width={200} height={200} />
             )}
-            <div style={{ fontSize: "12.5px" }}>
-              Manual secret: <code data-testid="twofa-secret" style={{ wordBreak: "break-all" }}>{secret}</code>
+            <div className="s-text-sm" >
+              Manual secret: <code className="s-word-break-break-all" data-testid="twofa-secret" >{secret}</code>
             </div>
-            <details style={{ fontSize: "12.5px" }}>
+            <details className="s-text-sm" >
               <summary>otpauth URI</summary>
-              <code style={{ wordBreak: "break-all" }}>{totpUri}</code>
+              <code className="s-word-break-break-all" >{totpUri}</code>
             </details>
             {field("twofa-verify", "6-digit code", code, setCode, "text", { inputMode: "numeric", autoComplete: "one-time-code", required: true })}
-            <div style={{ display: "flex", gap: "12px" }}>
-              <button type="submit" style={primary} disabled={busy}>Verify and enable</button>
-              <button type="button" style={secondary} onClick={() => reset("idle")}>Cancel</button>
+            <div className="s-row s-gap-12px" >
+              <Button className="btn primary" type="submit" disabled={busy}>Verify and enable</Button>
+              <Button className="btn secondary" type="button" onClick={() => reset("idle")}>Cancel</Button>
             </div>
           </form>
         )}
 
         {step === "codes" && (
-          <div style={{ display: "grid", gap: "14px" }}>
-            <p style={{ margin: 0, fontSize: "13.5px", lineHeight: 1.6 }}>
+          <div className="s-stack s-gap-14px" >
+            <p className="s-margin-0 s-text-sm s-line-height-1-6" >
               Save these backup codes somewhere safe. Each works once if you lose your authenticator. They are shown only now.
             </p>
-            <ul data-testid="twofa-backup-codes" style={{ margin: 0, paddingLeft: "18px", fontFamily: "monospace", fontSize: "14px" }}>
+            <ul className="s-margin-0 s-padding-left-18px s-text-sm" data-testid="twofa-backup-codes" >
               {backupCodes.map((c) => <li key={c}>{c}</li>)}
             </ul>
-            <button type="button" style={primary} onClick={finish}>I have saved my codes</button>
+            <Button className="btn primary" type="button" onClick={finish}>I have saved my codes</Button>
           </div>
         )}
 
         {step === "regenerate" && (
-          <form onSubmit={regenerate} style={{ display: "grid", gap: "14px" }}>
-            <p style={{ margin: 0, fontSize: "13.5px" }}>This invalidates your previous backup codes.</p>
+          <form className="s-stack s-gap-14px" onSubmit={regenerate} >
+            <p className="s-margin-0 s-text-sm" >This invalidates your previous backup codes.</p>
             {field("twofa-password", "Confirm your password", password, setPassword, "password", { autoComplete: "current-password", required: true })}
-            <div style={{ display: "flex", gap: "12px" }}>
-              <button type="submit" style={primary} disabled={busy}>Regenerate</button>
-              <button type="button" style={secondary} onClick={() => reset("idle")}>Cancel</button>
+            <div className="s-row s-gap-12px" >
+              <Button className="btn primary" type="submit" disabled={busy}>Regenerate</Button>
+              <Button className="btn secondary" type="button" onClick={() => reset("idle")}>Cancel</Button>
             </div>
           </form>
         )}
 
         {step === "disable" && (
-          <form onSubmit={disable} style={{ display: "grid", gap: "14px" }}>
-            <p style={{ margin: 0, fontSize: "13.5px" }}>
+          <form className="s-stack s-gap-14px" onSubmit={disable} >
+            <p className="s-margin-0 s-text-sm" >
               Enter your password and a current authenticator code.
               {required && " Two-factor is required, so you will need to enroll again to keep using the Studio."}
             </p>
             {field("twofa-password", "Password", password, setPassword, "password", { autoComplete: "current-password", required: true })}
             {field("twofa-disable-code", "6-digit code", code, setCode, "text", { inputMode: "numeric", autoComplete: "one-time-code", required: true })}
-            <div style={{ display: "flex", gap: "12px" }}>
-              <button type="submit" style={primary} disabled={busy}>Disable two-factor</button>
-              <button type="button" style={secondary} onClick={() => reset("idle")}>Cancel</button>
+            <div className="s-row s-gap-12px" >
+              <Button className="btn primary" type="submit" disabled={busy}>Disable two-factor</Button>
+              <Button className="btn secondary" type="button" onClick={() => reset("idle")}>Cancel</Button>
             </div>
           </form>
         )}
       </section>
-    </main>
+    </div>
   );
 }
