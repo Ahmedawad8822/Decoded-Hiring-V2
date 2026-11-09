@@ -37,6 +37,14 @@ test("HTTP auth responses and admin gates stay private and uncached", async ({ p
       expect(protectedPage.headers()["cache-control"]).toContain("no-store");
       expect(protectedPage.headers()["x-opennext-cache"]).not.toBe("HIT");
       expect(protectedPage.status()).toBe(client === admin ? 200 : 307);
+      for (const route of ["/learn", "/learn/courses/mission-01-demo/complete"]) {
+        const classroom = await client.get(route, { maxRedirects: 0 });
+        expect(classroom.headers()["cache-control"]).toContain("no-store");
+        expect(/(?:public|s-maxage)/i.test(classroom.headers()["cache-control"] ?? "")).toBe(false);
+        expect(classroom.headers()["x-opennext-cache"]).not.toBe("HIT");
+        expect(classroom.status()).toBe(client === anonymous ? 307 : 200);
+        if (client !== anonymous) expect(await classroom.text()).toMatch(/noindex/);
+      }
     }
   } finally { await Promise.all([anonymous.dispose(), admin.dispose(), learner.dispose()]); }
 });

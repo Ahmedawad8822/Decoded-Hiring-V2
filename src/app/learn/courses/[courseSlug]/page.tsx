@@ -82,18 +82,18 @@ export default async function CourseOverviewPage(props: {
       : null;
 
   return (
-    <main className="sec-app" id="main" style={{ padding: "clamp(24px,4vw,48px) 0" }}>
-      <div className="wrap" style={{ maxWidth: 880 }}>
-        <p className="a-micro" style={{ marginBottom: 6 }}>
-          <Link href="/learn/courses" style={{ color: "inherit" }}>MY COURSES</Link> · COURSE OVERVIEW
+    <main className="sec-app learner-page" id="main">
+      <div className="wrap learner-column">
+        <p className="a-micro learner-mb-6">
+          <Link className="learner-inherit" href="/learn/courses">MY COURSES</Link> · COURSE OVERVIEW
         </p>
-        <h1 className="a-h1" style={{ marginBottom: 6 }}>{course.title}</h1>
+        <h1 className="a-h1 learner-mb-6">{course.title}</h1>
         {course.description && (
-          <p className="muted" style={{ marginBottom: 24 }}>{course.description}</p>
+          <p className="muted learner-mb-24">{course.description}</p>
         )}
 
         {activeEnrollment && progress ? (
-          <div className="continue-card" style={{ marginBottom: 28 }}>
+          <div className="continue-card learner-mb-28">
             <div className="cc-top">
               <div>
                 <h3>{progress.completed ? "Course complete" : "Continue where you left off"}</h3>
@@ -112,28 +112,31 @@ export default async function CourseOverviewPage(props: {
               <span className="track"><i style={{ width: `${progress.percent}%` }}></i></span>
               <span className="num">{progress.percent}%</span>
             </div>
+            {progress.completed && (
+              <Link className="btn primary" href={`/learn/courses/${course.slug}/complete`}>See your completion</Link>
+            )}
             {resumeHref && (
-              <div style={{ marginTop: 12 }}>
-                <Link className="btn primary" href={resumeHref} style={{ textDecoration: "none" }}>
+              <div className="learner-mt-12">
+                <Link className="btn primary learner-link" href={resumeHref}>
                   Resume lesson →
                 </Link>
               </div>
             )}
           </div>
         ) : course.accessMode === "FREE" ? (
-          <div className="continue-card" style={{ marginBottom: 28 }}>
+          <div className="continue-card learner-mb-28">
             <div className="cc-top">
               <div>
                 <h3>Start learning — free</h3>
                 <p className="cc-lesson">Instant enrollment. No checkout, no card.</p>
               </div>
             </div>
-            <div style={{ marginTop: 12 }}>
+            <div className="learner-mt-12">
               <EnrollButton courseId={course.id} courseSlug={course.slug} />
             </div>
           </div>
         ) : (
-          <div className="continue-card" style={{ marginBottom: 28 }}>
+          <div className="continue-card learner-mb-28">
             <div className="cc-top">
               <div>
                 <h3>
@@ -154,11 +157,10 @@ export default async function CourseOverviewPage(props: {
               </span>
             </div>
             {(offerPresentation?.ctaHref || access.source === "LEGACY_COURSE") && (
-              <div style={{ marginTop: 12 }}>
+              <div className="learner-mt-12">
                 <a
-                  className="btn secondary"
+                  className="btn secondary learner-link"
                   href={offerPresentation?.ctaHref ?? "/contact"}
-                  style={{ textDecoration: "none" }}
                 >
                   {offerPresentation?.ctaLabel ?? "Contact us"} →
                 </a>
@@ -168,15 +170,15 @@ export default async function CourseOverviewPage(props: {
         )}
 
         <section aria-labelledby="co-h">
-          <h2 className="a-h2" id="co-h" style={{ marginBottom: 16 }}>Curriculum</h2>
-          <div className="curriculum" style={{ maxHeight: "none", position: "static" }}>
+          <h2 className="a-h2 learner-mb-16" id="co-h">Curriculum</h2>
+          <div className="curriculum learner-overview-curriculum">
             {curriculum.map((entry) => (
               <div key={entry.section.id}>
-                <p className="cu-sec" style={{ paddingTop: 16 }}>
+                <p className="cu-sec learner-section-title">
                   {entry.section.title}
                 </p>
                 {entry.publishedLessons.length === 0 && (
-                  <p className="muted" style={{ fontSize: 12.5, padding: "4px 0" }}>
+                  <p className="muted learner-coming-soon">
                     Lessons coming soon.
                   </p>
                 )}

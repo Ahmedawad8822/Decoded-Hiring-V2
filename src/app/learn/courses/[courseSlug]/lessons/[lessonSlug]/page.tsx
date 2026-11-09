@@ -11,7 +11,7 @@ import {
 } from "@/features/courses/service";
 import { getEnrollment } from "@/features/enrollments/service";
 import { hasLearnerAccess } from "@/features/enrollments/access";
-import { getEnrollmentProgress } from "@/features/progress/service";
+import { getEnrollmentProgress, getLessonContinuationHref } from "@/features/progress/service";
 import { getLessonResources } from "@/features/courses/service";
 import { ContentBlockRenderer } from "@/components/publishing/ContentBlockRenderer";
 import { buildYouTubeEmbedUrl } from "@/features/courses/youtube";
@@ -50,20 +50,20 @@ export default async function LessonPlayerPage(props: {
   const enrollment = session?.user ? await getEnrollment(session.user.id, course.id) : null;
   if (!hasLearnerAccess(enrollment)) {
     return (
-      <main className="sec-app" id="main" style={{ padding: "clamp(24px,4vw,48px) 0" }}>
-        <div className="wrap" style={{ maxWidth: 880 }}>
-          <p className="a-micro" style={{ marginBottom: 6 }}>
-            <Link href={`/learn/courses/${course.slug}`} style={{ color: "inherit" }}>
+      <main className="sec-app learner-page" id="main">
+        <div className="wrap learner-column">
+          <p className="a-micro learner-mb-6">
+            <Link className="learner-inherit" href={`/learn/courses/${course.slug}`}>
               {course.title.toUpperCase()}
             </Link>
           </p>
           <h1 className="a-h1">Enrollment required</h1>
-          <p className="muted-strong" style={{ marginTop: 12, fontSize: 14, lineHeight: 1.6 }}>
+          <p className="muted-strong learner-intro">
             “{lesson.title}” is part of {course.title}. Enroll to unlock the lesson content,
             videos, and downloadable resources.
           </p>
-          <div style={{ marginTop: 16 }}>
-            <Link className="btn primary" href={`/learn/courses/${course.slug}`} style={{ textDecoration: "none" }}>
+          <div className="learner-mt-16">
+            <Link className="btn primary learner-link" href={`/learn/courses/${course.slug}`}>
               Go to course →
             </Link>
           </div>
@@ -83,6 +83,9 @@ export default async function LessonPlayerPage(props: {
   const idx = flat.findIndex((l) => l.id === lesson.id);
   const prev = idx > 0 ? flat[idx - 1] : null;
   const next = idx >= 0 && idx < flat.length - 1 ? flat[idx + 1] : null;
+
+  const continueHref = getLessonContinuationHref(course, lesson.id, flat, progress.completedLessonIds);
+  const finishHref = progress.completed ? `/learn/courses/${course.slug}/complete` : `/learn/courses/${course.slug}`;
 
   const positionLabel = `LESSON ${idx + 1} OF ${flat.length}`;
 
@@ -122,27 +125,27 @@ export default async function LessonPlayerPage(props: {
     <LessonPlayerShell curriculumNav={curriculumNav}>
       <article className="lesson has-mobile-bar">
         <p className="ls-position">{positionLabel} — {course.title.toUpperCase()}</p>
-        <h1 className="a-h1" style={{ marginTop: 8 }}>{lesson.title}</h1>
+        <h1 className="a-h1 learner-mt-8">{lesson.title}</h1>
 
         {embedUrl && (
-          <div style={{ marginTop: 20, position: "relative", paddingBottom: "56.25%", height: 0, overflow: "hidden", borderRadius: 12 }}>
+          <div className="lesson-video">
             <iframe
+              className="lesson-video-frame"
               src={embedUrl}
               title={`${lesson.title} — video`}
               allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
               allowFullScreen
-              style={{ position: "absolute", top: 0, left: 0, width: "100%", height: "100%", border: 0 }}
             />
           </div>
         )}
 
-        <div className="ls-body" style={{ marginTop: 20 }}>
+        <div className="ls-body learner-mt-20">
           <ContentBlockRenderer blocks={blocks} />
         </div>
 
         {resources.length > 0 && (
-          <section style={{ marginTop: 36 }} aria-label="Lesson resources">
-            <p className="a-micro" style={{ marginBottom: 10 }}>THIS LESSON&apos;S RESOURCES</p>
+          <section className="learner-mt-36" aria-label="Lesson resources">
+            <p className="a-micro learner-mb-10">THIS LESSON&apos;S RESOURCES</p>
             <div className="resource-list">
               {resources.map((r) => (
                 <a key={r.id} className="resource-row" href={`/api/course-resources/${r.id}`} download>
@@ -160,25 +163,27 @@ export default async function LessonPlayerPage(props: {
 
         <div className="ls-actions">
           {prev ? (
-            <Link className="btn secondary" href={`/learn/courses/${course.slug}/lessons/${prev.slug}`} style={{ textDecoration: "none" }}>
+            <Link className="btn secondary learner-link" href={`/learn/courses/${course.slug}/lessons/${prev.slug}`}>
               ← Previous
             </Link>
           ) : (
-            <Link className="btn secondary" href={`/learn/courses/${course.slug}`} style={{ textDecoration: "none" }}>
+            <Link className="btn secondary learner-link" href={`/learn/courses/${course.slug}`}>
               ← Course
             </Link>
           )}
           <CompleteButton
+            key={lesson.id}
             enrollmentId={enrollment.id}
             lessonId={lesson.id}
             alreadyDone={completedSet.has(lesson.id)}
+            continueHref={continueHref}
           />
           {next ? (
-            <Link className="btn secondary" href={`/learn/courses/${course.slug}/lessons/${next.slug}`} style={{ textDecoration: "none" }}>
+            <Link className="btn secondary learner-link" href={`/learn/courses/${course.slug}/lessons/${next.slug}`}>
               Next →
             </Link>
           ) : (
-            <Link className="btn secondary" href={`/learn/courses/${course.slug}`} style={{ textDecoration: "none" }}>
+            <Link className="btn secondary learner-link" href={finishHref}>
               Finish →
             </Link>
           )}
@@ -186,25 +191,27 @@ export default async function LessonPlayerPage(props: {
 
         <div className="ls-mobile-bar" role="region" aria-label="Lesson actions">
           {prev ? (
-            <Link className="btn secondary" href={`/learn/courses/${course.slug}/lessons/${prev.slug}`} aria-label="Previous lesson" style={{ textDecoration: "none" }}>
+            <Link className="btn secondary learner-link" href={`/learn/courses/${course.slug}/lessons/${prev.slug}`} aria-label="Previous lesson">
               ←
             </Link>
           ) : (
-            <Link className="btn secondary" href={`/learn/courses/${course.slug}`} aria-label="Back to course" style={{ textDecoration: "none" }}>
+            <Link className="btn secondary learner-link" href={`/learn/courses/${course.slug}`} aria-label="Back to course">
               ←
             </Link>
           )}
           <CompleteButton
+            key={lesson.id}
             enrollmentId={enrollment.id}
             lessonId={lesson.id}
             alreadyDone={completedSet.has(lesson.id)}
+            continueHref={continueHref}
           />
           {next ? (
-            <Link className="btn secondary" href={`/learn/courses/${course.slug}/lessons/${next.slug}`} aria-label="Next lesson" style={{ textDecoration: "none" }}>
+            <Link className="btn secondary learner-link" href={`/learn/courses/${course.slug}/lessons/${next.slug}`} aria-label="Next lesson">
               Next →
             </Link>
           ) : (
-            <Link className="btn secondary" href={`/learn/courses/${course.slug}`} aria-label="Back to course" style={{ textDecoration: "none" }}>
+            <Link className="btn secondary learner-link" href={finishHref} aria-label={progress.completed ? "Done — see completion" : "Done — back to course"}>
               Done →
             </Link>
           )}

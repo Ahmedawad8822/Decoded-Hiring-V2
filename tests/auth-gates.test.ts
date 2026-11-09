@@ -68,3 +68,23 @@ test("Studio home stays force-dynamic and redirects anonymous callers before rea
     return true;
   });
 });
+
+
+test("learner completion route stays dynamic, noindex, and redirects anonymous callers", async () => {
+  const { default: CompletionPage, dynamic, metadata } = await import("../src/app/learn/courses/[courseSlug]/complete/page");
+  assert.equal(dynamic, "force-dynamic");
+  assert.deepEqual(metadata.robots, { index: false, follow: false });
+  await assert.rejects(() => CompletionPage({ params: Promise.resolve({ courseSlug: "unread" }) }), (error: unknown) => {
+    assert.ok(isRedirectError(error));
+    assert.match((error as { digest: string }).digest, /;\/login\?redirect=\/learn;/);
+    return true;
+  });
+});
+
+test("completion action rejects anonymous callers without returning a destination", async () => {
+  const { markLessonCompleteAction } = await import("../src/features/progress/actions");
+  const result = await markLessonCompleteAction("unowned-enrollment", "unknown-lesson");
+  assert.equal(result.ok, false);
+  assert.match(result.error!, /Unauthorized/);
+  assert.equal(result.data, undefined);
+});

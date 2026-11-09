@@ -10,6 +10,7 @@ import {
 } from "@/lib/db";
 import { and, asc, eq, inArray } from "drizzle-orm";
 import {
+  getAdminCourseById,
   getAdminLessonById,
   getPublishedCourseLessons,
 } from "@/features/courses/service";
@@ -44,6 +45,7 @@ export interface CourseProgress {
   completedLessonIds: string[];
   resumeLesson: Lesson | null;
   nextAfterLessonId: Record<string, Lesson | null>;
+  publishedLessons: Lesson[];
 }
 
 /** Shape of the shared progress maths (everything derivable from the curriculum + completions). */
@@ -89,6 +91,39 @@ export function computeCourseProgress(
   return { totalRequired, completedRequired, percent, completed, completedLessonIds: completedIds, resumeLesson };
 }
 
+/**
+ * Required completion ends the course, even when optional lessons remain.
+ * Otherwise continue through ALL unfinished published lessons after the current
+ * one, wrapping to earlier lessons. Inputs come only from server curriculum reads;
+ * no client href is accepted. Reject a lesson outside this course before routing.
+ */
+export function getLessonContinuationHref(
+  course: { id: string; slug: string },
+  currentLessonId: string,
+  publishedLessons: Lesson[],
+  completedLessonIds: Iterable<string>,
+): string {
+  const ordered = publishedLessons.filter((lesson) => lesson.courseId === course.id && lesson.status === "published");
+  const index = ordered.findIndex((lesson) => lesson.id === currentLessonId);
+  if (index < 0) throw new AppError("invalid", "Lesson is not in this course curriculum.");
+  const progress = computeCourseProgress(ordered, completedLessonIds);
+  const courseHref = `/learn/courses/${encodeURIComponent(course.slug)}`;
+  if (progress.completed) return `${courseHref}/complete`;
+  const completed = new Set(progress.completedLessonIds);
+  const next = [...ordered.slice(index + 1), ...ordered.slice(0, index)]
+    .find((lesson) => !completed.has(lesson.id));
+  return next ? `${courseHref}/lessons/${encodeURIComponent(next.slug)}` : courseHref;
+}
+
+/** Server-owned action result: the same validated, idempotent write path. */
+export async function completeLessonAndContinue(userId: string, enrollmentId: string, lessonId: string) {
+  const result = await markLessonComplete(userId, enrollmentId, lessonId);
+  const course = await getAdminCourseById(result.enrollment.courseId);
+  if (!course) throw new AppError("not_found", "Course not found.");
+  const nextHref = getLessonContinuationHref(course, lessonId, result.progress.publishedLessons, result.progress.completedLessonIds);
+  return { ...result, course, nextHref };
+}
+
 export async function getEnrollmentProgress(enrollment: Enrollment): Promise<CourseProgress> {
   const db = await getDb();
   // PERFORMANCE (review correction F): ONE published-lessons fetch. The
@@ -122,6 +157,7 @@ export async function getEnrollmentProgress(enrollment: Enrollment): Promise<Cou
     completedLessonIds,
     resumeLesson,
     nextAfterLessonId,
+    publishedLessons: publishedAll,
   };
 }
 
@@ -279,7 +315,7 @@ export async function isLessonComplete(enrollmentId: string, lessonId: string): 
 // ============================================================================
 // Single domain-owned batch path for collection pages (/learn/courses).
 // Batches: enrollments, course metadata, published curriculum for all courses,
-// progress rows for all enrollments, current states for reconciliation.
+// progress rows for all enrollments, current stored enrollment states.
 // Query count bounded as enrollment count grows — no per-enrollment fan-out.
 
 export interface BatchedProgressSummary {
@@ -303,6 +339,8 @@ export interface BatchedProgressSummary {
   resumeLessonTitle: string | null;
   enrollmentStatus: string;
   enrollmentCompletedAt: Date | null;
+  /** Latest recorded lesson completion, falling back to the enrollment date. */
+  lastActivityAt: Date;
 }
 
 /**
@@ -310,6 +348,8 @@ export interface BatchedProgressSummary {
  * Returns a map keyed by enrollmentId for O(1) lookups by the caller.
  * PURE READ: never writes. `completed` is the computed verdict (UI source of
  * truth); `enrollmentStatus` is the stored row, reconciled on write paths.
+ * Activity uses timestamps from the same progress rows: one query per table,
+ * with no activity query or per-enrollment reads.
  * Keeps the existing single-enrollment getEnrollmentProgress for detail/player routes.
  */
 export async function getBatchedEnrollmentProgress(
@@ -403,6 +443,9 @@ export async function getBatchedEnrollmentProgress(
       resumeLessonId: resumeLesson?.id ?? null,
       resumeLessonSlug: resumeLesson?.slug ?? null,
       resumeLessonTitle: resumeLesson?.title ?? null,
+      lastActivityAt: enrollmentProgressRows.length
+        ? new Date(enrollmentProgressRows.reduce((latest, row) => Math.max(latest, row.completedAt.getTime()), 0))
+        : (currentEnrollment ?? enrollment).enrolledAt,
       enrollmentStatus: currentEnrollment?.status ?? enrollment.status,
       enrollmentCompletedAt: currentEnrollment?.completedAt ?? enrollment.completedAt,
     });
@@ -410,4 +453,12 @@ export async function getBatchedEnrollmentProgress(
   }
 
   return summaries;
+}
+
+/** Shared dashboard order: newest activity first; stable enrollment id breaks ties. */
+export function compareEnrollmentActivity(
+  a: Pick<BatchedProgressSummary, "lastActivityAt" | "enrollmentId">,
+  b: Pick<BatchedProgressSummary, "lastActivityAt" | "enrollmentId">,
+): number {
+  return b.lastActivityAt.getTime() - a.lastActivityAt.getTime() || a.enrollmentId.localeCompare(b.enrollmentId);
 }

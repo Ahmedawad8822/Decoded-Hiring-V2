@@ -95,14 +95,12 @@ test.beforeAll(async ({ browser }) => {
 // The first completion compiles the progress server action on the dev server
 // and writes to D1, which can take well over the 5 s default on a slow CI
 // runner. Wait longer, but fail fast with the button's own error if it shows one.
-async function markLessonComplete(page: Page) {
-  await clickAction(page, page.getByRole("button", { name: "Mark lesson complete" }).first());
-  const done = page.getByText("✓ Completed").first();
-  const failure = page.getByRole("alert").filter({ hasText: /lesson complete|could not/i });
-  await expect(done.or(failure)).toBeVisible({ timeout: 30_000 });
-  if (await failure.isVisible()) {
-    throw new Error(`Mark lesson complete failed: ${await failure.innerText()}`);
-  }
+async function completeAndContinue(page: Page, expectedPath: string, mobile = false) {
+  const row = page.locator(mobile ? ".ls-mobile-bar" : ".ls-actions");
+  await clickAction(page, row.getByRole("button", { name: "Complete & continue", exact: true }));
+  await expect(page).toHaveURL(new RegExp(`${expectedPath}$`), { timeout: 30_000 });
+  // Scope to #main: Next's client route announcer (outside #main) is itself role="alert".
+  await expect(page.locator("#main").getByRole("alert")).toHaveCount(0);
 }
 
 async function signInAdmin(page: import("@playwright/test").Page, email: string, password: string) {
@@ -189,12 +187,17 @@ test.describe("mission 06 learning platform lifecycle", () => {
     await test.step("log out admin, sign up learner, empty state", async () => {
       await page.context().clearCookies();
       await page.goto("/signup");
+      await waitForHydration(page, page.getByRole("button", { name: "Create account" }));
       await page.getByLabel(/Name/).fill("E2E Learner");
       await page.getByLabel(/Email/).fill(learnerEmail);
       await page.getByLabel(/^Password/).fill("e2e-password-123");
       await clickAction(page, page.getByRole("button", { name: "Create account" }));
       await expect(page).toHaveURL(/\/learn/, { timeout: 90_000 });
       await expect(page.getByText("No enrollments yet")).toBeVisible();
+      const explore = page.getByRole("region", { name: "Explore more courses" });
+      await expect(explore).toBeVisible();
+      await expect(explore.getByRole("link")).toHaveCount(2);
+      await expect(explore.getByText(/lessons/).first()).toBeVisible();
     });
 
     await test.step("enroll free, appears in my courses", async () => {
@@ -205,9 +208,29 @@ test.describe("mission 06 learning platform lifecycle", () => {
       await expect(page.getByText(courseTitle).first()).toBeVisible();
     });
 
+    await test.step("incomplete completion redirects, newest enrollment is spotlight", async () => {
+      await page.goto(`/learn/courses/${courseSlug}/complete`);
+      await expect(page).toHaveURL(new RegExp(`/learn/courses/${courseSlug}$`));
+      await page.goto("/learn");
+      await expect(page.locator("a.continue-card")).toContainText(courseTitle);
+      const explore = page.getByRole("region", { name: "Explore more courses" });
+      await expect(explore).toBeVisible();
+      await expect(explore.locator(`a[href="/learn/courses/${courseSlug}"]`)).toHaveCount(0);
+      await page.goto("/learn/courses/mission-01-demo");
+      await clickAction(page, page.getByRole("button", { name: "Start free — enroll now" }));
+      await expect(page.getByText("Continue where you left off")).toBeVisible();
+      await page.goto("/learn");
+      await expect(page.locator("a.continue-card")).toContainText("Mission 01");
+    });
+
     await test.step("open lesson 1, download protected PDF, complete", async () => {
       await page.goto(`/learn/courses/${courseSlug}/lessons/${lesson1Slug}`);
       await expect(page.getByRole("heading", { name: "First Lesson E2E" })).toBeVisible();
+      await page.locator(".ls-actions").getByRole("link", { name: "Next →", exact: true }).click();
+      await expect(page.getByRole("heading", { name: "Second Lesson E2E" })).toBeVisible();
+      await expect(page.locator(".ls-actions").getByRole("link", { name: "Finish →" })).toHaveAttribute("href", `/learn/courses/${courseSlug}`);
+      await page.locator(".ls-actions").getByRole("link", { name: "← Previous" }).click();
+      await expect(page.locator(".ls-actions").getByRole("button", { name: "Complete & continue", exact: true })).toBeVisible();
       const dlLink = page.getByRole("link", { name: /Download/ }).first();
       resourceHref = (await dlLink.getAttribute("href")) ?? "";
       expect(resourceHref).toMatch(/^\/api\/course-resources\//);
@@ -216,16 +239,49 @@ test.describe("mission 06 learning platform lifecycle", () => {
         dlLink.click(),
       ]);
       expect(download.suggestedFilename()).toMatch(/\.pdf$/i);
-      await markLessonComplete(page);
+      await completeAndContinue(page, `/learn/courses/${courseSlug}/lessons/${lesson2Slug}`);
     });
 
-    await test.step("next lesson, complete course", async () => {
-      await page.getByRole("link", { name: /^Next/ }).first().click();
+    await test.step("latest activity wins spotlight; completed lessons can continue", async () => {
       await expect(page.getByRole("heading", { name: "Second Lesson E2E" })).toBeVisible();
-      await markLessonComplete(page);
+      await page.goto("/learn");
+      await expect(page.locator("a.continue-card")).toContainText(courseTitle);
+      await expect(page.getByRole("region", { name: "My courses" }).locator("a.course-card").first()).toContainText(courseTitle);
+      await page.screenshot({ path: "test-results/learner-batch-a-dashboard.png", fullPage: true });
+      await page.goto(`/learn/courses/${courseSlug}/lessons/${lesson1Slug}`);
+      await expect(page.locator(".ls-actions").getByText("Completed ✓")).toBeVisible();
+      await page.locator(".ls-actions").getByRole("link", { name: "Continue →", exact: true }).click();
+      await expect(page).toHaveURL(new RegExp(`/lessons/${lesson2Slug}$`));
+    });
+
+    await test.step("phone complete action opens completion, dashboard and overview link back", async () => {
+      await page.setViewportSize({ width: 375, height: 900 });
+      await completeAndContinue(page, `/learn/courses/${courseSlug}/complete`, true);
+      await expect(page.getByRole("heading", { name: "You did it." })).toBeVisible();
+      await expect(page.getByText(courseTitle, { exact: true })).toBeVisible();
+      await expect(page.getByText("Completed on")).toBeVisible();
+      await expect(page.getByText("2 / 2", { exact: true })).toBeVisible();
+      await expect(page.getByText("Downloadable resources")).toBeVisible();
+      await expect(page.getByRole("heading", { name: "What's next" })).toBeVisible();
+      await expect(page.locator('meta[name="robots"]')).toHaveAttribute("content", /noindex.*nofollow/);
+      const overflow = await page.evaluate(() => document.documentElement.scrollWidth - innerWidth);
+      expect(overflow).toBeLessThanOrEqual(1);
+      await page.screenshot({ path: "test-results/learner-batch-a-completion-phone.png", fullPage: true });
+      await page.goto(`/learn/courses/${courseSlug}/lessons/${lesson2Slug}`);
+      await page.locator(".ls-mobile-bar").getByRole("link", { name: "See completion" }).click();
+      await expect(page).toHaveURL(new RegExp(`/courses/${courseSlug}/complete$`));
+      await page.setViewportSize({ width: 1280, height: 900 });
+      await page.goto(`/learn/courses/${courseSlug}/lessons/${lesson2Slug}`);
+      await expect(page.locator(".ls-actions").getByRole("link", { name: "Finish →" })).toHaveAttribute("href", `/learn/courses/${courseSlug}/complete`);
       await page.goto(`/learn/courses/${courseSlug}`);
-      await expect(page.getByText("Course complete")).toBeVisible();
+      await expect(page.getByText("Course complete", { exact: true })).toBeVisible();
       await expect(page.getByText("100%").first()).toBeVisible();
+      await page.getByRole("link", { name: "See your completion" }).click();
+      await expect(page).toHaveURL(new RegExp(`/courses/${courseSlug}/complete$`));
+      await page.goto("/learn");
+      const completed = page.getByRole("region", { name: "Completed", exact: true });
+      await expect(completed.getByRole("link", { name: "See completion" })).toHaveAttribute("href", `/learn/courses/${courseSlug}/complete`);
+      await expect(completed.getByRole("link", { name: "Review", exact: true })).toBeVisible();
     });
 
     // ---- SECURITY FLOW ----
@@ -235,10 +291,13 @@ test.describe("mission 06 learning platform lifecycle", () => {
       await expect(page).toHaveURL(/\/login/);
       const res = await page.request.get(resourceHref);
       expect(res.status()).toBe(401);
+      await page.goto(`/learn/courses/${courseSlug}/complete`);
+      await expect(page).toHaveURL(/\/login/);
     });
 
     await test.step("unenrolled learner lesson + resource denied", async () => {
       await page.goto("/signup");
+      await waitForHydration(page, page.getByRole("button", { name: "Create account" }));
       await page.getByLabel(/Name/).fill("E2E Learner Two");
       await page.getByLabel(/Email/).fill(learner2Email);
       await page.getByLabel(/^Password/).fill("e2e-password-123");
@@ -246,9 +305,12 @@ test.describe("mission 06 learning platform lifecycle", () => {
       await expect(page).toHaveURL(/\/learn/, { timeout: 90_000 });
       await page.goto(`/learn/courses/${courseSlug}/lessons/${lesson1Slug}`);
       await expect(page.getByText("Enrollment required")).toBeVisible();
-      await expect(page.getByRole("button", { name: "Mark lesson complete" })).toHaveCount(0);
+      await expect(page.getByRole("button", { name: "Complete & continue" })).toHaveCount(0);
       const res = await page.request.get(resourceHref);
       expect(res.status()).toBe(403);
+      await page.goto(`/learn/courses/${courseSlug}/complete`);
+      await expect(page.getByRole("heading", { name: "Enrollment required" })).toBeVisible();
+      await expect(page.getByRole("heading", { name: "You did it." })).toHaveCount(0);
     });
 
     await test.step("normal user cannot use admin routes", async () => {
@@ -277,6 +339,7 @@ test.describe("mission 06 learning platform lifecycle", () => {
     const widths = [320, 375, 430, 768, 1024, 1280, 1440, 1728];
     const run = Date.now().toString(36);
     await page.goto("/signup");
+    await waitForHydration(page, page.getByRole("button", { name: "Create account" }));
     await page.getByLabel(/Name/).fill("E2E Responsive");
     await page.getByLabel(/Email/).fill(`e2e-responsive-${run}@example.com`);
     await page.getByLabel(/^Password/).fill("e2e-password-123");
@@ -288,6 +351,7 @@ test.describe("mission 06 learning platform lifecycle", () => {
       "/learn",
       "/learn/courses",
       "/learn/courses/mission-01-demo",
+      "/learn/courses/mission-01-demo/complete",
       "/learn/courses/mission-01-demo/lessons/why-role-clarity-fails",
     ];
     for (const w of widths) {
