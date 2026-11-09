@@ -1,8 +1,12 @@
 # Deployment — Cloudflare Workers via OpenNext
 
-Status: production is not provisioned; `env.production` contains placeholders.
-The disposable test Worker uses `env.cputest`. For test-only Git integration,
-follow [Workers Builds](WORKERS-BUILDS.md). Do not use the production scripts for it.
+Status: production resources are provisioned and selected by `env.production`
+(2026-11-09). Production stays on workers.dev until launch; custom domain/DNS
+cutover comes later. The coordinator deploys production manually on the owner's
+GO; production must never be connected to Workers Builds. Resource configuration
+is not proof of a successful deployment. The disposable test Worker uses
+`env.cputest` and retains automatic deployment through
+[Workers Builds](WORKERS-BUILDS.md). Do not use production scripts for that Worker.
 
 ## How it fits together
 
@@ -11,7 +15,7 @@ follow [Workers Builds](WORKERS-BUILDS.md). Do not use the production scripts fo
 | `@opennextjs/cloudflare` (pinned **1.20.15**) | Turns the `next build` output into a Worker (`.open-next/worker.js`) plus static assets (`.open-next/assets`). We run Next 16.4.3 and wrangler 4.156.0. |
 | `open-next.config.ts` | `enableCacheInterception: true` serves ISR/SSG hits in the routing layer after rewrites, bypassing server actions and draft-mode cookies. R2 incremental cache (`NEXT_INC_CACHE_R2_BUCKET`) uses our render-timestamp wrapper so an old render uploaded after a mutation cannot undo its invalidation. D1 persists tag expiry (`NEXT_TAG_CACHE_D1`, same database as `DB`); without it, `revalidatePath()`/`revalidateTag()` would do nothing on Workers. OpenNext population creates its own `revalidations` table; it is not a Drizzle migration. See [cache race analysis](CACHE-INTERCEPTION.md). |
 | `src/lib/cloudflare/bindings.ts` | On Workers, bindings come from `getCloudflareContext().env`. In local Node (`next dev`, `next build`, tests, scripts), it falls back to wrangler's `getPlatformProxy` with persist path `DH_LOCAL_STATE_DIR` or `.wrangler/state/v3`. wrangler is imported with a computed specifier, so it is never bundled. |
-| `wrangler.jsonc` | Top level = **local** config (dev, tests, `npm run preview`). `env.production` = real resources (placeholders). Bindings: `DB` (D1), `MEDIA_BUCKET` (R2), `NEXT_INC_CACHE_R2_BUCKET` (R2), `WORKER_SELF_REFERENCE` (service), `ASSETS`. |
+| `wrangler.jsonc` | Top level = **local** config (dev, tests, `npm run preview`). `env.production` = provisioned production resources. Bindings: `DB` (D1), `MEDIA_BUCKET` (R2), `NEXT_INC_CACHE_R2_BUCKET` (R2), `WORKER_SELF_REFERENCE` (service), `ASSETS`. |
 | `worker.ts` / ISR queue | Custom entry delegates to the generated Worker, re-exports `DOQueueHandler` and establishes the render-start clock, including background HEADs. Preview/production bind `NEXT_CACHE_DO_QUEUE` and the self service; each includes the `isr-queue-v1` migration creating a **SQLite** DO class supported on Workers Free. See [ISR queue analysis](ISR-QUEUE.md). |
 
 ## Scripts
@@ -23,7 +27,9 @@ follow [Workers Builds](WORKERS-BUILDS.md). Do not use the production scripts fo
 | `npm run preview` | Build, then run the real Worker locally in `wrangler dev` against local D1/R2. Put local-only secrets in `.dev.vars` (git-ignored), e.g. `BETTER_AUTH_SECRET=...`. |
 | `npm run test:e2e:worker` | Builds and tests the real local Worker with cache interception; fresh disposable D1/R2 and test-only admin credentials. See below. |
 | `npm run db:migrate:remote` | `wrangler d1 migrations apply DB --env production --remote` |
-| `npm run deploy` | Validate `PREWARM_BASE_URL`, build and deploy with `--env production`, then run anonymous GET prewarming. **Fails until the placeholders are filled.** A failed prewarm exits nonzero after deployment; it does not roll the deployment back. |
+| `npx tsx scripts/build-env.ts --env production` | Migrate and build against fresh empty temporary local state; origin comes from production vars. Use `--env cputest` for the test Worker. Never deploys or seeds. |
+| `npm run deploy` | Guard clean git tree and HEAD equal to freshly fetched `origin/main`; prewarm preflight, remote production D1 migrations, isolated production build, OpenNext deployment/cache population, then prewarming at the configured production origin. Manual coordinator command only, after owner GO. A failed prewarm exits nonzero after deployment; no rollback. |
+| `npm run deploy -- --dry-run` | Print the steps and current local guard blockers; no fetch, build, HTTP requests or remote commands. Exit zero means the plan printed, not that deployment is authorized or guard checks passed. |
 | `npm run prewarm -- --base-url https://deployment.example` | GET the public sitemap, published articles, static marketing paths and robots, with concurrency 2 and up to 2 retries. No credentials, content writes or Cloudflare APIs. |
 
 ## Cold article prewarming (2026-11-08)
@@ -35,12 +41,10 @@ namespace, so runtime ISR article entries cannot survive deployment. We retain
 safely represent production publication state. Existing publish/edit/rename and
 unpublish invalidation remains authoritative.
 
-For the production deploy command, supply the origin explicitly in the environment
-(the preflight validates it before any build/deploy command):
-
-```sh
-PREWARM_BASE_URL=https://deployment.example npm run deploy
-```
+The guarded production deploy command reads and validates the origin from
+`env.production.vars` in `wrangler.jsonc` and passes it explicitly to both
+preflight and prewarming. It does not depend on `PREWARM_BASE_URL`. Run it only
+under the manual production procedure below.
 
 For a deployment performed separately, or to retry incomplete prewarming:
 
@@ -175,37 +179,123 @@ Worker shutdown and throwaway-state removal were verified after HTTP runs.
   - Email sign-up wrote to D1, and the session cookie then opened `/learn`.
   - `/_next/image` returns the original WebP (no `IMAGES` binding, so no resizing).
 
-## Production deployment reference (not provisioned)
+## Production deployment (provisioned; manual only)
 
-1. **Account and plan.** Choose the Cloudflare account. See the risks below about script size, startup time and request CPU limits.
-2. **Provision:**
-   - `wrangler d1 create <name>`
-   - `wrangler r2 bucket create <media>`
-   - `wrangler r2 bucket create <next-cache>`
+`wrangler.jsonc → env.production` selects the following provisioned resources:
 
-   Put the names and the D1 id into `env.production`.
-3. **Secrets:**
-   - `wrangler secret put BETTER_AUTH_SECRET --env production` (32+ random characters)
-   - provider secrets later, when providers are activated
-4. **Vars:** set `BETTER_AUTH_URL` and `NEXT_PUBLIC_SITE_URL` to the real origin. **Do not set `ADMIN_REQUIRE_2FA` in production.** Admin TOTP 2FA is enforced unless that variable is exactly `false`; it is `false` only in `.env.example` (local dev) and the Playwright web server (CI/e2e). An admin without 2FA is redirected to `/admin/security` (pages) or rejected (actions) until they enroll.
-5. **Migrations:** `npm run db:migrate:remote`.
-6. **Admin account:** create the first admin in remote D1 with the script (credentials come from the environment, never argv; password at least 12 characters; idempotent, an existing email is only promoted unless `--reset-password` is added):
+| Resource | Name / origin |
+| --- | --- |
+| Worker | `decoded-hiring-v2` (`workers_dev: true`) |
+| Site/auth origin | https://decoded-hiring-v2.hdv2.workers.dev |
+| D1 (`DB` and `NEXT_TAG_CACHE_D1`) | `decoded-hiring-v2-db` |
+| Media R2 | `decoded-hiring-v2-media` |
+| Incremental cache R2 | `decoded-hiring-v2-next-cache` |
+| ISR queue | `NEXT_CACHE_DO_QUEUE → DOQueueHandler`, SQLite migration `isr-queue-v1` |
+| Self reference | `WORKER_SELF_REFERENCE → decoded-hiring-v2` |
 
-   ```bash
-   ADMIN_EMAIL=you@example.com ADMIN_PASSWORD='<12+ chars>' ADMIN_NAME='Your Name' \
-     npm run admin:create -- --remote --env production
+Source of resource selectors: the checked-in production environment. These
+names are not credentials. Do not recreate the resources or connect production
+to Workers Builds. `dh-cputest` keeps its existing auto-deploy build command
+`npm ci && npx tsx scripts/build-cputest.ts` unchanged.
+
+1. **Review and authorization.** Merge reviewed changes into `main`. After the
+   owner's GO, the coordinator uses a clean checkout at `origin/main` with
+   installed locked dependencies (`npm ci`). The script accepts any branch name
+   only when HEAD is exactly the fetched main revision; ahead, behind and
+   diverged commits all fail. Staged, unstaged and untracked files all fail.
+   Fetch failure or unresolved main fails closed. Never run concurrent builds
+   or edit the checkout while deploying.
+2. **Runtime secrets.** The coordinator must ensure production has its real
+   `BETTER_AUTH_SECRET` (32+ random characters) through Cloudflare's secure
+   secret management. No real value belongs in source, logs or command arguments.
+   Build-time auth uses a new ephemeral random value that is never the runtime
+   secret. Provider secrets are needed only when providers are activated.
+   Keep `ADMIN_REQUIRE_2FA` unset in production; setting it to `false` bypasses
+   the required TOTP gate.
+3. **Inspect the plan:**
+
+   ```sh
+   npm run deploy -- --dry-run
    ```
 
-   `--remote` without `--env` is refused. Without flags it targets local D1 (honours `DH_LOCAL_STATE_DIR`). Run it after step 5, then sign in at `/admin/login`. The first sign-in lands on `/admin/security`: enroll an authenticator app and save the backup codes before anything else works. Lost-device recovery: a backup code, or, with D1 access, delete the user's row in `two_factor` and set `user.two_factor_enabled = 0` (they re-enroll on next sign-in).
-7. **Deploy:** `PREWARM_BASE_URL=https://your-deployment-origin npm run deploy`. For the existing test environment use [Workers Builds](WORKERS-BUILDS.md).
-8. **Domain:** add a custom domain or route in Cloudflare. DNS cutover from V1 is a Phase 8 launch step.
+   This prints blockers against the local tracking ref without fetching. It
+   never executes the deployment and does not approve it.
+4. **Manual deploy (coordinator, after owner GO):**
+
+   ```sh
+   npm run deploy
+   ```
+
+   `scripts/deploy-production.ts` refuses local modifications, fetches main
+   from origin (read-only on GitHub), and requires a clean tree and matching
+   HEAD. It then runs these steps, stopping on the first failure:
+
+   ```sh
+   npx tsx scripts/prewarm.ts --check --base-url https://decoded-hiring-v2.hdv2.workers.dev
+   npm run db:migrate:remote
+   npx tsx scripts/build-env.ts --env production
+   npx opennextjs-cloudflare deploy --env production
+   npm run prewarm -- --base-url https://decoded-hiring-v2.hdv2.workers.dev
+   ```
+
+   Remote migrations apply to production D1 before building. OpenNext deploy
+   populates remote R2/D1 cache before Wrangler uploads the Worker (installed
+   `node_modules/@opennextjs/cloudflare/dist/cli/commands/deploy.js`). A later
+   build/deploy failure does not undo earlier migrations/cache writes; a failed
+   prewarm does not undo deployment. Inspect the completed step before retrying.
+5. **First admin (owner runs this themselves, after migrations).** Supply
+   `ADMIN_EMAIL`, `ADMIN_PASSWORD` and optional `ADMIN_NAME` privately through
+   the process environment, without literal credentials in shell history:
+
+   ```sh
+   npm run admin:create -- --remote --env production
+   ```
+
+   This is a separate, explicit remote data mutation; the deploy script never
+   creates users or seeds content. Passwords must be at least 12 characters;
+   public fixture passwords are rejected. Existing users are promoted without
+   resetting their password unless `--reset-password` is explicitly supplied.
+   First sign-in at `/admin/login` redirects to `/admin/security`: enroll an
+   authenticator and save backup codes before using the admin workspace.
+   Lost-device recovery uses a backup code, or a separately authorized D1
+   recovery resetting the user's 2FA state so they can re-enroll. See
+   `scripts/create-admin.ts` and the admin gates in `src/lib/auth`.
+6. **Verify.** Check anonymous public pages and cache HITs, authenticated admin
+   2FA, publication invalidation and time-based ISR on the deployed Worker.
+   Run the [edge health check](ISR-QUEUE.md#regeneration-cpu-watch) for Worker/DO
+   errors and CPU. These are distinct from a successful local build.
+7. **Launch later.** Remain on workers.dev until a separately approved custom
+   domain and DNS cutover. Update both production origin vars before building
+   for the new domain; `NEXT_PUBLIC_SITE_URL` is compiled into the build.
+
+### Build isolation
+
+`scripts/build-env.ts --env <cputest|production>` parses JSONC with TypeScript's
+JSONC parser (no evaluation or regex comment stripping), requires matching
+HTTPS `BETTER_AUTH_URL` / `NEXT_PUBLIC_SITE_URL` origins, and rejects absent
+values, placeholders, credentials, paths, queries and fragments. It always
+creates a fresh empty OS temporary directory and overrides
+`DH_LOCAL_STATE_DIR` for local migrations and the full OpenNext build, even if
+the caller exported another path. Wrangler registry/log files also stay inside
+that directory and Wrangler telemetry is disabled. It disables the skip-build environment
+option so old Next output cannot be reused. No seed runs.
+
+`scripts/migrate-local.ts → migrateLocalDb() → getD1Database()` uses
+`src/lib/cloudflare/bindings.ts`, whose local `getPlatformProxy` persist path
+honors `DH_LOCAL_STATE_DIR`. Next prerendering follows that same local binding
+path. Both commands receive the same disposable state. The directory is removed
+in `finally` on success/failure; cancellation is forwarded to the active command
+before cleanup. Forced process termination (for example SIGKILL) can leave an
+unused temp directory. Ordinary developer state is never selected by this path.
+Raw `npm run build` / `cf:build` remain contributor commands; use `build-env`
+for deployable environment builds.
 
 ## Risks and open decisions
 
 - **Script size.** Workers Free and Paid both allow **64 MiB uncompressed** (65536 KiB); there is no compressed size limit. Per the [Workers limits page](https://developers.cloudflare.com/workers/platform/limits/) updated 2026-10-29. The historical 12.57 MiB total upload above uses about 20% of that limit; its 2.82 MiB gzip size is informational. CI enforces an early-growth budget of **20480 KiB (20 MiB) uncompressed** (`npm run cf:size`, override `WORKER_UNCOMPRESSED_BUDGET_KIB`). It parses wrangler's `Total Upload` line, so a format change fails loudly (exit 2). The script warns above 90% of the platform's 64 MiB uncompressed limit.
 - **Startup time.** Both plans limit global-scope startup to **1 second**. Imported module initialization counts toward startup CPU; load admin-only providers, ingestion code and validation inside the functions that need them. Bundle size checks do not measure startup time; verify it separately with the built Worker before deploying.
 - **CPU time.** Workers Free allows **10 ms CPU** per request. On the deployed disposable test Worker (2026-11-08), cache interception reduced cached anonymous public-page CPU p50 from **5–11 ms to 3–5 ms** (p95 **10–26 ms to 6–10 ms**). Cold article renders and dynamic/private routes remain separate risks; the local regression suite verifies behavior, not edge CPU.
-- **Build-time data.** `/guides` and `/field-notes` are statically prerendered from the build machine's local D1, so the first deploy ships whatever that DB contains (usually nothing). They refresh when a publish action calls `revalidatePath()`. Before launch, decide between:
+- **Build-time freshness.** Environment builds prerender `/guides` and `/field-notes` from a fresh empty local D1, preventing developer content from entering bundles. Their initial indexes can still be empty until publication invalidation; an empty build is not a production-content snapshot. Before launch, decide between:
   - `export const revalidate = <seconds>`
   - rendering them dynamically
   - running `opennextjs-cloudflare populateCache` after deploy
@@ -215,7 +305,7 @@ Worker shutdown and throwaway-state removal were verified after HTTP runs.
 ## Follow-ups
 
 - Use `npm run admin:create -- --remote --env <name>` for admin provisioning; public fixture passwords are rejected for every remote target.
-- Test Git integration is documented in [Workers Builds](WORKERS-BUILDS.md); production and non-production branch builds are not connected.
+- Test Git integration is documented in [Workers Builds](WORKERS-BUILDS.md); production remains manual and must never be connected; non-production branch builds are off.
 
 ## ISR queue: first deploy and disposable edge check
 

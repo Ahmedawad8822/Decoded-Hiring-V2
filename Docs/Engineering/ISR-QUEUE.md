@@ -90,7 +90,8 @@ retries and on-demand invalidations. Add visitors and prewarm/deploy requests.
 The DO's AbortSignal timeout can keep it active toward the 10s timeout even on
 success (installed `queue.js:93-94`); at 128MiB that is roughly 1.25 GB-s per
 isolated 10s active interval. Concurrent work on the same DO shares duration.
-Track DO duration, requests, failures and Worker exceededCpu on the edge.
+Track DO duration, requests, failures and Worker resource-limit statuses on the edge
+with the [edge health check](#regeneration-cpu-watch).
 This fixes endless staleness; it does **not** establish that each full SSR
 regeneration fits 10ms CPU. Local HTTP success cannot prove edge CPU compliance.
 
@@ -183,3 +184,55 @@ Changed files:
 - Tests: `e2e-worker/isr-queue.spec.ts`, `tests/isr-queue.test.ts`,
   `tests/render-cache.test.ts`, `tests/worker-e2e-tooling.test.ts`, `package.json`.
 - Documentation: this file and `Docs/Engineering/DEPLOYMENT.md`.
+
+
+## Regeneration CPU watch
+
+The coordinator's historical `dh-cputest` observation for **2026-11-02 through
+2026-11-08**: **1548 requests**, **0 errors**, **success status only**, maximum
+CPU **728 ms**, p99 **334 ms**, and **no 1102s**. This supplied observation was
+not re-queried during this implementation. Requests above the documented
+**10 ms Free CPU limit** succeeding are consistent with Cloudflare's allowance
+for occasional CPU overages/burst flexibility; this does not guarantee future
+regenerations will succeed. Keep watching cold batches and background renders.
+Source: [Cloudflare CPU limits](https://developers.cloudflare.com/workers/platform/limits/#cpu-time).
+
+Use the read-only GraphQL Analytics check (production by default):
+
+```sh
+npm run edge:health -- --env cputest --hours 24
+npm run edge:health -- --env production --hours 24
+```
+
+Set `CLOUDFLARE_ACCOUNT_ID` privately in the environment, or pass `--account`
+with the account ID. There is no account discovery, `whoami` or deployments-list
+fallback. `--worker` overrides the selected environment's Worker name from
+`wrangler.jsonc`; `--hours` accepts positive hours up to 744 (default 24).
+Actual account dataset/retention limits may be shorter and will fail the query.
+Credentials come from `CLOUDFLARE_API_TOKEN`, otherwise captured JSON output
+from `npx wrangler auth token --json`. Neither token nor raw credential command
+output is printed. The credential needs **Account Analytics Read** access;
+existing Wrangler OAuth may lack the required analytics permission.
+
+`scripts/edge-health.ts` queries `workersInvocationsAdaptive` with only `status`
+as the grouping dimension: requests/errors, CPU p50/p99/p999 and maximum.
+`cpuTime` values are **microseconds**, converted by dividing by 1000 for every
+printed **ms** value. Percentiles are requested for the full status group; they
+are never averaged from time buckets. It also queries
+`durableObjectsInvocationsAdaptiveGroups` for the same Worker/time window,
+grouped by status, with requests/errors. Source:
+[Workers GraphQL tutorial](https://developers.cloudflare.com/analytics/graphql-api/tutorials/querying-workers-metrics/)
+and [Durable Objects analytics](https://developers.cloudflare.com/durable-objects/observability/metrics-and-analytics/).
+
+Any status other than `success`, or any `sum.errors > 0` in either dataset,
+exits nonzero. `exceededResources` includes **1102** (also other resource-limit
+errors); status alone does not isolate CPU as the cause. See
+[invocation status mapping](https://developers.cloudflare.com/workers/observability/metrics-and-analytics/).
+CPU above 10 ms alone is a watch item, not a failure threshold for this check.
+Missing/malformed/partial GraphQL results, request/auth failures and no Worker
+traffic also fail closed. An empty DO dataset can mean no queue invocations.
+Adaptive sampling, analytics delay, the selected window and no per-route or
+per-render breakdown limit what this check establishes. It does not measure DO
+duration/GB-s or prove every regeneration fits the limit; use the DO dashboard
+for duration as well. Synthetic fixtures and mocked fetch tests verify parsing,
+units, status/error thresholds and request construction without live credentials.
