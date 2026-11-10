@@ -66,6 +66,8 @@ export function CurriculumClient({
   const [editTitle, setEditTitle] = useState("");
   const [editSlug, setEditSlug] = useState("");
   const [editVideo, setEditVideo] = useState("");
+  const [editPreview, setEditPreview] = useState(false);
+  const [editDuration, setEditDuration] = useState("");
   const [editRequired, setEditRequired] = useState(true);
   const [editBlocks, setEditBlocks] = useState<ContentBlock[]>([]);
 
@@ -137,6 +139,8 @@ export function CurriculumClient({
     setEditSlug(entry.lesson.slug);
     setEditVideo(entry.lesson.videoUrl || "");
     setEditRequired(entry.lesson.required);
+    setEditPreview(entry.lesson.isPreview);
+    setEditDuration(entry.lesson.durationMinutes?.toString() ?? "");
     setEditBlocks(parseBody(entry.lesson.body));
     setError(null);
     setNotice(null);
@@ -153,6 +157,8 @@ export function CurriculumClient({
         body: editBlocks,
         videoUrl: editVideo.trim() || null,
         required: editRequired,
+        isPreview: editPreview,
+        durationMinutes: editDuration === "" ? null : Number(editDuration),
       });
       if (res.ok) setEditingLesson(null);
       return res;
@@ -375,6 +381,14 @@ export function CurriculumClient({
               <label className="s-row s-gap-8 s-align-items-center s-text-sm s-bold" >
                 <Input type="checkbox" checked={editRequired} onChange={(e) => setEditRequired(e.target.checked)} aria-label="Lesson required" />
                 Required <span className="s-muted" >(counts toward progress + completion)</span>
+              </label>
+              <label className="s-row s-gap-8 s-align-items-center s-text-sm s-bold">
+                <Input type="checkbox" checked={editPreview} onChange={(e) => setEditPreview(e.target.checked)} />
+                Free preview
+              </label>
+              <label className="s-stack s-gap-6 s-text-sm s-bold">
+                Length (minutes)
+                <Input type="number" min={1} max={600} step={1} value={editDuration} onChange={(e) => setEditDuration(e.target.value)} />
               </label>
               <StructuredBlockEditor blocks={editBlocks} onChange={setEditBlocks} allowedBlockTypes={LESSON_BLOCK_TYPES} eyebrowHint="LESSON BODY" />
               <div className="s-row s-gap-10" >

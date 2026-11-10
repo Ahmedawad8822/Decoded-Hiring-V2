@@ -280,6 +280,11 @@ export const courses = sqliteTable("courses", {
   title: text("title").notNull(),
   slug: text("slug").notNull().unique(),
   description: text("description"),
+  outcomes: text("outcomes"), // JSON string[]
+  audience: text("audience"),
+  faq: text("faq"), // JSON { q, a }[]
+  instructorName: text("instructor_name"),
+  instructorBio: text("instructor_bio"),
   status: text("status").$type<CourseStatus>().notNull().default("draft"),
   accessMode: text("access_mode").$type<CourseAccessMode>().notNull().default("FREE"),
   coverImage: text("cover_image"),
@@ -317,6 +322,8 @@ export const lessons = sqliteTable(
     slug: text("slug").notNull(),
     body: text("body").notNull().default("[]"), // JSON-stringified ContentBlock[]
     videoUrl: text("video_url"),
+    isPreview: integer("is_preview", { mode: "boolean" }).notNull().default(false),
+    durationMinutes: integer("duration_minutes"),
     required: integer("required", { mode: "boolean" }).notNull().default(true),
     position: integer("position").notNull().default(0),
     status: text("status").$type<LessonStatus>().notNull().default("draft"),

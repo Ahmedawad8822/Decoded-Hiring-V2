@@ -182,6 +182,12 @@ test("course, section and lesson mutations write audit rows", async () => {
     slug: `al-${uid()}`,
   });
   assert.ok(lesson.ok, String(lesson.error));
+  const updated = await m.courses.updateLessonAction({ id: lesson.data!.id, isPreview: true, durationMinutes: 8 });
+  assert.ok(updated.ok, String(updated.error));
+  const updateAudit = (await rowsFor("lesson", lesson.data!.id)).find((row) => row.action === "lesson.update")!;
+  assert.equal(updateAudit.actorId, adminId);
+  assert.equal(JSON.parse(updateAudit.details!).isPreview, true);
+  assert.equal(JSON.parse(updateAudit.details!).durationMinutes, 8);
   const pub = await m.courses.publishLessonAction(lesson.data!.id);
   assert.ok(pub.ok, String(pub.error));
   const mv = await m.courses.moveLessonAction(lesson.data!.id, "up");
@@ -195,6 +201,7 @@ test("course, section and lesson mutations write audit rows", async () => {
     "lesson.create",
     "lesson.move",
     "lesson.publish",
+    "lesson.update",
   ]);
 });
 

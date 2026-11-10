@@ -32,7 +32,25 @@ export const lessonStatusSchema = z.union([
   z.literal("archived"),
 ]);
 
+export const outcomesSchema = z.array(z.string().trim().min(1).max(200)).max(12);
+export const faqSchema = z.array(z.object({
+  q: z.string().trim().min(1).max(200),
+  a: z.string().trim().min(1).max(1500),
+})).max(12);
+const courseLandingFields = {
+  outcomes: outcomesSchema.optional().nullable(),
+  audience: z.string().trim().max(2000).optional().nullable(),
+  faq: faqSchema.optional().nullable(),
+  instructorName: z.string().trim().max(160).optional().nullable(),
+  instructorBio: z.string().trim().max(1500).optional().nullable(),
+};
+const lessonMetadataFields = {
+  isPreview: z.boolean().optional(),
+  durationMinutes: z.number().int().min(1).max(600).optional().nullable(),
+};
+
 export const createCourseSchema = z.object({
+  ...courseLandingFields,
   title: z.string().trim().min(3, "Title must be at least 3 characters").max(160),
   slug: slugSchema,
   description: z.string().trim().max(2000).optional().nullable(),
@@ -41,6 +59,7 @@ export const createCourseSchema = z.object({
 });
 
 export const updateCourseSchema = z.object({
+  ...courseLandingFields,
   id: z.string().min(1),
   title: z.string().trim().min(3).max(160).optional(),
   slug: slugSchema.optional(),
@@ -60,6 +79,7 @@ export const renameSectionSchema = z.object({
 });
 
 export const createLessonSchema = z.object({
+  ...lessonMetadataFields,
   courseId: z.string().min(1),
   sectionId: z.string().min(1),
   title: z.string().trim().min(3, "Lesson title must be at least 3 characters").max(160),
@@ -70,6 +90,7 @@ export const createLessonSchema = z.object({
 });
 
 export const updateLessonSchema = z.object({
+  ...lessonMetadataFields,
   id: z.string().min(1),
   title: z.string().trim().min(3).max(160).optional(),
   slug: slugSchema.optional(),

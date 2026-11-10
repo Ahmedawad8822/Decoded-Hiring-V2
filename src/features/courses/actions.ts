@@ -161,7 +161,7 @@ export async function createLessonAction(
       return { ok: false, error: parsed.error.issues.map((i) => i.message).join(", ") };
     }
     const lesson = await courseService.createLesson(parsed.data);
-    await recordAdminAudit({ actorId: session.user.id, action: "lesson.create", entityType: "lesson", entityId: lesson.id, details: { courseId: lesson.courseId, slug: lesson.slug } });
+    await recordAdminAudit({ actorId: session.user.id, action: "lesson.create", entityType: "lesson", entityId: lesson.id, details: { courseId: lesson.courseId, slug: lesson.slug, isPreview: lesson.isPreview, durationMinutes: lesson.durationMinutes } });
     revalidatePath(`/admin/courses/${lesson.courseId}/curriculum`);
     return { ok: true, data: { id: lesson.id, slug: lesson.slug } };
   } catch (err: unknown) {
@@ -179,7 +179,7 @@ export async function updateLessonAction(
       return { ok: false, error: parsed.error.issues.map((i) => i.message).join(", ") };
     }
     const lesson = await courseService.updateLesson(parsed.data.id, parsed.data);
-    await recordAdminAudit({ actorId: session.user.id, action: "lesson.update", entityType: "lesson", entityId: lesson.id, details: { courseId: lesson.courseId, slug: lesson.slug } });
+    await recordAdminAudit({ actorId: session.user.id, action: "lesson.update", entityType: "lesson", entityId: lesson.id, details: { courseId: lesson.courseId, slug: lesson.slug, isPreview: lesson.isPreview, durationMinutes: lesson.durationMinutes } });
     revalidatePath(`/admin/courses/${lesson.courseId}/curriculum`);
     return { ok: true, data: { id: lesson.id, slug: lesson.slug } };
   } catch (err: unknown) {

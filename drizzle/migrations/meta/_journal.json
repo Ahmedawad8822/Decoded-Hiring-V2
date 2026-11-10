@@ -169,6 +169,13 @@
       "when": 1793010290920,
       "tag": "0023_business_events_retention_index",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "6",
+      "when": 1794283352218,
+      "tag": "0024_modern_swordsman",
+      "breakpoints": true
     }
   ]
 }

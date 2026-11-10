@@ -134,10 +134,18 @@ test.describe("mission 06 learning platform lifecycle", () => {
       await page.goto("/admin/courses");
       await expect(page.getByRole("heading", { name: "Courses" })).toBeVisible();
       await clickAction(page, page.getByRole("button", { name: "＋ New course" }));
+      await waitForHydration(page, page.getByLabel("Course title"));
       await page.getByLabel("Course title").fill(courseTitle);
       await page.getByLabel("Course slug").fill(courseSlug);
       await page.getByLabel("Course description").fill("End-to-end lifecycle course.");
       await page.getByLabel("Access mode").selectOption("FREE");
+      await page.getByLabel("Learning outcomes").fill("Build a clear learning plan");
+      await page.getByLabel("Course audience").fill("Learners exploring the course");
+      await page.getByLabel("Instructor name", { exact: true }).fill("Course instructor");
+      await page.getByLabel("Instructor bio", { exact: true }).fill("Practical course guidance.");
+      await clickAction(page, page.getByRole("button", { name: "Add FAQ", exact: true }));
+      await page.getByLabel("Question 1", { exact: true }).fill("Can I try a lesson?");
+      await page.getByLabel("Answer 1", { exact: true }).fill("Yes, open the free preview before enrolling.");
       await clickAction(page, page.getByRole("button", { name: "Create draft" }));
       await expect(page.getByText(courseTitle).first()).toBeVisible();
     });
@@ -145,26 +153,40 @@ test.describe("mission 06 learning platform lifecycle", () => {
     await test.step("add section + two required lessons", async () => {
       await page.getByRole("link", { name: "Curriculum →" }).first().click();
       await expect(page.getByText(courseTitle).first()).toBeVisible();
+      await waitForHydration(page, page.getByLabel("New section title"));
       await page.getByLabel("New section title").fill("E2E Section");
       await clickAction(page, page.getByRole("button", { name: "＋ Add section" }));
       await expect(page.getByText("E2E Section").first()).toBeVisible();
 
       await clickAction(page, page.getByRole("button", { name: "＋ Add lesson" }));
+      await waitForHydration(page, page.getByLabel("New lesson title"));
       await page.getByLabel("New lesson title").fill("First Lesson E2E");
       await page.getByLabel("New lesson slug").fill(lesson1Slug);
       await clickAction(page, page.getByRole("button", { name: "Add lesson" }));
       await expect(page.getByText("First Lesson E2E").first()).toBeVisible();
 
       await clickAction(page, page.getByRole("button", { name: "＋ Add lesson" }));
+      await waitForHydration(page, page.getByLabel("New lesson title"));
       await page.getByLabel("New lesson title").fill("Second Lesson E2E");
       await page.getByLabel("New lesson slug").fill(lesson2Slug);
       await clickAction(page, page.getByRole("button", { name: "Add lesson" }));
       await expect(page.getByText("Second Lesson E2E").first()).toBeVisible();
     });
 
+    await test.step("set preview and duration through the lesson editor", async () => {
+      await clickAction(page, page.getByRole("row", { name: /First Lesson E2E/ }).getByRole("button", { name: "Edit", exact: true }));
+      await waitForHydration(page, page.getByLabel("Free preview", { exact: true }));
+      await page.getByLabel("Free preview", { exact: true }).check();
+      await page.getByLabel("Length (minutes)", { exact: true }).fill("8");
+      await clickAction(page, page.getByRole("button", { name: "Save lesson", exact: true }));
+      await expect(page.getByRole("dialog")).toHaveCount(0);
+      await expect(page.locator("#main").getByRole("alert")).toHaveCount(0);
+    });
+
     await test.step("attach PDF resource to lesson 1", async () => {
       const row = page.getByRole("row", { name: /First Lesson E2E/ });
       await clickAction(page, row.getByRole("button", { name: "＋ PDF" }));
+      await waitForHydration(page, page.getByLabel("Resource title"));
       await page.locator('input[type="file"]').setInputFiles("e2e/fixtures/sample.pdf");
       await page.getByLabel("Resource title").fill("E2E Worksheet");
       await clickAction(page, page.getByRole("button", { name: "Upload PDF" }));
@@ -200,10 +222,43 @@ test.describe("mission 06 learning platform lifecycle", () => {
       await expect(explore.getByText(/lessons/).first()).toBeVisible();
     });
 
+    await test.step("signed-in non-enrolled learner opens preview; other lessons and files stay gated", async () => {
+      const response = await page.goto(`/learn/courses/${courseSlug}`);
+      expect(response?.headers()["cache-control"]).toContain("no-store");
+      await expect(page.locator('meta[name="robots"]')).toHaveAttribute("content", /noindex/);
+      await expect(page.getByText("Build a clear learning plan", { exact: true })).toBeVisible();
+      await page.getByText("Can I try a lesson?", { exact: true }).click();
+      await expect(page.getByText("Yes, open the free preview before enrolling.", { exact: true })).toBeVisible();
+      const preview = page.locator(".cu-lesson", { hasText: "First Lesson E2E" });
+      await expect(preview.getByText("Preview", { exact: true })).toBeVisible();
+      await expect(preview).toContainText("Reading · 8 min");
+      await expect(preview).toHaveAttribute("href", `/learn/courses/${courseSlug}/lessons/${lesson1Slug}`);
+      await page.setViewportSize({ width: 375, height: 900 });
+      const enrollBar = page.getByRole("region", { name: "Course enrollment", exact: true });
+      await expect(enrollBar.getByRole("button", { name: "Start free — enroll now" })).toBeVisible();
+      const bar = await enrollBar.boundingBox();
+      const tabs = await page.locator(".lrn-tabs").boundingBox();
+      expect(bar!.y + bar!.height).toBeLessThanOrEqual(tabs!.y);
+      expect(await page.evaluate(() => document.documentElement.scrollWidth - innerWidth)).toBeLessThanOrEqual(1);
+      await page.screenshot({ path: "test-results/learner-conversion-overview-phone.png", fullPage: true });
+      await preview.click();
+      await expect(page.getByRole("heading", { name: "First Lesson E2E" })).toBeVisible();
+      await expect(page.getByRole("button", { name: "Complete & continue" })).toHaveCount(0);
+      await expect(page.locator(".ls-mobile-bar").getByRole("link", { name: "Enroll in course →" })).toBeVisible();
+      await expect(page.getByRole("link", { name: /Download/ })).toHaveCount(0);
+      await expect(page.locator("#main").getByRole("alert")).toHaveCount(0);
+      await page.screenshot({ path: "test-results/learner-conversion-preview-phone.png", fullPage: true });
+      await page.setViewportSize({ width: 1280, height: 900 });
+      await page.goto(`/learn/courses/${courseSlug}/lessons/${lesson2Slug}`);
+      await expect(page.getByRole("heading", { name: "Enrollment required" })).toBeVisible();
+      await expect(page.getByRole("button", { name: "Complete & continue" })).toHaveCount(0);
+    });
+
     await test.step("enroll free, appears in my courses", async () => {
       await page.goto(`/learn/courses/${courseSlug}`);
       await clickAction(page, page.getByRole("button", { name: "Start free — enroll now" }));
       await expect(page.getByText("Continue where you left off")).toBeVisible();
+      await expect(page.getByText("8 min left", { exact: true })).toBeVisible();
       await page.goto("/learn/courses");
       await expect(page.getByText(courseTitle).first()).toBeVisible();
     });
@@ -303,7 +358,7 @@ test.describe("mission 06 learning platform lifecycle", () => {
       await page.getByLabel(/^Password/).fill("e2e-password-123");
       await clickAction(page, page.getByRole("button", { name: "Create account" }));
       await expect(page).toHaveURL(/\/learn/, { timeout: 90_000 });
-      await page.goto(`/learn/courses/${courseSlug}/lessons/${lesson1Slug}`);
+      await page.goto(`/learn/courses/${courseSlug}/lessons/${lesson2Slug}`);
       await expect(page.getByText("Enrollment required")).toBeVisible();
       await expect(page.getByRole("button", { name: "Complete & continue" })).toHaveCount(0);
       const res = await page.request.get(resourceHref);
@@ -330,7 +385,8 @@ test.describe("mission 06 learning platform lifecycle", () => {
     await test.step("archive temporary e2e course", async () => {
       await page.goto("/admin/courses");
       await clickAction(page, page.locator(`[data-course-slug="${courseSlug}"]`).getByRole("button", { name: "Archive" }));
-      await expect(page.getByText(courseTitle).first()).toBeVisible();
+      await clickAction(page, page.getByRole("button", { name: "Confirm Archive", exact: true }));
+      await expect(page.locator(`[data-course-slug="${courseSlug}"]`).getByText("ARCHIVED", { exact: true })).toBeVisible();
     });
   });
 

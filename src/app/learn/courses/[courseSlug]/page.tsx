@@ -14,6 +14,8 @@ import { EnrollButton } from "@/components/learner/enroll-button";
 import { getEffectiveCourseAccessPolicy } from "@/features/offers/service";
 import { resolveOfferPublicPresentation } from "@/features/offers/presentation";
 
+import { formatMinutes, getCourseTimeStats, lessonMetaLabel, parseCourseLanding } from "@/features/courses/metadata";
+
 export async function generateMetadata(props: {
   params: Promise<{ courseSlug: string }>;
 }) {
@@ -75,6 +77,15 @@ export default async function CourseOverviewPage(props: {
   const curriculum = await getCourseCurriculum(course.id);
   const progress = activeEnrollment ? await getEnrollmentProgress(activeEnrollment) : null;
   const completedSet = new Set(progress?.completedLessonIds ?? []);
+  const publishedLessons = curriculum.flatMap((entry) => entry.publishedLessons);
+  const stats = getCourseTimeStats(publishedLessons, completedSet);
+  const previewCount = course.status === "published" ? publishedLessons.filter((lesson) => lesson.isPreview).length : 0;
+  const landing = parseCourseLanding(course);
+  const enrollmentCta = access.available && access.mode === "FREE"
+    ? <EnrollButton courseId={course.id} courseSlug={course.slug} />
+    : (offerPresentation?.ctaHref || access.source === "LEGACY_COURSE")
+      ? <a className="btn secondary learner-link" href={offerPresentation?.ctaHref ?? "/contact"}>{offerPresentation?.ctaLabel ?? "Contact us"} →</a>
+      : null;
 
   const resumeHref =
     activeEnrollment && progress?.resumeLesson
@@ -82,7 +93,7 @@ export default async function CourseOverviewPage(props: {
       : null;
 
   return (
-    <main className="sec-app learner-page" id="main">
+    <main className={`sec-app learner-page${!activeEnrollment && enrollmentCta ? " lrn-has-enroll-bar" : ""}`} id="main">
       <div className="wrap learner-column">
         <p className="a-micro learner-mb-6">
           <Link className="learner-inherit" href="/learn/courses">MY COURSES</Link> · COURSE OVERVIEW
@@ -90,6 +101,24 @@ export default async function CourseOverviewPage(props: {
         <h1 className="a-h1 learner-mb-6">{course.title}</h1>
         {course.description && (
           <p className="muted learner-mb-24">{course.description}</p>
+        )}
+
+        <dl className="lrn-course-stats" aria-label="Course statistics">
+          <div><dt>Lessons</dt><dd>{stats.lessonCount}</dd></div>
+          {stats.totalMinutes !== null && <div><dt>Total time</dt><dd>{formatMinutes(stats.totalMinutes)}</dd></div>}
+          <div><dt>Free previews</dt><dd>{previewCount}</dd></div>
+        </dl>
+        {landing.outcomes.length > 0 && (
+          <section className="lrn-landing-section" aria-labelledby="outcomes-h">
+            <h2 className="a-h2" id="outcomes-h">What you&apos;ll learn</h2>
+            <ul>{landing.outcomes.map((outcome, index) => <li key={index}>{outcome}</li>)}</ul>
+          </section>
+        )}
+        {course.audience && (
+          <section className="lrn-landing-section" aria-labelledby="audience-h">
+            <h2 className="a-h2" id="audience-h">Who it&apos;s for</h2>
+            <p className="lrn-plain-text">{course.audience}</p>
+          </section>
         )}
 
         {activeEnrollment && progress ? (
@@ -108,6 +137,7 @@ export default async function CourseOverviewPage(props: {
                 {progress.completedRequired} / {progress.totalRequired}
               </span>
             </div>
+            {stats.minutesLeft !== null && stats.minutesLeft > 0 && <p className="learner-mb-16">{formatMinutes(stats.minutesLeft)} left</p>}
             <div className="progress-line">
               <span className="track"><i style={{ width: `${progress.percent}%` }}></i></span>
               <span className="num">{progress.percent}%</span>
@@ -123,7 +153,7 @@ export default async function CourseOverviewPage(props: {
               </div>
             )}
           </div>
-        ) : course.accessMode === "FREE" ? (
+        ) : access.available && access.mode === "FREE" ? (
           <div className="continue-card learner-mb-28">
             <div className="cc-top">
               <div>
@@ -132,7 +162,7 @@ export default async function CourseOverviewPage(props: {
               </div>
             </div>
             <div className="learner-mt-12">
-              <EnrollButton courseId={course.id} courseSlug={course.slug} />
+              {enrollmentCta}
             </div>
           </div>
         ) : (
@@ -156,16 +186,7 @@ export default async function CourseOverviewPage(props: {
                 {offerPresentation?.badge ?? access.mode}
               </span>
             </div>
-            {(offerPresentation?.ctaHref || access.source === "LEGACY_COURSE") && (
-              <div className="learner-mt-12">
-                <a
-                  className="btn secondary learner-link"
-                  href={offerPresentation?.ctaHref ?? "/contact"}
-                >
-                  {offerPresentation?.ctaLabel ?? "Contact us"} →
-                </a>
-              </div>
-            )}
+            {enrollmentCta && <div className="learner-mt-12">{enrollmentCta}</div>}
           </div>
         )}
 
@@ -185,7 +206,7 @@ export default async function CourseOverviewPage(props: {
                 {entry.publishedLessons.map((lesson) => {
                   const done = completedSet.has(lesson.id);
                   const isCurrent = progress?.resumeLesson?.id === lesson.id;
-                  const href = activeEnrollment
+                  const href = activeEnrollment || (course.status === "published" && lesson.isPreview)
                     ? `/learn/courses/${course.slug}/lessons/${lesson.slug}`
                     : `/learn/courses/${course.slug}`;
                   return (
@@ -196,7 +217,11 @@ export default async function CourseOverviewPage(props: {
                       aria-current={isCurrent ? true : undefined}
                     >
                       <span className="tick">{done ? "✓" : ""}</span>
-                      {lesson.title}
+                      <span className="lrn-lesson-info">
+                        <span>{lesson.title}</span>
+                        <span className="lrn-lesson-meta">{lessonMetaLabel(lesson)}</span>
+                      </span>
+                      {lesson.isPreview && course.status === "published" && <span className="lrn-preview-badge">Preview</span>}
                       {!lesson.required && <span className="opt">OPTIONAL</span>}
                     </Link>
                   );
@@ -205,6 +230,22 @@ export default async function CourseOverviewPage(props: {
             ))}
           </div>
         </section>
+        {(course.instructorName || course.instructorBio) && (
+          <section className="lrn-landing-section" aria-labelledby="instructor-h">
+            <h2 className="a-h2" id="instructor-h">Instructor</h2>
+            {course.instructorName && <h3>{course.instructorName}</h3>}
+            {course.instructorBio && <p className="lrn-plain-text">{course.instructorBio}</p>}
+          </section>
+        )}
+        {landing.faq.length > 0 && (
+          <section className="lrn-landing-section lrn-faq" aria-labelledby="faq-h">
+            <h2 className="a-h2" id="faq-h">Frequently asked questions</h2>
+            {landing.faq.map((item, index) => (
+              <details key={index}><summary>{item.q}</summary><p className="lrn-plain-text">{item.a}</p></details>
+            ))}
+          </section>
+        )}
+        {!activeEnrollment && enrollmentCta && <div className="lrn-enroll-bar" role="region" aria-label="Course enrollment">{enrollmentCta}</div>}
       </div>
     </main>
   );

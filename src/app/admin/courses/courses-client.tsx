@@ -13,6 +13,8 @@ import {
   updateCourseAction,
 } from "@/features/courses/actions";
 
+import { parseCourseLanding } from "@/features/courses/metadata";
+
 type CourseRow = Course & {
   enrollmentCount: number;
   offerId: string | null;
@@ -44,6 +46,11 @@ export function CoursesClient({
   const [title, setTitle] = useState("");
   const [slug, setSlug] = useState("");
   const [description, setDescription] = useState("");
+  const [outcomes, setOutcomes] = useState("");
+  const [audience, setAudience] = useState("");
+  const [faq, setFaq] = useState<{ q: string; a: string }[]>([]);
+  const [instructorName, setInstructorName] = useState("");
+  const [instructorBio, setInstructorBio] = useState("");
   const [accessMode, setAccessMode] = useState<string>("FREE");
 
   const [confirmModal, setConfirmModal] = useState<{
@@ -65,6 +72,11 @@ export function CoursesClient({
     setTitle("");
     setSlug("");
     setDescription("");
+    setOutcomes("");
+    setAudience("");
+    setFaq([]);
+    setInstructorName("");
+    setInstructorBio("");
     setAccessMode("FREE");
     setEditing(null);
     setShowCreate(false);
@@ -76,6 +88,12 @@ export function CoursesClient({
     setTitle(course.title);
     setSlug(course.slug);
     setDescription(course.description || "");
+    const landing = parseCourseLanding(course);
+    setOutcomes(landing.outcomes.join("\n"));
+    setFaq(landing.faq);
+    setAudience(course.audience || "");
+    setInstructorName(course.instructorName || "");
+    setInstructorBio(course.instructorBio || "");
     setAccessMode(course.accessMode);
     setShowCreate(true);
   };
@@ -89,6 +107,11 @@ export function CoursesClient({
         title: title.trim(),
         slug: slug.trim(),
         description: description.trim() || null,
+        outcomes: outcomes.split("\n").map((line) => line.trim()).filter(Boolean),
+        audience: audience.trim() || null,
+        faq,
+        instructorName: instructorName.trim() || null,
+        instructorBio: instructorBio.trim() || null,
         ...(!editing?.offerId ? { accessMode } : {}),
       };
       const res = editing
@@ -226,6 +249,37 @@ export function CoursesClient({
             Description
             <Textarea className="s-padding-10px-14px s-text-sm" aria-label="Course description" value={description} onChange={(e) => setDescription(e.target.value)} rows={3} maxLength={2000} />
           </label>
+          <label className="s-stack s-gap-6 s-text-sm s-bold">
+            What you&apos;ll learn (one outcome per line, up to 12)
+            <Textarea aria-label="Learning outcomes" value={outcomes} onChange={(e) => setOutcomes(e.target.value)} rows={4} maxLength={2411} />
+          </label>
+          <label className="s-stack s-gap-6 s-text-sm s-bold">
+            Who it&apos;s for
+            <Textarea aria-label="Course audience" value={audience} onChange={(e) => setAudience(e.target.value)} rows={3} maxLength={2000} />
+          </label>
+          <label className="s-stack s-gap-6 s-text-sm s-bold">
+            Instructor name
+            <Input value={instructorName} onChange={(e) => setInstructorName(e.target.value)} maxLength={160} />
+          </label>
+          <label className="s-stack s-gap-6 s-text-sm s-bold">
+            Instructor bio
+            <Textarea value={instructorBio} onChange={(e) => setInstructorBio(e.target.value)} rows={3} maxLength={1500} />
+          </label>
+          <fieldset className="s-stack s-gap-14">
+            <legend>Frequently asked questions</legend>
+            {faq.map((item, index) => (
+              <div className="s-stack s-gap-6" key={index}>
+                <label>Question {index + 1}
+                  <Input value={item.q} maxLength={200} required onChange={(e) => setFaq(faq.map((row, i) => i === index ? { ...row, q: e.target.value } : row))} />
+                </label>
+                <label>Answer {index + 1}
+                  <Textarea value={item.a} maxLength={1500} required rows={3} onChange={(e) => setFaq(faq.map((row, i) => i === index ? { ...row, a: e.target.value } : row))} />
+                </label>
+                <Button type="button" variant="ghost" onClick={() => setFaq(faq.filter((_, i) => i !== index))}>Remove FAQ {index + 1}</Button>
+              </div>
+            ))}
+            <Button type="button" variant="secondary" disabled={faq.length >= 12} onClick={() => setFaq([...faq, { q: "", a: "" }])}>Add FAQ</Button>
+          </fieldset>
           <label className="s-stack s-gap-6 s-text-sm s-bold" >
             {editing?.offerId ? "Course access" : "Access mode"}
             <Select className="s-padding-10px-14px s-text-sm"
