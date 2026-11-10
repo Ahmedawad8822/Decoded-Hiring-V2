@@ -1,4 +1,6 @@
 import Link from "next/link";
+import { getLearnerCertificate } from "@/features/certificates/service";
+import { CertificateClaim } from "@/components/learner/certificate-claim";
 import { notFound, permanentRedirect, redirect } from "next/navigation";
 import { resolveCourseRedirect } from "@/features/slug-redirects/service";
 import { getServerSession } from "@/lib/auth";
@@ -39,10 +41,11 @@ export default async function CourseCompletionPage({ params }: {
     );
   }
   const { enrollment, progress } = state;
-  const [memberships, published, resources] = await Promise.all([
+  const [memberships, published, resources, certificate] = await Promise.all([
     getAccessibleEnrollments(session.user.id),
     getPublishedCourses(),
     getLessonResourcesForLessons(progress.publishedLessons.map((lesson) => lesson.id)),
+    getLearnerCertificate(session.user.id, course.id),
   ]);
   const enrolledIds = new Set(memberships.map((entry) => entry.courseId));
   const suggestions = published.filter((entry) => !enrolledIds.has(entry.id)).slice(0, 2);
@@ -70,6 +73,13 @@ export default async function CourseCompletionPage({ params }: {
           )}
           <div><dt>Downloadable resources</dt><dd>{resourceCount}</dd></div>
         </dl>
+        {(certificate || course.certificateEnabled) && <section className="learner-section" aria-labelledby="certificate-h">
+          <h2 className="a-h2" id="certificate-h">Your certificate</h2>
+          {certificate ? <>
+            <Link className="btn primary" href={`/certificates/${certificate.id}`}>View certificate</Link>
+            <p>Verify link: <Link href={`/certificates/${certificate.id}`}>/certificates/{certificate.id}</Link></p>
+          </> : <CertificateClaim courseSlug={course.slug} accountName={session.user.name || ""} />}
+        </section>}
         <Link className="btn secondary" href={courseHref}>Review course</Link>
         <section className="learner-section" aria-labelledby="next-h">
           <h2 className="a-h2" id="next-h">What&apos;s next</h2>

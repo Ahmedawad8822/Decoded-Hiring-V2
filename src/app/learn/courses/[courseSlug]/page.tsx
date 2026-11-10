@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { getLearnerCertificate } from "@/features/certificates/service";
 import { notFound, permanentRedirect } from "next/navigation";
 import { resolveCourseRedirect } from "@/features/slug-redirects/service";
 import { getServerSession } from "@/lib/auth";
@@ -76,6 +77,8 @@ export default async function CourseOverviewPage(props: {
   const activeEnrollment = hasLearnerAccess(enrollment) ? enrollment : null;
   const curriculum = await getCourseCurriculum(course.id);
   const progress = activeEnrollment ? await getEnrollmentProgress(activeEnrollment) : null;
+  const certificate = activeEnrollment && progress?.completed && session?.user
+    ? await getLearnerCertificate(session.user.id, course.id) : null;
   const completedSet = new Set(progress?.completedLessonIds ?? []);
   const publishedLessons = curriculum.flatMap((entry) => entry.publishedLessons);
   const stats = getCourseTimeStats(publishedLessons, completedSet);
@@ -144,6 +147,11 @@ export default async function CourseOverviewPage(props: {
             </div>
             {progress.completed && (
               <Link className="btn primary" href={`/learn/courses/${course.slug}/complete`}>See your completion</Link>
+            )}
+            {progress.completed && (certificate || course.certificateEnabled) && (
+              <Link className="btn secondary" href={certificate ? `/certificates/${certificate.id}` : `/learn/courses/${course.slug}/complete`}>
+                {certificate ? "Certificate" : "Get certificate"}
+              </Link>
             )}
             {resumeHref && (
               <div className="learner-mt-12">

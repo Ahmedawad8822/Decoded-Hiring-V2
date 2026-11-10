@@ -113,6 +113,7 @@ export async function createCourse(input: CreateCourseInput): Promise<Course> {
       buildReleaseSlugStatement(db, { entityType: "course", scope: "", slug }),
       db.insert(courses).values({
       id,
+      certificateEnabled: input.certificateEnabled ?? false,
       title: input.title,
       slug,
       description: input.description || null,
@@ -175,6 +176,7 @@ export async function updateCourse(id: string, input: UpdateCourseInput): Promis
 
   const now = new Date();
   const patch: Partial<typeof courses.$inferInsert> = { ...buildEditTouch(now) };
+  if (typeof input.certificateEnabled !== "undefined") patch.certificateEnabled = input.certificateEnabled;
   if (typeof input.title !== "undefined") patch.title = input.title;
   if (typeof input.slug !== "undefined") patch.slug = input.slug;
   if (typeof input.outcomes !== "undefined") patch.outcomes = input.outcomes === null ? null : JSON.stringify(input.outcomes);

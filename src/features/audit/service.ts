@@ -23,6 +23,7 @@ export const AUDIT_ENTITY_TYPES = [
   "guide",
   "field_note",
   "course",
+  "certificate",
   "course_section",
   "lesson",
   "lesson_resource",

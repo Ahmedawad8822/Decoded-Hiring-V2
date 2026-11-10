@@ -51,6 +51,7 @@ export function CoursesClient({
   const [faq, setFaq] = useState<{ q: string; a: string }[]>([]);
   const [instructorName, setInstructorName] = useState("");
   const [instructorBio, setInstructorBio] = useState("");
+  const [certificateEnabled, setCertificateEnabled] = useState(false);
   const [accessMode, setAccessMode] = useState<string>("FREE");
 
   const [confirmModal, setConfirmModal] = useState<{
@@ -78,6 +79,7 @@ export function CoursesClient({
     setInstructorName("");
     setInstructorBio("");
     setAccessMode("FREE");
+    setCertificateEnabled(false);
     setEditing(null);
     setShowCreate(false);
     setError(null);
@@ -95,6 +97,7 @@ export function CoursesClient({
     setInstructorName(course.instructorName || "");
     setInstructorBio(course.instructorBio || "");
     setAccessMode(course.accessMode);
+    setCertificateEnabled(course.certificateEnabled);
     setShowCreate(true);
   };
 
@@ -104,6 +107,7 @@ export function CoursesClient({
     setError(null);
     try {
       const payload = {
+        certificateEnabled,
         title: title.trim(),
         slug: slug.trim(),
         description: description.trim() || null,
@@ -265,6 +269,10 @@ export function CoursesClient({
             Instructor bio
             <Textarea value={instructorBio} onChange={(e) => setInstructorBio(e.target.value)} rows={3} maxLength={1500} />
           </label>
+          <label>
+            <Input type="checkbox" checked={certificateEnabled} onChange={(e) => setCertificateEnabled(e.target.checked)} />
+            {" "}Issue certificates on completion
+          </label>
           <fieldset className="s-stack s-gap-14">
             <legend>Frequently asked questions</legend>
             {faq.map((item, index) => (
@@ -327,6 +335,7 @@ export function CoursesClient({
               <Link className="btn secondary small" href={`/admin/courses/${course.id}/curriculum`} >
                 Curriculum →
               </Link>
+              <Link className="btn secondary small" href={`/admin/courses/${course.id}/certificates`}>Certificates →</Link>
               <Button className="btn ghost small" type="button" onClick={() => startEdit(course)}>
                 Edit
               </Button>

@@ -6,6 +6,8 @@ export const WORKER_ADMIN = {
   password: "worker-e2e-fixture-password-2026!",
 };
 
+export const WORKER_CERTIFICATE_ID = "0123456789ABCDEFGHJKMNPQRS";
+
 export const WORKER_RUNTIME_GUIDE_SLUG = "worker-runtime-only-sitemap-guide";
 export const WORKER_RUNTIME_NOTE_SLUG = "worker-runtime-isr-note";
 

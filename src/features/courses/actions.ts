@@ -34,7 +34,7 @@ export async function createCourseAction(
       return { ok: false, error: parsed.error.issues.map((i) => i.message).join(", ") };
     }
     const created = await courseService.createCourse(parsed.data);
-    await recordAdminAudit({ actorId: session.user.id, action: "course.create", entityType: "course", entityId: created.id, details: { slug: created.slug } });
+    await recordAdminAudit({ actorId: session.user.id, action: "course.create", entityType: "course", entityId: created.id, details: { slug: created.slug, certificateEnabled: created.certificateEnabled } });
     revalidatePath("/admin/courses");
     return { ok: true, data: { id: created.id, slug: created.slug } };
   } catch (err: unknown) {
@@ -52,7 +52,7 @@ export async function updateCourseAction(
       return { ok: false, error: parsed.error.issues.map((i) => i.message).join(", ") };
     }
     const updated = await courseService.updateCourse(parsed.data.id, parsed.data);
-    await recordAdminAudit({ actorId: session.user.id, action: "course.update", entityType: "course", entityId: updated.id, details: { slug: updated.slug } });
+    await recordAdminAudit({ actorId: session.user.id, action: "course.update", entityType: "course", entityId: updated.id, details: { slug: updated.slug, certificateEnabled: updated.certificateEnabled } });
     revalidatePath("/admin/courses");
     revalidatePath(`/learn/courses/${updated.slug}`);
     return { ok: true, data: { id: updated.id, slug: updated.slug } };

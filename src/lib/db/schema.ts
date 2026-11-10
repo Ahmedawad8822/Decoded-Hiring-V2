@@ -285,6 +285,7 @@ export const courses = sqliteTable("courses", {
   faq: text("faq"), // JSON { q, a }[]
   instructorName: text("instructor_name"),
   instructorBio: text("instructor_bio"),
+  certificateEnabled: integer("certificate_enabled", { mode: "boolean" }).notNull().default(false),
   status: text("status").$type<CourseStatus>().notNull().default("draft"),
   accessMode: text("access_mode").$type<CourseAccessMode>().notNull().default("FREE"),
   coverImage: text("cover_image"),
@@ -379,6 +380,23 @@ export const enrollments = sqliteTable(
     index("enrollments_course_idx").on(table.courseId),
   ]
 );
+
+export const certificates = sqliteTable("certificates", {
+  id: text("id").primaryKey(),
+  userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  courseId: text("course_id").notNull().references(() => courses.id, { onDelete: "cascade" }),
+  enrollmentId: text("enrollment_id").notNull().references(() => enrollments.id, { onDelete: "cascade" }),
+  recipientName: text("recipient_name").notNull(),
+  courseTitle: text("course_title").notNull(),
+  issuedAt: integer("issued_at", { mode: "timestamp" }).notNull(),
+  revokedAt: integer("revoked_at", { mode: "timestamp" }),
+  revokedReason: text("revoked_reason"),
+}, (table) => [
+  uniqueIndex("certificates_user_course_unique").on(table.userId, table.courseId),
+  index("certificates_course_idx").on(table.courseId),
+]);
+
+export type Certificate = typeof certificates.$inferSelect;
 
 export const lessonProgress = sqliteTable(
   "lesson_progress",
