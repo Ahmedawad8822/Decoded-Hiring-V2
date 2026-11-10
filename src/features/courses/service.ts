@@ -116,6 +116,11 @@ export async function createCourse(input: CreateCourseInput): Promise<Course> {
       title: input.title,
       slug,
       description: input.description || null,
+      outcomes: input.outcomes == null ? null : JSON.stringify(input.outcomes),
+      faq: input.faq == null ? null : JSON.stringify(input.faq),
+      audience: input.audience || null,
+      instructorName: input.instructorName || null,
+      instructorBio: input.instructorBio || null,
       status: "draft",
       accessMode: input.accessMode ?? "FREE",
       coverImage: input.coverImage || null,
@@ -172,6 +177,11 @@ export async function updateCourse(id: string, input: UpdateCourseInput): Promis
   const patch: Partial<typeof courses.$inferInsert> = { ...buildEditTouch(now) };
   if (typeof input.title !== "undefined") patch.title = input.title;
   if (typeof input.slug !== "undefined") patch.slug = input.slug;
+  if (typeof input.outcomes !== "undefined") patch.outcomes = input.outcomes === null ? null : JSON.stringify(input.outcomes);
+  if (typeof input.faq !== "undefined") patch.faq = input.faq === null ? null : JSON.stringify(input.faq);
+  if (typeof input.audience !== "undefined") patch.audience = input.audience || null;
+  if (typeof input.instructorName !== "undefined") patch.instructorName = input.instructorName || null;
+  if (typeof input.instructorBio !== "undefined") patch.instructorBio = input.instructorBio || null;
   if (typeof input.description !== "undefined") patch.description = input.description || null;
   if (typeof input.accessMode !== "undefined") patch.accessMode = input.accessMode;
   if (typeof input.coverImage !== "undefined") patch.coverImage = input.coverImage || null;
@@ -388,6 +398,8 @@ export async function createLesson(input: CreateLessonInput): Promise<Lesson> {
       body: JSON.stringify(input.body ?? []),
       videoUrl,
       required: input.required ?? true,
+      isPreview: input.isPreview ?? false,
+      durationMinutes: input.durationMinutes ?? null,
       position,
       status: "draft",
       createdAt: now,
@@ -436,6 +448,8 @@ export async function updateLesson(id: string, input: UpdateLessonInput): Promis
   if (typeof input.body !== "undefined") patch.body = JSON.stringify(input.body);
   if (typeof input.videoUrl !== "undefined") patch.videoUrl = normalizeVideoUrl(input.videoUrl);
   if (typeof input.required !== "undefined") patch.required = input.required;
+  if (typeof input.isPreview !== "undefined") patch.isPreview = input.isPreview;
+  if (typeof input.durationMinutes !== "undefined") patch.durationMinutes = input.durationMinutes;
 
   try {
     // Same batch (one D1 transaction): the UPDATE plus the old-slug redirect.

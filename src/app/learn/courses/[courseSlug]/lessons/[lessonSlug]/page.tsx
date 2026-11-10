@@ -18,6 +18,9 @@ import { buildYouTubeEmbedUrl } from "@/features/courses/youtube";
 import { CompleteButton } from "@/components/learner/complete-button";
 import { LessonPlayerShell } from "@/components/learner/lesson-player-shell";
 
+import { getLessonReadAccess } from "@/features/courses/lesson-access";
+import { lessonMetaLabel } from "@/features/courses/metadata";
+
 export async function generateMetadata(props: {
   params: Promise<{ courseSlug: string; lessonSlug: string }>;
 }) {
@@ -45,10 +48,11 @@ export default async function LessonPlayerPage(props: {
     notFound();
   }
 
-  // Server-side enrollment gate: no (or cancelled) enrollment → denied panel
-  // (never the body). Cancelled learners re-enroll from the course page.
+  // Server-side read gate; preview does not authorize progress or resources.
   const enrollment = session?.user ? await getEnrollment(session.user.id, course.id) : null;
-  if (!hasLearnerAccess(enrollment)) {
+  const activeEnrollment = hasLearnerAccess(enrollment) ? enrollment : null;
+  const readAccess = getLessonReadAccess({ signedIn: Boolean(session?.user), enrolled: Boolean(activeEnrollment), course, lesson });
+  if (readAccess === "denied") {
     return (
       <main className="sec-app learner-page" id="main">
         <div className="wrap learner-column">
@@ -73,19 +77,19 @@ export default async function LessonPlayerPage(props: {
   }
 
   const curriculum = await getCourseCurriculum(course.id);
-  const progress = await getEnrollmentProgress(enrollment);
-  const completedSet = new Set(progress.completedLessonIds);
-  const resources = await getLessonResources(lesson.id);
+  const progress = activeEnrollment ? await getEnrollmentProgress(activeEnrollment) : null;
+  const completedSet = new Set(progress?.completedLessonIds ?? []);
+  const resources = activeEnrollment ? await getLessonResources(lesson.id) : [];
   const blocks = parseLessonBody(lesson);
   const embedUrl = lesson.videoUrl ? buildYouTubeEmbedUrl(lesson.videoUrl) : null;
 
   const flat = curriculum.flatMap((c) => c.publishedLessons);
   const idx = flat.findIndex((l) => l.id === lesson.id);
-  const prev = idx > 0 ? flat[idx - 1] : null;
-  const next = idx >= 0 && idx < flat.length - 1 ? flat[idx + 1] : null;
+  const prev = idx > 0 && (activeEnrollment || flat[idx - 1].isPreview) ? flat[idx - 1] : null;
+  const next = idx >= 0 && idx < flat.length - 1 && (activeEnrollment || flat[idx + 1].isPreview) ? flat[idx + 1] : null;
 
-  const continueHref = getLessonContinuationHref(course, lesson.id, flat, progress.completedLessonIds);
-  const finishHref = progress.completed ? `/learn/courses/${course.slug}/complete` : `/learn/courses/${course.slug}`;
+  const continueHref = getLessonContinuationHref(course, lesson.id, flat, progress?.completedLessonIds ?? []);
+  const finishHref = progress?.completed ? `/learn/courses/${course.slug}/complete` : `/learn/courses/${course.slug}`;
 
   const positionLabel = `LESSON ${idx + 1} OF ${flat.length}`;
 
@@ -94,7 +98,7 @@ export default async function LessonPlayerPage(props: {
       <div className="cu-head">
         <p className="t">{course.title}</p>
         <p className="s mono">
-          {progress.completedRequired} / {progress.totalRequired} LESSONS · {progress.percent}%
+          {progress ? `${progress.completedRequired} / ${progress.totalRequired} LESSONS · ${progress.percent}%` : "FREE PREVIEW"}
         </p>
       </div>
       {curriculum.map((entry) => (
@@ -107,11 +111,15 @@ export default async function LessonPlayerPage(props: {
               <Link
                 key={l.id}
                 className={`cu-lesson${done ? " done" : ""}${current ? " current" : ""}`}
-                href={`/learn/courses/${course.slug}/lessons/${l.slug}`}
+                href={activeEnrollment || l.isPreview ? `/learn/courses/${course.slug}/lessons/${l.slug}` : `/learn/courses/${course.slug}`}
                 aria-current={current ? true : undefined}
               >
                 <span className="tick">{done ? "✓" : ""}</span>
-                {l.title}
+                <span className="lrn-lesson-info">
+                  <span>{l.title}</span>
+                  <span className="lrn-lesson-meta">{lessonMetaLabel(l)}</span>
+                </span>
+                {l.isPreview && course.status === "published" && <span className="lrn-preview-badge">Preview</span>}
                 {!l.required && <span className="opt">OPTIONAL</span>}
               </Link>
             );
@@ -126,6 +134,8 @@ export default async function LessonPlayerPage(props: {
       <article className="lesson has-mobile-bar">
         <p className="ls-position">{positionLabel} — {course.title.toUpperCase()}</p>
         <h1 className="a-h1 learner-mt-8">{lesson.title}</h1>
+        <p className="lrn-lesson-meta">{lessonMetaLabel(lesson, resources.length > 0)}</p>
+        {readAccess === "preview" && <p className="learner-mt-12">Free preview · Enroll for the full course, progress tracking and downloadable resources.</p>}
 
         {embedUrl && (
           <div className="lesson-video">
@@ -171,13 +181,15 @@ export default async function LessonPlayerPage(props: {
               ← Course
             </Link>
           )}
-          <CompleteButton
-            key={lesson.id}
-            enrollmentId={enrollment.id}
-            lessonId={lesson.id}
-            alreadyDone={completedSet.has(lesson.id)}
-            continueHref={continueHref}
-          />
+          {activeEnrollment ? (
+            <CompleteButton
+              key={lesson.id}
+              enrollmentId={activeEnrollment.id}
+              lessonId={lesson.id}
+              alreadyDone={completedSet.has(lesson.id)}
+              continueHref={continueHref}
+            />
+          ) : <Link className="btn primary learner-link" href={`/learn/courses/${course.slug}`}>Enroll in course →</Link>}
           {next ? (
             <Link className="btn secondary learner-link" href={`/learn/courses/${course.slug}/lessons/${next.slug}`}>
               Next →
@@ -199,19 +211,21 @@ export default async function LessonPlayerPage(props: {
               ←
             </Link>
           )}
-          <CompleteButton
-            key={lesson.id}
-            enrollmentId={enrollment.id}
-            lessonId={lesson.id}
-            alreadyDone={completedSet.has(lesson.id)}
-            continueHref={continueHref}
-          />
+          {activeEnrollment ? (
+            <CompleteButton
+              key={lesson.id}
+              enrollmentId={activeEnrollment.id}
+              lessonId={lesson.id}
+              alreadyDone={completedSet.has(lesson.id)}
+              continueHref={continueHref}
+            />
+          ) : <Link className="btn primary learner-link" href={`/learn/courses/${course.slug}`}>Enroll in course →</Link>}
           {next ? (
             <Link className="btn secondary learner-link" href={`/learn/courses/${course.slug}/lessons/${next.slug}`} aria-label="Next lesson">
               Next →
             </Link>
           ) : (
-            <Link className="btn secondary learner-link" href={finishHref} aria-label={progress.completed ? "Done — see completion" : "Done — back to course"}>
+            <Link className="btn secondary learner-link" href={finishHref} aria-label={progress?.completed ? "Done — see completion" : "Done — back to course"}>
               Done →
             </Link>
           )}
