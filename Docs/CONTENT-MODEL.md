@@ -56,6 +56,23 @@ Slug-redirect rules (`features/slug-redirects/service.ts`): a row is written onl
 | **Enrollment** (`enrollments`) | `userId`, `courseId`, `status` (`active`/`completed`/`cancelled`), `accessSource`, `enrolledAt`, `completedAt` | see below | none | unique per (user, course) | private |
 | **Lesson Progress** (`lesson_progress`) | `enrollmentId`, `lessonId`, `completedAt` | none | none | unique per (enrollment, lesson) | private |
 
+Certificates are opt-in per course (`certificateEnabled`, default false). A signed-in
+learner with access and computed course completion can claim one certificate per
+user/course, including on archived courses. Names (trimmed, 2–80 characters,
+no controls) and course titles are snapshots. Only Studio admins can correct a
+name, revoke with a reason (up to 200 characters), or restore; these actions are
+audited. Disabling issuance does not revoke existing certificates.
+
+`certificates` links user, course and enrollment, with a unique user/course index
+and a course index. Public ids are 26 uppercase Crockford base32 digits (130 bits
+from `crypto.getRandomValues`). `/certificates/[certificateId]` exposes only the
+printed fields, validates ids before lookup, is `force-dynamic` and `no-store`,
+and carries `noindex, nofollow`. It is excluded from the sitemap and prewarmer.
+Printing uses browser HTML/CSS in landscape; no server PDF generation is used.
+The dashboard reads its owner's certificates in one query. Studio lists 25 per
+page. Authenticated actions have no existing rate-limit helper; certificate
+claims reuse the unique key for idempotency without adding a new limiter.
+
 Enrollment states: `active` to `completed` and back is automatic (reconcile); `cancelled` is **never set by any code path** and `enrollFree` reactivates it (no cancellation workflow currently exists). Only an effectively FREE, non-archived course auto-enrolls.
 
 ### Commerce and scheduling catalogue

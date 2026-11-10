@@ -84,6 +84,7 @@ async function main() {
   // from the disposable cwd, rather than downloading anything.
   fs.symlinkSync(path.join(root, "node_modules"), path.join(work, "node_modules"), "dir");
   await run("tsx", ["scripts/e2e-bootstrap.ts"]);
+  await run("tsx", ["scripts/seed-worker-certificates.ts"]);
   await run("tsx", ["scripts/seed.ts"]); // published baseline guide for Link/RSC tests
   // Explicit local-only A/B diagnostic. Never alter the deployment config.
   const interceptionOff = process.env.WORKER_E2E_INTERCEPTION_OFF === "1";

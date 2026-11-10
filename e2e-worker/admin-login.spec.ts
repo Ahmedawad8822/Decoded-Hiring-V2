@@ -4,7 +4,7 @@ import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { expect, test } from "@playwright/test";
 import { prepareSession, readState } from "../scripts/remote-sessions";
-import { WORKER_ADMIN } from "../scripts/worker-e2e-setup";
+import { WORKER_ADMIN, WORKER_CERTIFICATE_ID } from "../scripts/worker-e2e-setup";
 
 test.use({ trace: "off" });
 
@@ -29,6 +29,65 @@ test("HTTP auth responses and admin gates stay private and uncached", async ({ p
       data: { email: `${randomUUID()}@example.test`, password: randomUUID() + randomUUID(), name: "Local fixture" }, headers: { origin: baseURL! },
     });
     expect(created.status()).toBe(200);
+    // Repeated anonymous reads of a real certificate must bypass interception.
+    for (let read = 0; read < 2; read++) {
+      const certificate = await anonymous.get(`/certificates/${WORKER_CERTIFICATE_ID}`);
+      expect(certificate.status()).toBe(200);
+      expect(certificate.headers()["cache-control"]).toContain("no-store");
+      expect(/(?:public|s-maxage)/i.test(certificate.headers()["cache-control"] ?? "")).toBe(false);
+      expect(certificate.headers()["x-opennext-cache"]).not.toBe("HIT");
+      const html = await certificate.text();
+      expect(html).toMatch(/noindex/);
+      expect(html).toContain("Valid");
+      expect(html).toContain("Worker Certificate Learner");
+      expect(html).not.toContain(WORKER_ADMIN.email);
+    }
+    for (const id of ["malformed", "Z".repeat(26)]) {
+      const missing = await anonymous.get(`/certificates/${id}`);
+      expect(missing.status()).toBe(404);
+      expect(missing.headers()["cache-control"]).toContain("no-store");
+      expect(missing.headers()["x-opennext-cache"]).not.toBe("HIT");
+    }
+    const manifest: Record<string, { exportedName: string }> = JSON.parse(
+      fs.readFileSync(".next/server/server-reference-manifest.json", "utf8"),
+    ).node;
+    async function action(client: typeof admin, name: string, input: unknown) {
+      const entry = Object.entries(manifest).find(([, value]) => value.exportedName === name);
+      if (!entry) throw new Error(`Missing compiled action: ${name}`);
+      const response = await client.post("/admin/courses", {
+        headers: { origin: baseURL!, "next-action": entry[0], "content-type": "text/plain;charset=UTF-8", accept: "text/x-component" },
+        data: JSON.stringify([input]),
+      });
+      expect(response.status()).toBe(200);
+      const row = (await response.text()).split("\n").map((line) => line.slice(line.indexOf(":") + 1))
+        .find((line) => line.startsWith('{"ok":'));
+      if (!row) throw new Error(`Missing action result for ${name}`);
+      return JSON.parse(row) as { ok: boolean; data?: { id: string } };
+    }
+    const claim = { courseSlug: "worker-certificate-course", recipientName: "Replacement Name" };
+    expect((await action(anonymous, "claimCertificateAction", claim)).ok).toBe(false);
+    expect((await action(learner, "claimCertificateAction", claim)).ok).toBe(false);
+    const repeated = await action(admin, "claimCertificateAction", claim);
+    expect(repeated.data?.id).toBe(WORKER_CERTIFICATE_ID);
+    for (const client of [anonymous, learner]) {
+      expect((await action(client, "mutateCertificateAction", { id: WORKER_CERTIFICATE_ID, operation: "restore" })).ok).toBe(false);
+    }
+    for (const input of [
+      { id: WORKER_CERTIFICATE_ID, operation: "revoke", reason: "<b>Review required</b>" },
+      { id: WORKER_CERTIFICATE_ID, operation: "restore" },
+      { id: WORKER_CERTIFICATE_ID, operation: "edit", recipientName: "Corrected Worker Learner" },
+    ]) {
+      expect((await action(admin, "mutateCertificateAction", input)).ok).toBe(true);
+      const verify = await anonymous.get(`/certificates/${WORKER_CERTIFICATE_ID}`);
+      expect(verify.headers()["cache-control"]).toContain("no-store");
+      expect(verify.headers()["x-opennext-cache"]).not.toBe("HIT");
+      const html = await verify.text();
+      if (input.operation === "revoke") {
+        expect(html).toContain("Revoked on");
+        expect(html).toContain("&lt;b&gt;Review required&lt;/b&gt;");
+      } else expect(html).toContain("Valid");
+      if (input.operation === "edit") expect(html).toContain("Corrected Worker Learner");
+    }
     for (const client of [anonymous, admin, learner]) {
       const session = await client.get("/api/auth/get-session");
       expect(session.headers()["cache-control"]).toContain("no-store");

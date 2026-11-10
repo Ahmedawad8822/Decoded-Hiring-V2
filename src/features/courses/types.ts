@@ -38,6 +38,7 @@ export const faqSchema = z.array(z.object({
   a: z.string().trim().min(1).max(1500),
 })).max(12);
 const courseLandingFields = {
+  certificateEnabled: z.boolean().optional(),
   outcomes: outcomesSchema.optional().nullable(),
   audience: z.string().trim().max(2000).optional().nullable(),
   faq: faqSchema.optional().nullable(),

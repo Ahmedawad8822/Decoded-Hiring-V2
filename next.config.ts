@@ -87,6 +87,10 @@ const nextConfig: NextConfig = {
   async headers() {
     return [
       {
+        source: "/certificates/:path*",
+        headers: [{ key: "Cache-Control", value: "no-store" }],
+      },
+      {
         source: "/:path*",
         headers: securityHeaders,
       },

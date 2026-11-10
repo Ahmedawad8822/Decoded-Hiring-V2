@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { listLearnerCertificates } from "@/features/certificates/service";
 import { redirect } from "next/navigation";
 import { getServerSession } from "@/lib/auth";
 import { getAccessibleEnrollments } from "@/features/enrollments/service";
@@ -24,8 +25,8 @@ export default async function LearnHomePage() {
   // getCoursesByIds fan-out; cancelled enrollments are filtered BEFORE any
   // progress work so they never appear here and never reconcile.
   const memberships = await getAccessibleEnrollments(userId);
-  const [batchedProgress, published] = await Promise.all([
-    getBatchedEnrollmentProgress(memberships), getPublishedCourses(),
+  const [batchedProgress, published, certificates] = await Promise.all([
+    getBatchedEnrollmentProgress(memberships), getPublishedCourses(), listLearnerCertificates(userId),
   ]);
   const enrolledIds = new Set(memberships.map((enrollment) => enrollment.courseId));
   const explore = published.filter((course) => !enrolledIds.has(course.id)).slice(0, 2);
@@ -50,6 +51,15 @@ export default async function LearnHomePage() {
         <p className="a-micro learner-mb-6">WELCOME BACK, {(session.user.name || "LEARNER").toUpperCase()}</p>
         <h1 className="a-h1 learner-mb-28">Continue learning</h1>
 
+        <section className="learner-section" aria-labelledby="certificates-h">
+          <h2 className="a-h2" id="certificates-h">Certificates</h2>
+          {certificates.length === 0 ? <p>No certificates yet.</p> : <ul>
+            {certificates.map((certificate) => <li key={certificate.id}>
+              <Link href={`/certificates/${certificate.id}`}>{certificate.courseTitle}</Link>
+              {certificate.revokedAt && " · Revoked"}
+            </li>)}
+          </ul>}
+        </section>
         {cards.length === 0 && (
           <div className="learner-empty">
             <b className="learner-empty-title">No enrollments yet</b>

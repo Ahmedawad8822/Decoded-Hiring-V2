@@ -176,6 +176,13 @@
       "when": 1794283352218,
       "tag": "0024_modern_swordsman",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "6",
+      "when": 1794310563698,
+      "tag": "0025_course_certificates",
+      "breakpoints": true
     }
   ]
 }
