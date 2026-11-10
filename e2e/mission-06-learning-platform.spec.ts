@@ -349,7 +349,7 @@ test.describe("mission 06 learning platform lifecycle", () => {
       await expect(name).toHaveValue("E2E Learner");
       await name.fill("Certificate Learner");
       await clickAction(page, page.getByRole("button", { name: "Get your certificate", exact: true }));
-      await expect(page).toHaveURL(/\/certificates\/[0-9A-HJKMNP-TV-Z]{26}$/);
+      await expect(page).toHaveURL(/\/certificates\/[0-9A-HJKMNP-TV-Z]{26}$/, { timeout: 30_000 }); // first visit compiles the route cold in dev
       certificatePath = new URL(page.url()).pathname;
       await expect(page.getByText("Valid", { exact: true })).toBeVisible();
       await expect(page.getByText("Certificate Learner", { exact: true })).toBeVisible();
