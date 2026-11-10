@@ -1,6 +1,6 @@
 "use client";
 
-import { EmptyState, Toast, Card, FileDrop, StatusFilters, humanLabel, Button, Input, DataTable, Textarea, Select } from "../_ui";
+import { EmptyState, Toast, useToast, Card, FileDrop, StatusFilters, humanLabel, Button, Input, DataTable, Textarea, Select } from "../_ui";
 import React, { useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -49,18 +49,13 @@ export function GuideManagerClient({ startNew = false, initialGuides }: GuideMan
   const [currentStatus, setCurrentStatus] = useState<"draft" | "published" | "archived">("draft");
 
   // UI state
-  const [toast, setToast] = useState<{ title: string; message: string; type?: "info" | "error" } | null>(null);
+  const [toast, showToast] = useToast();
   const [confirmModal, setConfirmModal] = useState<{
     action: "publish" | "unpublish" | "archive";
     guideId: string;
     guideTitle: string;
   } | null>(null);
   const [uploadingImage, setUploadingImage] = useState(false);
-
-  const showToast = (title: string, message: string, type: "info" | "error" = "info") => {
-    setToast({ title, message, type });
-    setTimeout(() => setToast(null), 4000);
-  };
 
   // Start creating new guide
   const handleNewGuide = () => {
@@ -302,6 +297,9 @@ export function GuideManagerClient({ startNew = false, initialGuides }: GuideMan
     <Link
       href={`/guides/${g.slug}?preview=true`}
       target="_blank"
+      // New-tab staff preview: never prefetch. The segment tree prefetch drops
+      // ?preview=true, so it renders (and caches) the PUBLIC slug, racing publish.
+      prefetch={false}
       className="btn ghost small"
 
     >
@@ -541,6 +539,9 @@ export function GuideManagerClient({ startNew = false, initialGuides }: GuideMan
               <Link
                 href={`/guides/${slug}?preview=true`}
                 target="_blank"
+                // New-tab staff preview: never prefetch. The segment tree prefetch drops
+                // ?preview=true, so it renders (and caches) the PUBLIC slug, racing publish.
+                prefetch={false}
                 className="btn secondary small"
 
               >

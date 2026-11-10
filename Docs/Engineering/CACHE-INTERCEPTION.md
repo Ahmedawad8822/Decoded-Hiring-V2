@@ -191,3 +191,30 @@ five actual-browser tests (Studio lifecycle for both kinds, Link/RSC navigation,
 contact action, scheduler hydration). The completed HTTP checks cannot establish
 browser behavior or edge CPU. No remote Cloudflare command, deployment, or commit
 is part of this work.
+
+## Studio lifecycle flake (2026-11-10)
+
+`cache-interception.spec.ts` › "guides/field-notes: admin lifecycle…" failed
+intermittently in two ways. Neither was a tag-invalidation bug in the R2/D1 path.
+
+- **404 on the first GET after publish.** The Studio editor's `Preview ↗` and
+  list-row `Preview` links (`<Link href="/guides/<slug>?preview=true" target="_blank">`)
+  were prefetched. The segment-cache `/_tree` prefetch is sent to the slug
+  **without** `?preview=true`, so it skips the preview rewrite and renders the
+  public ISR route (a 404 for a draft). It repeats after every action/refresh,
+  including while "Publish Now" runs. HTML GETs and RSC prefetches share the
+  response-cache key `/guides/<slug>`, and Next's `ResponseCache.getBatcher`
+  coalesces concurrent renders of a key
+  (`node_modules/next/dist/server/response-cache/index.js`). A prefetch that read
+  the draft before the publish committed, and was still rendering when the first
+  anonymous GET arrived, handed that GET its 404, bypassing the tag check.
+  Render timestamps protect only the persisted entry, not an in-flight render.
+  Fix: `prefetch={false}` on the new-tab Studio links. The spec now asserts that
+  the browser never requests a public `worker-*` article.
+- **"Archived" toast never seen.** `showToast` never cancelled the previous
+  4-second dismiss timer. A toast that appeared just before an older timer fired
+  was removed after a few ms, before Playwright could read it. Fix: shared
+  `useToast()` (`src/app/admin/_ui/interactive.tsx`) clears the previous timer.
+
+The spec also signs in once per run and uses a unique slug per attempt, so
+`--repeat-each` no longer hits the auth rate limit or a "Creation Failed" slug clash.

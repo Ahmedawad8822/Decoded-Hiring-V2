@@ -1,6 +1,6 @@
 "use client";
 
-import { EmptyState, Toast, Card, FileDrop, StatusFilters, humanLabel, Button, Input, DataTable, Textarea } from "../_ui";
+import { EmptyState, Toast, useToast, Card, FileDrop, StatusFilters, humanLabel, Button, Input, DataTable, Textarea } from "../_ui";
 import React, { useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -69,7 +69,7 @@ export function FieldNotesManagerClient({ startNew = false, initialNotes }: Fiel
   const [currentStatus, setCurrentStatus] = useState<FieldNoteStatus>("draft");
   const [revisions, setRevisions] = useState<FieldNoteRevision[]>([]);
 
-  const [toast, setToast] = useState<{ title: string; message: string; type?: "info" | "error" } | null>(null);
+  const [toast, showToast] = useToast();
   const [confirmModal, setConfirmModal] = useState<{
     action: "publish" | "unpublish" | "archive";
     noteId: string;
@@ -77,10 +77,6 @@ export function FieldNotesManagerClient({ startNew = false, initialNotes }: Fiel
   } | null>(null);
   const [uploadingImage, setUploadingImage] = useState(false);
 
-  const showToast = (title: string, message: string, type: "info" | "error" = "info") => {
-    setToast({ title, message, type });
-    setTimeout(() => setToast(null), 4000);
-  };
 
   const loadRevisions = async (noteId: string) => {
     const res = await getFieldNoteRevisionsAction(noteId);
@@ -261,6 +257,9 @@ export function FieldNotesManagerClient({ startNew = false, initialNotes }: Fiel
     <Link
       href={`/field-notes/${n.slug}?preview=true`}
       target="_blank"
+      // New-tab staff preview: never prefetch. The segment tree prefetch drops
+      // ?preview=true, so it renders (and caches) the PUBLIC slug, racing publish.
+      prefetch={false}
       className="btn ghost small"
 
     >
@@ -450,6 +449,9 @@ export function FieldNotesManagerClient({ startNew = false, initialNotes }: Fiel
               <Link
                 href={`/field-notes/${slug}?preview=true`}
                 target="_blank"
+                // New-tab staff preview: never prefetch. The segment tree prefetch drops
+                // ?preview=true, so it renders (and caches) the PUBLIC slug, racing publish.
+                prefetch={false}
                 className="btn secondary small"
 
               >

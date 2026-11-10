@@ -1,11 +1,22 @@
-import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
+import { expect, test, type APIRequestContext, type Cookie, type Page } from "@playwright/test";
 import { clickAction, waitForHydration } from "../e2e/helpers/actions";
 import { WORKER_ADMIN } from "../scripts/worker-e2e-setup";
 
 const baseline = "/guides/talent-acquisition-strategy";
 const baselineTitle = "Talent Acquisition Strategy Is Not a Hiring Plan";
 
+// The suite runs on one worker against one Worker. Sign in once and reuse the
+// session: repeated sign-ins hit the auth rate limit ("Too many requests")
+// under --repeat-each.
+let adminCookies: Cookie[] | undefined;
+
 async function login(page: Page) {
+  if (adminCookies) {
+    await page.context().addCookies(adminCookies);
+    await page.goto("/admin/content");
+    await expect(page).toHaveURL(/\/admin\/content$/);
+    return;
+  }
   await page.goto("/admin/login");
   const email = page.getByLabel(/Admin Email/);
   await waitForHydration(page, email);
@@ -13,6 +24,7 @@ async function login(page: Page) {
   await page.getByLabel(/^Password/).fill(WORKER_ADMIN.password);
   await clickAction(page, page.getByRole("button", { name: "Sign in to Studio" }));
   await expect(page).toHaveURL(/\/admin\/content$/);
+  adminCookies = await page.context().cookies();
 }
 
 async function hit(request: APIRequestContext, url: string) {
@@ -28,7 +40,7 @@ async function hit(request: APIRequestContext, url: string) {
 
 async function article(request: APIRequestContext, url: string, title: string, body: string) {
   const response = await request.get(url);
-  expect(response.status(), `first GET ${url}`).toBe(200);
+  expect(response.status(), `first GET ${url} (x-opennext-cache=${response.headers()["x-opennext-cache"]}, x-nextjs-cache=${response.headers()["x-nextjs-cache"]})`).toBe(200);
   const html = await response.text();
   expect(html, `first GET ${url} must reflect the completed action`).toContain(title);
   expect(html).toContain(body);
@@ -135,10 +147,20 @@ test("HTTP coaching availability remains live outside the cached shell", async (
 for (const kind of ["guides", "field-notes"] as const) {
   test(`${kind}: admin lifecycle invalidates warm pages; preview remains private`, async ({ page, request }) => {
     await login(page);
+    // The Studio must not request the PUBLIC article itself. A Link prefetch
+    // drops ?preview=true and renders the public route: a 404 render started
+    // before publish can be shared with the first public GET after it.
+    const publicHits: string[] = [];
+    page.context().on("request", (r) => {
+      const u = new URL(r.url());
+      if (u.pathname.startsWith(`/${kind}/worker-`) && u.searchParams.get("preview") !== "true") publicHits.push(`${r.method()} ${u.pathname}${u.search}`);
+    });
     await page.goto("/admin/content");
     if (kind === "field-notes") await clickAction(page, page.getByRole("tab", { name: /^Field Notes/ }));
     await clickAction(page, page.getByRole("button", { name: kind === "guides" ? /New Guide/ : /New Field Note/ }));
-    const slug = `worker-${kind}-lifecycle`;
+    // One Worker state serves the whole run: a fixed slug would collide on
+    // --repeat-each/retries ("Creation Failed"), so make it unique per attempt.
+    const slug = `worker-${kind}-lifecycle-${Date.now().toString(36)}`;
     const url = `/${kind}/${slug}`;
     const title = page.getByPlaceholder(kind === "guides"
       ? "e.g. Talent Acquisition Strategy Is Not a Hiring Plan"
@@ -229,6 +251,7 @@ for (const kind of ["guides", "field-notes"] as const) {
     expect(archived.status(), "first GET after archive").toBe(404);
     expect(await archived.text()).not.toContain(draftBody);
     await listed(request, `/${kind}`, renamed, false);
+    expect(publicHits, "browser requests to the public article").toEqual([]);
   });
 }
 
