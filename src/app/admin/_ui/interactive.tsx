@@ -70,3 +70,22 @@ export function Tabs({ label, tabs, value, onChange, panelId }: { label: string;
 export function StatusFilters({ value, onChange, items }: { value: string; onChange: (value: string) => void; items: { value: string; label: string; count?: number }[] }) {
   return <div className="filter-chips" role="group" aria-label="Filter status">{items.map(item => <button type="button" key={item.value} aria-pressed={value === item.value} onClick={() => onChange(item.value)}>{item.label}{item.count !== undefined && <span>{item.count}</span>}</button>)}</div>;
 }
+
+export type ToastState = { title: string; message: string; type?: "info" | "error" };
+
+/**
+ * One toast at a time, auto-dismissed after `ms`. Each new toast cancels the
+ * previous dismiss timer: otherwise an earlier toast's timer clears a newer one
+ * early (e.g. "Archived" vanishing moments after it appears).
+ */
+export function useToast(ms = 4000) {
+  const [toast, setToast] = useState<ToastState | null>(null);
+  const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  useEffect(() => () => clearTimeout(timer.current), []);
+  const showToast = (title: string, message: string, type: "info" | "error" = "info") => {
+    clearTimeout(timer.current);
+    setToast({ title, message, type });
+    timer.current = setTimeout(() => setToast(null), ms);
+  };
+  return [toast, showToast] as const;
+}

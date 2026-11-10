@@ -46,7 +46,7 @@ function Shell({ children, user }: { children: ReactNode; user?: { name?: string
       <Drawer><Navigation pathname={pathname} /></Drawer>
       <span className="st-crumb"><span>Studio <span className="crumb-divider">/</span> </span><b>{current.label}</b></span>
       <span className="st-spacer" />
-      <Link href="/" target="_blank" className="btn ghost live-site" aria-label="View live site"><span>View live site</span><Icon name="external" width="16" height="16" /></Link>
+      <Link href="/" target="_blank" prefetch={false} className="btn ghost live-site" aria-label="View live site"><span>View live site</span><Icon name="external" width="16" height="16" /></Link>
       <details className="avatar-menu"><summary aria-label="Account menu"><span className="st-avatar">{initials}</span></summary><div className="avatar-panel"><strong>{user?.name || "Studio admin"}</strong><span>{user?.email}</span><Link href="/admin/security">Security</Link><Button type="button" onClick={signOut}>Sign out</Button></div></details>
     </header><main className="studio-page" id="main">{children}</main></div>
   </div>;
