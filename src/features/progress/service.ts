@@ -15,6 +15,7 @@ import {
   getPublishedCourseLessons,
 } from "@/features/courses/service";
 import { hasLearnerAccess } from "@/features/enrollments/access";
+import { assertManualLessonCompletionAllowed } from "@/features/quizzes/gate";
 import { isUniqueConstraintError } from "@/lib/db/sqlite-errors";
 import { AppError } from "@/lib/errors";
 
@@ -254,6 +255,10 @@ export async function markLessonComplete(
   if (existing) {
     alreadyComplete = true;
   } else {
+    // QUIZ GATE: a lesson whose quiz has requirePass=true can only be completed
+    // through a passed attempt. Existing completions are never re-checked, so
+    // quizzes added later do NOT retroactively un-complete anyone.
+    await assertManualLessonCompletionAllowed(enrollment.id, lesson.id);
     try {
       await db.insert(lessonProgress).values({
         id: `prog_${crypto.randomUUID().slice(0, 12)}`,
