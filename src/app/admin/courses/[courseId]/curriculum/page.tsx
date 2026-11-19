@@ -8,6 +8,7 @@ import {
   getLessonResourcesForLessons,
 } from "@/features/courses/service";
 import { CurriculumClient } from "./curriculum-client";
+import { getCourseQuizStats, listCourseQuizzes } from "@/features/quizzes/service";
 
 // Session-gated Studio route: render per request.
 export const dynamic = "force-dynamic";
@@ -33,18 +34,26 @@ export default async function AdminCurriculumPage(props: {
   // fan-out (2N queries for N lessons) is replaced by TWO batched GROUP BY /
   // IN queries over the full lesson list, grouped in memory.
   const lessonIds = curriculum.flatMap((entry) => entry.lessons.map((lesson) => lesson.id));
-  const [completionCounts, resourcesByLesson] = await Promise.all([
+  const [completionCounts, resourcesByLesson, quizzes, quizStats] = await Promise.all([
     getLessonCompletionCounts(lessonIds),
     getLessonResourcesForLessons(lessonIds),
+    listCourseQuizzes(courseId),
+    getCourseQuizStats(courseId),
   ]);
+  const quizByLessonId = new Map(quizzes.map((quiz) => [quiz.lessonId, quiz]));
 
   const sectionsWithLessons = curriculum.map((entry) => ({
     section: entry.section,
-    lessons: entry.lessons.map((lesson) => ({
-      lesson,
-      completions: completionCounts[lesson.id] ?? 0,
-      resources: resourcesByLesson.get(lesson.id) ?? [],
-    })),
+    lessons: entry.lessons.map((lesson) => {
+      const quiz = quizByLessonId.get(lesson.id) ?? null;
+      return {
+        lesson,
+        completions: completionCounts[lesson.id] ?? 0,
+        resources: resourcesByLesson.get(lesson.id) ?? [],
+        quiz,
+        quizStats: quiz ? (quizStats.get(quiz.id) ?? null) : null,
+      };
+    }),
   }));
 
   return (

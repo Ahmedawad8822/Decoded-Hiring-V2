@@ -186,6 +186,31 @@ test.describe("mission 06 learning platform lifecycle", () => {
       await expect(page.locator("#main").getByRole("alert")).toHaveCount(0);
     });
 
+    await test.step("author a two-question required quiz on lesson 1", async () => {
+      const row = page.getByRole("row", { name: /First Lesson E2E/ });
+      await clickAction(page, row.getByRole("button", { name: "Edit", exact: true }));
+      await waitForHydration(page, page.getByLabel("Quiz pass mark"));
+      await page.getByLabel("Quiz pass mark").fill("100");
+      await page.getByLabel("Require a pass to complete the lesson").check();
+
+      await page.getByLabel("Question 1 prompt").fill("Which plan keeps scope honest?");
+      await page.getByLabel("Question 1 option 1 text").fill("A small measurable plan");
+      await page.getByLabel("Question 1 option 2 text").fill("A vague big plan");
+      await page.getByLabel("Question 1 explanation").fill("Small scopes make progress visible.");
+
+      await clickAction(page, page.getByRole("button", { name: /Add question/ }));
+      await page.getByLabel("Question 2 type").selectOption("multiple");
+      await page.getByLabel("Question 2 prompt").fill("Which habits help learning?");
+      await page.getByLabel("Question 2 option 1 text").fill("Daily practice");
+      await page.getByLabel("Question 2 option 2 text").fill("Weekly review");
+      await page.getByLabel("Question 2 option 2 correct").check();
+      await page.getByLabel("Question 2 explanation").fill("Practice and review compound.");
+
+      await clickAction(page, page.getByRole("button", { name: "Save quiz" }));
+      await expect(page.getByRole("dialog")).toHaveCount(0);
+      await expect(page.locator("#main").getByRole("alert")).toHaveCount(0);
+    });
+
     await test.step("attach PDF resource to lesson 1", async () => {
       const row = page.getByRole("row", { name: /First Lesson E2E/ });
       await clickAction(page, row.getByRole("button", { name: "＋ PDF" }));
@@ -234,7 +259,7 @@ test.describe("mission 06 learning platform lifecycle", () => {
       await expect(page.getByText("Yes, open the free preview before enrolling.", { exact: true })).toBeVisible();
       const preview = page.locator(".cu-lesson", { hasText: "First Lesson E2E" });
       await expect(preview.getByText("Preview", { exact: true })).toBeVisible();
-      await expect(preview).toContainText("Reading · 8 min");
+      await expect(preview).toContainText("Reading · Quiz · 8 min");
       await expect(preview).toHaveAttribute("href", `/learn/courses/${courseSlug}/lessons/${lesson1Slug}`);
       await page.setViewportSize({ width: 375, height: 900 });
       const enrollBar = page.getByRole("region", { name: "Course enrollment", exact: true });
@@ -249,6 +274,11 @@ test.describe("mission 06 learning platform lifecycle", () => {
       await expect(page.getByRole("button", { name: "Complete & continue" })).toHaveCount(0);
       await expect(page.locator(".ls-mobile-bar").getByRole("link", { name: "Enroll in course →" })).toBeVisible();
       await expect(page.getByRole("link", { name: /Download/ })).toHaveCount(0);
+      await expect(page.getByRole("heading", { name: "Check your understanding" })).toBeVisible();
+      await expect(page.getByText("This quiz is part of the enrolled course.", { exact: false })).toBeVisible();
+      await expect(page.getByRole("button", { name: "Submit answers" })).toHaveCount(0);
+      await expect(page.getByRole("link", { name: "Enroll to take the quiz →" })).toBeVisible();
+      expect(await page.locator("#main").innerText()).not.toContain("Small scopes make progress visible.");
       await expect(page.locator("#main").getByRole("alert")).toHaveCount(0);
       await page.screenshot({ path: "test-results/learner-conversion-preview-phone.png", fullPage: true });
       await page.setViewportSize({ width: 1280, height: 900 });
@@ -297,7 +327,31 @@ test.describe("mission 06 learning platform lifecycle", () => {
         dlLink.click(),
       ]);
       expect(download.suggestedFilename()).toMatch(/\.pdf$/i);
-      await completeAndContinue(page, `/learn/courses/${courseSlug}/lessons/${lesson2Slug}`);
+      await expect(page.getByRole("button", { name: "Complete & continue" })).toHaveCount(0);
+      await expect(page.locator(".ls-actions").getByText("Pass the quiz (100%) to complete this lesson")).toBeVisible();
+      expect(await page.locator("#main").innerText()).not.toContain("Small scopes make progress visible.");
+
+      await page.getByRole("radio", { name: "A vague big plan" }).check();
+      await page.getByRole("checkbox", { name: "Daily practice" }).check();
+      await page.getByRole("checkbox", { name: "Weekly review" }).check();
+      await clickAction(page, page.getByRole("button", { name: "Submit answers" }));
+      await expect(page.locator(".quiz-result-text")).toContainText("You scored 50%");
+      await expect(page.locator(".quiz-result-text")).toContainText("You need 100% to pass.");
+      await expect(page.getByText("Small scopes make progress visible.")).toBeVisible();
+      await expect(page.locator(".quiz-actions").getByRole("button", { name: "Try again" })).toBeVisible();
+
+      await page.waitForTimeout(5_200);
+      await clickAction(page, page.getByRole("button", { name: "Try again" }));
+      await page.getByRole("radio", { name: "A small measurable plan" }).check();
+      await page.getByRole("checkbox", { name: "Daily practice" }).check();
+      await page.getByRole("checkbox", { name: "Weekly review" }).check();
+      await clickAction(page, page.getByRole("button", { name: "Submit answers" }));
+      await expect(page.locator(".quiz-result-text")).toContainText("You scored 100%");
+      await expect(page.locator(".quiz-result-text")).toContainText("You passed.");
+      await expect(page.locator(".quiz-actions").getByRole("link", { name: "Continue →" })).toBeVisible();
+      await clickAction(page, page.locator(".quiz-actions").getByRole("link", { name: "Continue →" }));
+      await expect(page).toHaveURL(new RegExp(`/lessons/${lesson2Slug}$`), { timeout: 30_000 });
+      await expect(page.locator("#main").getByRole("alert")).toHaveCount(0);
     });
 
     await test.step("latest activity wins spotlight; completed lessons can continue", async () => {

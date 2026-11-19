@@ -18,16 +18,35 @@ import {
   unpublishLessonAction,
   updateLessonAction,
 } from "@/features/courses/actions";
+import { deleteQuizAction, saveQuizAction } from "@/features/quizzes/actions";
+import type { CourseQuizStats } from "@/features/quizzes/service";
+import type { QuizDefinition } from "@/features/quizzes/types";
 
 interface LessonEntry {
   lesson: Lesson;
   completions: number;
   resources: LessonResource[];
+  quiz: QuizDefinition | null;
+  quizStats: CourseQuizStats | null;
 }
 
 interface SectionEntry {
   section: CourseSection;
   lessons: LessonEntry[];
+}
+
+interface QuizDraftOption {
+  id: string;
+  text: string;
+}
+
+interface QuizDraftQuestion {
+  id: string;
+  prompt: string;
+  kind: "single" | "multiple";
+  options: QuizDraftOption[];
+  correctOptionIds: string[];
+  explanation: string;
 }
 
 const LESSON_BLOCK_TYPES = ["heading", "paragraph", "blockquote", "callout", "list"] as const;
@@ -39,6 +58,49 @@ function parseBody(raw: string): ContentBlock[] {
   } catch {
     return [];
   }
+}
+
+function draftId(prefix: string): string {
+  return `${prefix}_${crypto.randomUUID().slice(0, 8)}`;
+}
+
+function emptyDraftQuestion(): QuizDraftQuestion {
+  const first = draftId("o");
+  const second = draftId("o");
+  return {
+    id: draftId("q"),
+    prompt: "",
+    kind: "single",
+    options: [
+      { id: first, text: "" },
+      { id: second, text: "" },
+    ],
+    correctOptionIds: [first],
+    explanation: "",
+  };
+}
+
+function quizToDraft(quiz: QuizDefinition | null): QuizDraftQuestion[] {
+  if (!quiz || quiz.questions.length === 0) return [emptyDraftQuestion()];
+  return quiz.questions.map((question) => ({
+    id: question.id,
+    prompt: question.prompt,
+    kind: question.kind,
+    options: question.options.map((option) => ({ id: option.id, text: option.text })),
+    correctOptionIds: [...question.correctOptionIds],
+    explanation: question.explanation ?? "",
+  }));
+}
+
+function draftToInput(questions: QuizDraftQuestion[]) {
+  return questions.map((question) => ({
+    id: question.id,
+    prompt: question.prompt.trim(),
+    kind: question.kind,
+    options: question.options.map((option) => ({ id: option.id, text: option.text.trim() })),
+    correctOptionIds: [...question.correctOptionIds],
+    explanation: question.explanation.trim() || undefined,
+  }));
 }
 
 export function CurriculumClient({
@@ -70,6 +132,9 @@ export function CurriculumClient({
   const [editDuration, setEditDuration] = useState("");
   const [editRequired, setEditRequired] = useState(true);
   const [editBlocks, setEditBlocks] = useState<ContentBlock[]>([]);
+  const [quizDraft, setQuizDraft] = useState<QuizDraftQuestion[]>([]);
+  const [quizPassPercent, setQuizPassPercent] = useState(70);
+  const [quizRequirePass, setQuizRequirePass] = useState(false);
 
   const [uploadTitle, setUploadTitle] = useState("");
   const [uploadingTo, setUploadingTo] = useState<string | null>(null);
@@ -142,6 +207,9 @@ export function CurriculumClient({
     setEditPreview(entry.lesson.isPreview);
     setEditDuration(entry.lesson.durationMinutes?.toString() ?? "");
     setEditBlocks(parseBody(entry.lesson.body));
+    setQuizDraft(quizToDraft(entry.quiz));
+    setQuizPassPercent(entry.quiz?.passPercent ?? 70);
+    setQuizRequirePass(entry.quiz?.requirePass ?? false);
     setError(null);
     setNotice(null);
   };
@@ -161,6 +229,134 @@ export function CurriculumClient({
         durationMinutes: editDuration === "" ? null : Number(editDuration),
       });
       if (res.ok) setEditingLesson(null);
+      return res;
+    });
+  };
+
+  const patchQuestion = (questionId: string, patch: Partial<QuizDraftQuestion>) => {
+    setQuizDraft((questions) =>
+      questions.map((question) => (question.id === questionId ? { ...question, ...patch } : question)),
+    );
+  };
+
+  const addQuestion = () => {
+    setQuizDraft((questions) => [...questions, emptyDraftQuestion()]);
+  };
+
+  const removeQuestion = (questionId: string) => {
+    setQuizDraft((questions) =>
+      questions.length === 1 ? questions : questions.filter((question) => question.id !== questionId),
+    );
+  };
+
+  const moveQuestion = (index: number, direction: -1 | 1) => {
+    setQuizDraft((questions) => {
+      const target = index + direction;
+      if (target < 0 || target >= questions.length) return questions;
+      const next = [...questions];
+      [next[index], next[target]] = [next[target], next[index]];
+      return next;
+    });
+  };
+
+  const addOption = (questionId: string) => {
+    setQuizDraft((questions) =>
+      questions.map((question) =>
+        question.id === questionId && question.options.length < 8
+          ? { ...question, options: [...question.options, { id: draftId("o"), text: "" }] }
+          : question,
+      ),
+    );
+  };
+
+  const removeOption = (questionId: string, optionId: string) => {
+    setQuizDraft((questions) =>
+      questions.map((question) => {
+        if (question.id !== questionId || question.options.length <= 2) return question;
+        return {
+          ...question,
+          options: question.options.filter((option) => option.id !== optionId),
+          correctOptionIds: question.correctOptionIds.filter((id) => id !== optionId),
+        };
+      }),
+    );
+  };
+
+  const setOptionText = (questionId: string, optionId: string, text: string) => {
+    setQuizDraft((questions) =>
+      questions.map((question) =>
+        question.id === questionId
+          ? {
+              ...question,
+              options: question.options.map((option) =>
+                option.id === optionId ? { ...option, text } : option,
+              ),
+            }
+          : question,
+      ),
+    );
+  };
+
+  const toggleCorrect = (questionId: string, optionId: string) => {
+    setQuizDraft((questions) =>
+      questions.map((question) => {
+        if (question.id !== questionId) return question;
+        if (question.kind === "single") return { ...question, correctOptionIds: [optionId] };
+        const selected = question.correctOptionIds.includes(optionId)
+          ? question.correctOptionIds.filter((id) => id !== optionId)
+          : [...question.correctOptionIds, optionId];
+        return { ...question, correctOptionIds: selected };
+      }),
+    );
+  };
+
+  const setQuestionKind = (questionId: string, kind: "single" | "multiple") => {
+    setQuizDraft((questions) =>
+      questions.map((question) => {
+        if (question.id !== questionId) return question;
+        const correctOptionIds =
+          kind === "single"
+            ? question.correctOptionIds.slice(0, 1).length > 0
+              ? question.correctOptionIds.slice(0, 1)
+              : question.options[0]
+                ? [question.options[0].id]
+                : []
+            : question.correctOptionIds.length > 0
+              ? question.correctOptionIds
+              : question.options[0]
+                ? [question.options[0].id]
+                : [];
+        return { ...question, kind, correctOptionIds };
+      }),
+    );
+  };
+
+  const handleSaveQuiz = async () => {
+    if (!editingLesson) return;
+    await runAction(`save-quiz-${editingLesson.lesson.id}`, async () => {
+      const res = await saveQuizAction({
+        lessonId: editingLesson.lesson.id,
+        passPercent: quizPassPercent,
+        requirePass: quizRequirePass,
+        questions: draftToInput(quizDraft),
+      });
+      if (res.ok) {
+        setEditingLesson(null);
+        return { ok: true, notice: "Quiz saved — learners see it on the lesson page." };
+      }
+      return res;
+    });
+  };
+
+  const handleRemoveQuiz = async () => {
+    if (!editingLesson) return;
+    if (!window.confirm("Remove this quiz? All recorded attempts will be deleted.")) return;
+    await runAction(`remove-quiz-${editingLesson.lesson.id}`, async () => {
+      const res = await deleteQuizAction({ lessonId: editingLesson.lesson.id });
+      if (res.ok) {
+        setEditingLesson(null);
+        return { ok: true, notice: "Quiz removed." };
+      }
       return res;
     });
   };
@@ -264,7 +460,7 @@ export function CurriculumClient({
                   {entry.lessons.length === 0 && (
                     <tr><td colSpan={6} className="muted s-text-sm" >No lessons yet — add the first one below.</td></tr>
                   )}
-                  {entry.lessons.map(({ lesson, completions, resources }) => (
+                  {entry.lessons.map(({ lesson, completions, resources, quiz, quizStats }) => (
                     <React.Fragment key={lesson.id}>
                       <tr>
                         <td>
@@ -273,7 +469,12 @@ export function CurriculumClient({
                         </td>
                         <td>
                           <span className="cell-main">{lesson.title}</span>
-                          <span className="cell-sub s-block s-text-xs" >/{lesson.slug}{lesson.videoUrl ? " · ▶ video" : ""}{resources.length > 0 ? ` · ${resources.length} PDF${resources.length === 1 ? "" : "s"}` : ""}</span>
+                          <span className="cell-sub s-block s-text-xs" >/{lesson.slug}{lesson.videoUrl ? " · ▶ video" : ""}{resources.length > 0 ? ` · ${resources.length} PDF${resources.length === 1 ? "" : "s"}` : ""}{quiz ? " · Quiz" : ""}</span>
+                          {quiz && (
+                            <span className="cell-sub s-block s-text-xs" >
+                              Quiz results: {quizStats?.attemptedLearners ?? 0} learner{(quizStats?.attemptedLearners ?? 0) === 1 ? "" : "s"} attempted · {quizStats?.passRate ?? 0}% pass rate
+                            </span>
+                          )}
                         </td>
                         <td>
                           <Input type="checkbox" checked={lesson.required} aria-label={`Required: ${lesson.title}`} disabled={busy === `req-${lesson.id}`} onChange={() => runAction(`req-${lesson.id}`, async () => { const r = await updateLessonAction({ id: lesson.id, required: !lesson.required }); return { ok: r.ok, error: r.error }; })} />
@@ -281,7 +482,7 @@ export function CurriculumClient({
                         <td><span className={`lifecycle ${lesson.status}`}>{lesson.status.toUpperCase()}</span></td>
                         <td className="num">{completions}</td>
                         <td>
-                          <Button className="btn ghost small" type="button" onClick={() => openLessonEditor({ lesson, completions, resources })}>Edit</Button>{" "}
+                          <Button className="btn ghost small" type="button" onClick={() => openLessonEditor({ lesson, completions, resources, quiz, quizStats })}>Edit</Button>{" "}
                           {lesson.status === "draft" ? (
                             <Button className="btn ghost small" type="button" onClick={() => runAction(`pls-${lesson.id}`, async () => { const r = await publishLessonAction(lesson.id); return { ok: r.ok, error: r.error, notice: r.ok ? "Lesson published — live for learners on next load." : undefined }; })}>Publish</Button>
                           ) : lesson.status === "published" ? (
@@ -391,6 +592,81 @@ export function CurriculumClient({
                 <Input type="number" min={1} max={600} step={1} value={editDuration} onChange={(e) => setEditDuration(e.target.value)} />
               </label>
               <StructuredBlockEditor blocks={editBlocks} onChange={setEditBlocks} allowedBlockTypes={LESSON_BLOCK_TYPES} eyebrowHint="LESSON BODY" />
+
+              <section className="s-stack s-gap-12 s-margin-top-8" aria-label="Lesson quiz">
+                <div className="s-row s-justify-content-space-between s-align-items-center s-gap-10 s-flex-wrap-wrap">
+                  <b>Quiz</b>
+                  <span className="s-text-xs s-muted">Optional knowledge check · answers stay private until submission</span>
+                </div>
+                <div className="s-row s-gap-10 s-flex-wrap-wrap s-align-items-center">
+                  <label className="s-row s-gap-8 s-align-items-center s-text-sm s-bold">
+                    Pass mark (%)
+                    <Input type="number" min={0} max={100} step={1} className="s-padding-6px-10px s-text-sm s-width-80" aria-label="Quiz pass mark" value={quizPassPercent} onChange={(e) => setQuizPassPercent(Math.max(0, Math.min(100, Number(e.target.value) || 0)))} />
+                  </label>
+                  <label className="s-row s-gap-8 s-align-items-center s-text-sm s-bold">
+                    <Input type="checkbox" checked={quizRequirePass} onChange={(e) => setQuizRequirePass(e.target.checked)} aria-label="Require a pass to complete the lesson" />
+                    Require a pass to complete the lesson
+                  </label>
+                </div>
+
+                {quizDraft.map((question, questionIndex) => (
+                  <fieldset key={question.id} className="settings-section s-stack s-gap-8 s-padding-12px">
+                    <legend className="s-text-sm s-bold">Question {questionIndex + 1}</legend>
+                    <div className="s-row s-gap-6 s-flex-wrap-wrap s-align-items-center">
+                      <Button className="btn ghost small" type="button" aria-label={`Move question ${questionIndex + 1} up`} disabled={questionIndex === 0} onClick={() => moveQuestion(questionIndex, -1)}>↑</Button>
+                      <Button className="btn ghost small" type="button" aria-label={`Move question ${questionIndex + 1} down`} disabled={questionIndex === quizDraft.length - 1} onClick={() => moveQuestion(questionIndex, 1)}>↓</Button>
+                      <Button className="btn ghost small" type="button" disabled={quizDraft.length === 1} onClick={() => removeQuestion(question.id)}>Remove</Button>
+                      <select className="s-padding-6px-10px s-text-sm" aria-label={`Question ${questionIndex + 1} type`} value={question.kind} onChange={(e) => setQuestionKind(question.id, e.target.value === "multiple" ? "multiple" : "single")}>
+                        <option value="single">Single choice</option>
+                        <option value="multiple">Multiple choice</option>
+                      </select>
+                    </div>
+                    <Input className="s-padding-8px-10px s-text-sm" aria-label={`Question ${questionIndex + 1} prompt`} placeholder="Question prompt" maxLength={500} value={question.prompt} onChange={(e) => patchQuestion(question.id, { prompt: e.target.value })} />
+                    <div className="s-stack s-gap-6">
+                      {question.options.map((option, optionIndex) => (
+                        <div key={option.id} className="s-row s-gap-8 s-align-items-center">
+                          <Input
+                            type={question.kind === "single" ? "radio" : "checkbox"}
+                            name={`correct-${question.id}`}
+                            checked={question.correctOptionIds.includes(option.id)}
+                            aria-label={`Question ${questionIndex + 1} option ${optionIndex + 1} correct`}
+                            onChange={() => toggleCorrect(question.id, option.id)}
+                          />
+                          <Input className="s-flex-1 s-padding-6px-10px s-text-sm" aria-label={`Question ${questionIndex + 1} option ${optionIndex + 1} text`} placeholder={`Option ${optionIndex + 1}`} maxLength={200} value={option.text} onChange={(e) => setOptionText(question.id, option.id, e.target.value)} />
+                          <Button className="btn ghost small" type="button" aria-label={`Remove option ${optionIndex + 1}`} disabled={question.options.length <= 2} onClick={() => removeOption(question.id, option.id)}>×</Button>
+                        </div>
+                      ))}
+                      <div>
+                        <Button className="btn ghost small" type="button" disabled={question.options.length >= 8} onClick={() => addOption(question.id)}>＋ Option</Button>
+                      </div>
+                    </div>
+                    <textarea
+                      className="s-padding-8px-10px s-text-sm"
+                      aria-label={`Question ${questionIndex + 1} explanation`}
+                      placeholder="Explanation shown after submission (optional)"
+                      rows={2}
+                      maxLength={1000}
+                      value={question.explanation}
+                      onChange={(e) => patchQuestion(question.id, { explanation: e.target.value })}
+                    />
+                  </fieldset>
+                ))}
+
+                <div className="s-row s-gap-8 s-flex-wrap-wrap">
+                  <Button className="btn secondary small" type="button" disabled={quizDraft.length >= 30} onClick={addQuestion}>＋ Add question</Button>
+                </div>
+                <div className="s-row s-gap-10 s-flex-wrap-wrap">
+                  <Button className="btn primary small" type="button" disabled={busy === `save-quiz-${editingLesson.lesson.id}`} onClick={handleSaveQuiz}>
+                    {busy === `save-quiz-${editingLesson.lesson.id}` ? "Saving…" : "Save quiz"}
+                  </Button>
+                  {editingLesson.quiz && (
+                    <Button className="btn danger small" type="button" disabled={busy === `remove-quiz-${editingLesson.lesson.id}`} onClick={handleRemoveQuiz}>
+                      Remove quiz
+                    </Button>
+                  )}
+                </div>
+              </section>
+
               <div className="s-row s-gap-10" >
                 <Button className="btn primary small" type="submit" disabled={busy === `save-lesson-${editingLesson.lesson.id}`}>
                   {busy === `save-lesson-${editingLesson.lesson.id}` ? "Saving…" : "Save lesson"}

@@ -11,6 +11,7 @@ import {
 import { getEnrollment } from "@/features/enrollments/service";
 import { hasLearnerAccess } from "@/features/enrollments/access";
 import { getEnrollmentProgress } from "@/features/progress/service";
+import { getQuizLessonIds } from "@/features/quizzes/service";
 import { EnrollButton } from "@/components/learner/enroll-button";
 import { getEffectiveCourseAccessPolicy } from "@/features/offers/service";
 import { resolveOfferPublicPresentation } from "@/features/offers/presentation";
@@ -76,7 +77,10 @@ export default async function CourseOverviewPage(props: {
   // resume link — just the enroll CTA (re-enroll reactivates, correction C).
   const activeEnrollment = hasLearnerAccess(enrollment) ? enrollment : null;
   const curriculum = await getCourseCurriculum(course.id);
-  const progress = activeEnrollment ? await getEnrollmentProgress(activeEnrollment) : null;
+  const [quizLessonIds, progress] = await Promise.all([
+    getQuizLessonIds(course.id),
+    activeEnrollment ? getEnrollmentProgress(activeEnrollment) : Promise.resolve(null),
+  ]);
   const certificate = activeEnrollment && progress?.completed && session?.user
     ? await getLearnerCertificate(session.user.id, course.id) : null;
   const completedSet = new Set(progress?.completedLessonIds ?? []);
@@ -227,7 +231,7 @@ export default async function CourseOverviewPage(props: {
                       <span className="tick">{done ? "✓" : ""}</span>
                       <span className="lrn-lesson-info">
                         <span>{lesson.title}</span>
-                        <span className="lrn-lesson-meta">{lessonMetaLabel(lesson)}</span>
+                        <span className="lrn-lesson-meta">{lessonMetaLabel(lesson, false, quizLessonIds.has(lesson.id))}</span>
                       </span>
                       {lesson.isPreview && course.status === "published" && <span className="lrn-preview-badge">Preview</span>}
                       {!lesson.required && <span className="opt">OPTIONAL</span>}
