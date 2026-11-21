@@ -33,12 +33,20 @@ export function getCourseTimeStats(lessons: TimedLesson[], completedIds: Iterabl
   };
 }
 
-export function lessonTypeHint(lesson: Pick<Lesson, "videoUrl">, hasResources = false): string {
-  return `${lesson.videoUrl ? "Video" : "Reading"}${hasResources ? " + files" : ""}`;
+export function lessonTypeHint(
+  lesson: Pick<Lesson, "videoUrl">,
+  hasResources = false,
+  hasQuiz = false,
+): string {
+  return `${lesson.videoUrl ? "Video" : "Reading"}${hasResources ? " + files" : ""}${hasQuiz ? " · Quiz" : ""}`;
 }
 
 /** "Video · 8 min" — durations outside the Studio range (1–600) are omitted. */
-export function lessonMetaLabel(lesson: Pick<Lesson, "videoUrl" | "durationMinutes">, hasResources = false): string {
-  const hint = lessonTypeHint(lesson, hasResources);
+export function lessonMetaLabel(
+  lesson: Pick<Lesson, "videoUrl" | "durationMinutes">,
+  hasResources = false,
+  hasQuiz = false,
+): string {
+  const hint = lessonTypeHint(lesson, hasResources, hasQuiz);
   return validDuration(lesson.durationMinutes) ? `${hint} · ${formatMinutes(lesson.durationMinutes)}` : hint;
 }

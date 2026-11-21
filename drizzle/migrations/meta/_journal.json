@@ -183,6 +183,13 @@
       "when": 1794310563698,
       "tag": "0025_course_certificates",
       "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "6",
+      "when": 1795111910539,
+      "tag": "0026_watery_tyger_tiger",
+      "breakpoints": true
     }
   ]
 }

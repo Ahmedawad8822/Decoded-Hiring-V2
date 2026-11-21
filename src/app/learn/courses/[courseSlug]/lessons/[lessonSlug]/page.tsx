@@ -16,7 +16,13 @@ import { getLessonResources } from "@/features/courses/service";
 import { ContentBlockRenderer } from "@/components/publishing/ContentBlockRenderer";
 import { buildYouTubeEmbedUrl } from "@/features/courses/youtube";
 import { CompleteButton } from "@/components/learner/complete-button";
+import { QuizPanel } from "@/components/learner/quiz-panel";
 import { LessonPlayerShell } from "@/components/learner/lesson-player-shell";
+import {
+  getLearnerQuizForLesson,
+  getLearnerQuizStats,
+  getQuizLessonIds,
+} from "@/features/quizzes/service";
 
 import { getLessonReadAccess } from "@/features/courses/lesson-access";
 import { lessonMetaLabel } from "@/features/courses/metadata";
@@ -82,6 +88,19 @@ export default async function LessonPlayerPage(props: {
   const resources = activeEnrollment ? await getLessonResources(lesson.id) : [];
   const blocks = parseLessonBody(lesson);
   const embedUrl = lesson.videoUrl ? buildYouTubeEmbedUrl(lesson.videoUrl) : null;
+  const [quiz, quizLessonIds] = await Promise.all([
+    getLearnerQuizForLesson(lesson.id),
+    getQuizLessonIds(course.id),
+  ]);
+  const quizStats = quiz && activeEnrollment
+    ? await getLearnerQuizStats(session!.user.id, quiz.id)
+    : { bestScore: null, attemptCount: 0, passed: false };
+  const quizGateBlocked = Boolean(
+    activeEnrollment &&
+    quiz?.requirePass &&
+    !quizStats.passed &&
+    !completedSet.has(lesson.id),
+  );
 
   const flat = curriculum.flatMap((c) => c.publishedLessons);
   const idx = flat.findIndex((l) => l.id === lesson.id);
@@ -117,7 +136,7 @@ export default async function LessonPlayerPage(props: {
                 <span className="tick">{done ? "✓" : ""}</span>
                 <span className="lrn-lesson-info">
                   <span>{l.title}</span>
-                  <span className="lrn-lesson-meta">{lessonMetaLabel(l)}</span>
+                  <span className="lrn-lesson-meta">{lessonMetaLabel(l, false, quizLessonIds.has(l.id))}</span>
                 </span>
                 {l.isPreview && course.status === "published" && <span className="lrn-preview-badge">Preview</span>}
                 {!l.required && <span className="opt">OPTIONAL</span>}
@@ -134,7 +153,7 @@ export default async function LessonPlayerPage(props: {
       <article className="lesson has-mobile-bar">
         <p className="ls-position">{positionLabel} — {course.title.toUpperCase()}</p>
         <h1 className="a-h1 learner-mt-8">{lesson.title}</h1>
-        <p className="lrn-lesson-meta">{lessonMetaLabel(lesson, resources.length > 0)}</p>
+        <p className="lrn-lesson-meta">{lessonMetaLabel(lesson, resources.length > 0, Boolean(quiz))}</p>
         {readAccess === "preview" && <p className="learner-mt-12">Free preview · Enroll for the full course, progress tracking and downloadable resources.</p>}
 
         {embedUrl && (
@@ -171,6 +190,16 @@ export default async function LessonPlayerPage(props: {
           </section>
         )}
 
+        {quiz && (
+          <QuizPanel
+            quiz={quiz}
+            mode={activeEnrollment ? "enrolled" : "preview"}
+            stats={quizStats}
+            courseSlug={course.slug}
+            lessonSlug={lesson.slug}
+          />
+        )}
+
         <div className="ls-actions">
           {prev ? (
             <Link className="btn secondary learner-link" href={`/learn/courses/${course.slug}/lessons/${prev.slug}`}>
@@ -182,13 +211,19 @@ export default async function LessonPlayerPage(props: {
             </Link>
           )}
           {activeEnrollment ? (
-            <CompleteButton
-              key={lesson.id}
-              enrollmentId={activeEnrollment.id}
-              lessonId={lesson.id}
-              alreadyDone={completedSet.has(lesson.id)}
-              continueHref={continueHref}
-            />
+            quizGateBlocked && quiz ? (
+              <span className="lesson-completion-control">
+                <span className="quiz-gate-hint">Pass the quiz ({quiz.passPercent}%) to complete this lesson</span>
+              </span>
+            ) : (
+              <CompleteButton
+                key={lesson.id}
+                enrollmentId={activeEnrollment.id}
+                lessonId={lesson.id}
+                alreadyDone={completedSet.has(lesson.id)}
+                continueHref={continueHref}
+              />
+            )
           ) : <Link className="btn primary learner-link" href={`/learn/courses/${course.slug}`}>Enroll in course →</Link>}
           {next ? (
             <Link className="btn secondary learner-link" href={`/learn/courses/${course.slug}/lessons/${next.slug}`}>
@@ -212,13 +247,19 @@ export default async function LessonPlayerPage(props: {
             </Link>
           )}
           {activeEnrollment ? (
-            <CompleteButton
-              key={lesson.id}
-              enrollmentId={activeEnrollment.id}
-              lessonId={lesson.id}
-              alreadyDone={completedSet.has(lesson.id)}
-              continueHref={continueHref}
-            />
+            quizGateBlocked && quiz ? (
+              <span className="lesson-completion-control">
+                <span className="quiz-gate-hint">Pass the quiz ({quiz.passPercent}%) to complete this lesson</span>
+              </span>
+            ) : (
+              <CompleteButton
+                key={lesson.id}
+                enrollmentId={activeEnrollment.id}
+                lessonId={lesson.id}
+                alreadyDone={completedSet.has(lesson.id)}
+                continueHref={continueHref}
+              />
+            )
           ) : <Link className="btn primary learner-link" href={`/learn/courses/${course.slug}`}>Enroll in course →</Link>}
           {next ? (
             <Link className="btn secondary learner-link" href={`/learn/courses/${course.slug}/lessons/${next.slug}`} aria-label="Next lesson">

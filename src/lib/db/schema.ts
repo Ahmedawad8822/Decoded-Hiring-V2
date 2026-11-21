@@ -413,12 +413,72 @@ export const lessonProgress = sqliteTable(
   (table) => [uniqueIndex("lesson_progress_enrollment_lesson_unique").on(table.enrollmentId, table.lessonId)]
 );
 
+// ============================================================================
+// LESSON QUIZZES (optional per-lesson knowledge check)
+// ----------------------------------------------------------------------------
+// One quiz per lesson. `questions` is JSON text validated by the quiz domain
+// schemas (src/features/quizzes/types.ts). Answers (correctOptionIds +
+// explanations) live ONLY in this column and are never projected to learners
+// before a submission. Attempts are immutable evidence used for grading,
+// throttling, best-score display and the requirePass completion gate.
+// ============================================================================
+
+export const lessonQuizzes = sqliteTable(
+  "lesson_quizzes",
+  {
+    id: text("id").primaryKey(),
+    courseId: text("course_id")
+      .notNull()
+      .references(() => courses.id, { onDelete: "cascade" }),
+    lessonId: text("lesson_id")
+      .notNull()
+      .references(() => lessons.id, { onDelete: "cascade" }),
+    questions: text("questions").notNull(), // JSON QuizQuestion[]
+    passPercent: integer("pass_percent").notNull().default(70),
+    requirePass: integer("require_pass", { mode: "boolean" }).notNull().default(false),
+    createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+    updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+  },
+  (table) => [
+    uniqueIndex("lesson_quizzes_lesson_unique").on(table.lessonId),
+    index("lesson_quizzes_course_idx").on(table.courseId),
+  ]
+);
+
+export const quizAttempts = sqliteTable(
+  "quiz_attempts",
+  {
+    id: text("id").primaryKey(),
+    quizId: text("quiz_id")
+      .notNull()
+      .references(() => lessonQuizzes.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    enrollmentId: text("enrollment_id")
+      .notNull()
+      .references(() => enrollments.id, { onDelete: "cascade" }),
+    lessonId: text("lesson_id").notNull(),
+    answers: text("answers").notNull(), // JSON { [questionId]: optionId[] }
+    scorePercent: integer("score_percent").notNull(),
+    correctCount: integer("correct_count").notNull(),
+    totalCount: integer("total_count").notNull(),
+    passed: integer("passed", { mode: "boolean" }).notNull(),
+    createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+  },
+  (table) => [
+    index("quiz_attempts_user_quiz_created_idx").on(table.userId, table.quizId, table.createdAt),
+  ]
+);
+
 export type Course = typeof courses.$inferSelect;
 export type CourseSection = typeof courseSections.$inferSelect;
 export type Lesson = typeof lessons.$inferSelect;
 export type LessonResource = typeof lessonResources.$inferSelect;
 export type Enrollment = typeof enrollments.$inferSelect;
 export type LessonProgress = typeof lessonProgress.$inferSelect;
+export type LessonQuiz = typeof lessonQuizzes.$inferSelect;
+export type QuizAttempt = typeof quizAttempts.$inferSelect;
 
 // ============================================================================
 // EDITORIAL AI DOMAIN (Mission 07 — website editorial AI foundation)

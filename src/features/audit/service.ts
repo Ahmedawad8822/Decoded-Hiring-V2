@@ -26,6 +26,7 @@ export const AUDIT_ENTITY_TYPES = [
   "certificate",
   "course_section",
   "lesson",
+  "lesson_quiz",
   "lesson_resource",
   "media",
   "offer",
