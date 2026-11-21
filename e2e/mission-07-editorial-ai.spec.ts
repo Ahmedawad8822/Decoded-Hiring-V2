@@ -170,7 +170,9 @@ test.describe("mission 07 editorial ai lifecycle", () => {
     expect(hasExactSource1 || hasAnyKnowledge1).toBe(true);
 
     // === 7. IDENTITY CHECK: no platform contamination ===
-    const body1 = (await page.locator("body").textContent()) ?? "";
+    // innerText = rendered text only; textContent also includes RSC flight
+    // scripts, whose random ids can contain a forbidden term (e.g. "gcc").
+    const body1 = await page.locator("body").innerText();
     for (const term of FORBIDDEN) {
       expect(body1.toLowerCase()).not.toContain(term);
     }
@@ -290,7 +292,7 @@ test.describe("mission 07 editorial ai lifecycle", () => {
     await expect(page.locator("h1")).toContainText("Draft:");
 
     // Identity check on public page
-    const bodyPublic = (await page.locator("body").textContent()) ?? "";
+    const bodyPublic = await page.locator("body").innerText();
     for (const term of FORBIDDEN) {
       expect(bodyPublic.toLowerCase()).not.toContain(term);
     }
