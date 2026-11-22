@@ -12,6 +12,7 @@ import { getEnrollment } from "@/features/enrollments/service";
 import { hasLearnerAccess } from "@/features/enrollments/access";
 import { getEnrollmentProgress } from "@/features/progress/service";
 import { getQuizLessonIds } from "@/features/quizzes/service";
+import { countMyCourseNotes } from "@/features/notes/service";
 import { EnrollButton } from "@/components/learner/enroll-button";
 import { getEffectiveCourseAccessPolicy } from "@/features/offers/service";
 import { resolveOfferPublicPresentation } from "@/features/offers/presentation";
@@ -77,9 +78,10 @@ export default async function CourseOverviewPage(props: {
   // resume link — just the enroll CTA (re-enroll reactivates, correction C).
   const activeEnrollment = hasLearnerAccess(enrollment) ? enrollment : null;
   const curriculum = await getCourseCurriculum(course.id);
-  const [quizLessonIds, progress] = await Promise.all([
+  const [quizLessonIds, progress, noteCount] = await Promise.all([
     getQuizLessonIds(course.id),
     activeEnrollment ? getEnrollmentProgress(activeEnrollment) : Promise.resolve(null),
+    activeEnrollment ? countMyCourseNotes(session!.user.id, course.id) : Promise.resolve(0),
   ]);
   const certificate = activeEnrollment && progress?.completed && session?.user
     ? await getLearnerCertificate(session.user.id, course.id) : null;
@@ -115,6 +117,13 @@ export default async function CourseOverviewPage(props: {
           {stats.totalMinutes !== null && <div><dt>Total time</dt><dd>{formatMinutes(stats.totalMinutes)}</dd></div>}
           <div><dt>Free previews</dt><dd>{previewCount}</dd></div>
         </dl>
+        {noteCount > 0 && (
+          <p className="learner-mb-24">
+            <Link className="btn secondary learner-link" href={`/learn/courses/${course.slug}/notes`}>
+              My notes ({noteCount})
+            </Link>
+          </p>
+        )}
         {landing.outcomes.length > 0 && (
           <section className="lrn-landing-section" aria-labelledby="outcomes-h">
             <h2 className="a-h2" id="outcomes-h">What you&apos;ll learn</h2>
