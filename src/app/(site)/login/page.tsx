@@ -150,6 +150,15 @@ function LoginForm() {
             </button>
           </form>
 
+          <p style={{ fontSize: "12.5px", color: "var(--muted)", marginTop: "12px", textAlign: "center" }}>
+            <Link
+              href="/forgot-password"
+              style={{ color: "var(--ink)", textDecoration: "underline", textUnderlineOffset: "3px" }}
+            >
+              Forgot password?
+            </Link>
+          </p>
+
           <p style={{ fontSize: "12.5px", color: "var(--muted)", marginTop: "20px", textAlign: "center" }}>
             New here?{" "}
             <Link

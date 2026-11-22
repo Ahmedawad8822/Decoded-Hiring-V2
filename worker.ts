@@ -2,6 +2,7 @@
 // @ts-expect-error OpenNext generates this JavaScript module at build time.
 import handler from "./.open-next/worker.js";
 import { withRenderStart } from "./src/lib/cloudflare/render-context";
+import { getDrainToken } from "./src/lib/email/drain-token";
 
 // @ts-expect-error OpenNext generates this JavaScript module at build time.
 export { DOQueueHandler } from "./.open-next/worker.js";
@@ -9,6 +10,24 @@ export { DOQueueHandler } from "./.open-next/worker.js";
 const worker = {
   fetch(request: Request, env: unknown, ctx: unknown) {
     return withRenderStart(() => handler.fetch(request, env, ctx));
+  },
+  // Cron backstop for the transactional email outbox (Batch G): drains via an
+  // in-process POST to the internal route, so the D1 binding and request
+  // context resolve exactly as in normal requests. Any token mismatch or
+  // drain failure stays inside the cron invocation and is only logged.
+  async scheduled(_event: unknown, env: unknown, ctx: unknown) {
+    try {
+      const request = new Request("https://internal.local/api/cron/email-drain", {
+        method: "POST",
+        headers: { "x-email-drain-token": getDrainToken() },
+      });
+      await handler.fetch(request, env, ctx);
+    } catch (error) {
+      console.error(
+        "[email] scheduled drain failed:",
+        error instanceof Error ? error.message : String(error),
+      );
+    }
   },
 };
 export default worker;

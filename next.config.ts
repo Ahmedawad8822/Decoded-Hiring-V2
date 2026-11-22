@@ -90,6 +90,20 @@ const nextConfig: NextConfig = {
         source: "/certificates/:path*",
         headers: [{ key: "Cache-Control", value: "no-store" }],
       },
+      // Batch G: auth-recovery pages and the internal email-drain route are
+      // private, no-store (matching the certificates rule above).
+      {
+        source: "/forgot-password",
+        headers: [{ key: "Cache-Control", value: "private, no-store" }],
+      },
+      {
+        source: "/reset-password",
+        headers: [{ key: "Cache-Control", value: "private, no-store" }],
+      },
+      {
+        source: "/api/cron/email-drain",
+        headers: [{ key: "Cache-Control", value: "private, no-store" }],
+      },
       {
         source: "/:path*",
         headers: securityHeaders,

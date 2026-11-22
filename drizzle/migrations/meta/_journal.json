@@ -204,6 +204,13 @@
       "when": 1795342698137,
       "tag": "0028_stiff_zaran",
       "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "6",
+      "when": 1795371409072,
+      "tag": "0029_boring_jean_grey",
+      "breakpoints": true
     }
   ]
 }

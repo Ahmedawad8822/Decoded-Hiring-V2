@@ -290,6 +290,38 @@ unused temp directory. Ordinary developer state is never selected by this path.
 Raw `npm run build` / `cf:build` remain contributor commands; use `build-env`
 for deployable environment builds.
 
+## Transactional email (Batch G)
+
+Five transactional emails (password reset, email verification, enrollment
+welcome, course completed, course left) queue into the `email_outbox` D1
+table and are sent through the configured SMTP relay over `cloudflare:sockets`
+(implicit TLS, port 465 by default). Requests only enqueue; sending happens
+from `ctx.waitUntil` continuations plus a 5-minute cron backstop, so mail
+never blocks or slows a user's request.
+
+| Variable | Default | Notes |
+|---|---|---|
+| `SMTP_HOST` | `mail.spacemail.com` | Relay hostname |
+| `SMTP_PORT` | `465` | Implicit TLS |
+| `SMTP_USERNAME` | — | Required to enable sending |
+| `SMTP_PASSWORD` | — | Worker secret, set by the owner; never logged, never committed |
+| `MAIL_FROM_ADDRESS` | — | e.g. a noreply mailbox; required to enable sending |
+| `MAIL_FROM_NAME` | `Decoded Hiring` | Display name |
+| `MAIL_REPLY_TO` | — | Optional |
+
+Email is **enabled only when `SMTP_USERNAME`, `SMTP_PASSWORD` and
+`MAIL_FROM_ADDRESS` are all set**. When disabled, everything else still
+works: emails are queued but not sent, and nothing throws. Do NOT add values
+to `wrangler.jsonc`; `SMTP_PASSWORD` is provisioned through Cloudflare's
+secure secret management like `BETTER_AUTH_SECRET`.
+
+Behavior notes: at most 300 sends per rolling hour (well under the provider's
+500/hour); rows past expiry (1 hour for reset/verification, 24 hours for the
+rest) are marked expired, never sent; terminal rows have their bodies wiped so
+reset/verification links never sit in the database. `env.production` carries
+`"triggers": { "crons": ["*/5 * * * *"] }` — local/dev config intentionally
+has no cron trigger.
+
 ## Risks and open decisions
 
 - **Script size.** Workers Free and Paid both allow **64 MiB uncompressed** (65536 KiB); there is no compressed size limit. Per the [Workers limits page](https://developers.cloudflare.com/workers/platform/limits/) updated 2026-10-29. The historical 12.57 MiB total upload above uses about 20% of that limit; its 2.82 MiB gzip size is informational. CI enforces an early-growth budget of **20480 KiB (20 MiB) uncompressed** (`npm run cf:size`, override `WORKER_UNCOMPRESSED_BUDGET_KIB`). It parses wrangler's `Total Upload` line, so a format change fails loudly (exit 2). The script warns above 90% of the platform's 64 MiB uncompressed limit.
