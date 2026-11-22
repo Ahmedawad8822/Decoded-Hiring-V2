@@ -48,13 +48,18 @@ test("HTTP auth responses and admin gates stay private and uncached", async ({ p
       expect(missing.headers()["cache-control"]).toContain("no-store");
       expect(missing.headers()["x-opennext-cache"]).not.toBe("HIT");
     }
-    const manifest: Record<string, { exportedName: string }> = JSON.parse(
+    const manifest: Record<string, { exportedName: string; workers: Record<string, unknown> }> = JSON.parse(
       fs.readFileSync(".next/server/server-reference-manifest.json", "utf8"),
     ).node;
+    // Post to a concrete page that bundles the action, as the browser does. A
+    // page without it makes Next forward to the owner's route pattern (e.g. a
+    // literal `[courseSlug]` path), which OpenNext >= 1.20.17 rejects as a 404.
+    const actionPage = "/learn/courses/worker-certificate-course/complete";
     async function action(client: typeof admin, name: string, input: unknown) {
       const entry = Object.entries(manifest).find(([, value]) => value.exportedName === name);
       if (!entry) throw new Error(`Missing compiled action: ${name}`);
-      const response = await client.post("/admin/courses", {
+      expect(Object.keys(entry[1].workers), name).toContain("app/learn/courses/[courseSlug]/complete/page");
+      const response = await client.post(actionPage, {
         headers: { origin: baseURL!, "next-action": entry[0], "content-type": "text/plain;charset=UTF-8", accept: "text/x-component" },
         data: JSON.stringify([input]),
       });
