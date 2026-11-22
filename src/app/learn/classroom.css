@@ -265,3 +265,20 @@ body.env-learner { padding-bottom: 64px; } /* tab-bar clearance */
   .notes-actions .btn { flex: 1; }
   .note-entry { padding: 16px; }
 }
+
+/* LRN-c10 Leave course (low-emphasis, bottom of the enrolled course page) */
+.lrn-leave { margin-top: 40px; padding-top: 20px; border-top: 1px solid var(--line); scroll-margin-bottom: 84px; }
+.lrn-leave-trigger { color: var(--muted-strong); font-size: 13px; }
+.lrn-leave-trigger:hover { color: var(--ink); }
+.lrn-left-note { margin-top: 8px; font-size: 13px; color: var(--muted-strong); }
+.lrn-leave-panel { border: 1px solid var(--line); border-radius: var(--radius-card); background: var(--paper-bright); padding: 20px; display: grid; gap: 12px; max-width: var(--lesson-column); }
+.lrn-leave-panel:focus { outline: 2px solid var(--blue); outline-offset: 2px; }
+.lrn-leave-copy { font-size: 14px; line-height: 1.6; color: var(--muted-strong); display: grid; gap: 8px; }
+.lrn-leave-copy ul { padding-left: 20px; list-style: disc; display: grid; gap: 4px; }
+.lrn-leave-error { font-size: 13px; color: #7c2d12; }
+.lrn-leave-actions { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 4px; }
+.learner-page .btn.danger { background: #a93728; border-color: #a93728; color: #fff; }
+.learner-page .btn.danger:hover { background: #8f2e22; }
+@media (max-width: 759px) {
+  .lrn-leave-actions .btn { flex: 1; }
+}

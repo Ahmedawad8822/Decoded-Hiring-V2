@@ -318,6 +318,7 @@ function enrollment(status: "active" | "completed" | "cancelled"): Enrollment {
     accessSource: "free",
     enrolledAt: new Date(),
     completedAt: status === "completed" ? new Date() : null,
+    cancelledAt: null,
   };
 }
 

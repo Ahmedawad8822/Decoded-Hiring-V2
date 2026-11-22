@@ -374,6 +374,10 @@ export const enrollments = sqliteTable(
     accessSource: text("access_source").notNull().default("free"),
     enrolledAt: integer("enrolled_at", { mode: "timestamp" }).notNull(),
     completedAt: integer("completed_at", { mode: "timestamp" }),
+    // Batch F: learner-initiated cancellation timestamp. Rows are never
+    // deleted on leave; progress, quiz attempts, notes and certificates stay.
+    // Cleared on re-enrollment (reactivation).
+    cancelledAt: integer("cancelled_at", { mode: "timestamp" }),
   },
   (table) => [
     uniqueIndex("enrollments_user_course_unique").on(table.userId, table.courseId),

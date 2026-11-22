@@ -1,6 +1,6 @@
 import { getDb } from "@/lib/db";
 import { enrollments, type Enrollment } from "@/lib/db";
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { getAdminCourseById } from "@/features/courses/service";
 import { hasLearnerAccess } from "./access";
 import { isUniqueConstraintError } from "@/lib/db/sqlite-errors";
@@ -75,14 +75,26 @@ export async function enrollFree(userId: string, courseId: string): Promise<Enro
 
   // Idempotent: existing enrollment wins (unique userId+courseId).
   // Cancelled enrollments reactivate on re-enroll: the learner asked for
-  // access again and FREE has no checkout gate, so restore active status
-  // instead of stacking a second row (which the UNIQUE index forbids).
+  // access again and FREE has no checkout gate, so restore access instead of
+  // stacking a second row (which the UNIQUE index forbids). The restored
+  // status is recomputed from the learner's kept state (lesson_progress rows,
+  // which already encode the quiz requirePass gate — see markLessonComplete):
+  // fully complete => completed with a completion date, otherwise active.
+  // cancelledAt is cleared; progress, quiz attempts, notes and certificates
+  // are never touched here.
   const existing = await getEnrollment(userId, courseId);
   if (existing) {
     if (existing.status === "cancelled") {
+      const { getEnrollmentProgress } = await import("@/features/progress/service");
+      const progress = await getEnrollmentProgress(existing);
+      const completed = progress.completed;
       await db
         .update(enrollments)
-        .set({ status: "active", completedAt: null })
+        .set({
+          status: completed ? "completed" : "active",
+          completedAt: completed ? (existing.completedAt ?? new Date()) : null,
+          cancelledAt: null,
+        })
         .where(and(eq(enrollments.id, existing.id), eq(enrollments.status, "cancelled")));
       return (await getEnrollment(userId, courseId))!;
     }
@@ -115,6 +127,34 @@ export async function enrollFree(userId: string, courseId: string): Promise<Enro
     if (winner) return winner;
     throw error;
   }
+  return (await getEnrollment(userId, courseId))!;
+}
+
+/**
+ * Learner-initiated cancellation (Batch F: "leave this course").
+ * Scoped by user id + course id only — the caller never supplies an
+ * enrollment id, so one learner can never cancel another learner's row.
+ * Idempotent: an already-cancelled enrollment is returned untouched (no
+ * write). The conditional UPDATE only replaces active/completed, so a
+ * concurrent re-enrollment is never overwritten.
+ * Progress, quiz attempts, notes and certificates are NOT deleted here;
+ * completedAt is preserved as part of the learner's record and only
+ * recomputed on re-enrollment (see enrollFree).
+ */
+export async function cancelMyEnrollment(userId: string, courseId: string): Promise<Enrollment> {
+  const db = await getDb();
+  const existing = await getEnrollment(userId, courseId);
+  if (!existing) throw new AppError("not_found", "Enrollment not found.");
+  if (existing.status === "cancelled") return existing;
+  await db
+    .update(enrollments)
+    .set({ status: "cancelled", cancelledAt: new Date() })
+    .where(
+      and(
+        eq(enrollments.id, existing.id),
+        inArray(enrollments.status, ["active", "completed"]),
+      ),
+    );
   return (await getEnrollment(userId, courseId))!;
 }
 
