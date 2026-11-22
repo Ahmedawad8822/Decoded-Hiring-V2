@@ -17,7 +17,9 @@ import { ContentBlockRenderer } from "@/components/publishing/ContentBlockRender
 import { buildYouTubeEmbedUrl } from "@/features/courses/youtube";
 import { CompleteButton } from "@/components/learner/complete-button";
 import { QuizPanel } from "@/components/learner/quiz-panel";
+import { LessonNotesPanel } from "@/components/learner/lesson-notes-panel";
 import { LessonPlayerShell } from "@/components/learner/lesson-player-shell";
+import { getMyLessonNote } from "@/features/notes/service";
 import {
   getLearnerQuizForLesson,
   getLearnerQuizStats,
@@ -88,9 +90,10 @@ export default async function LessonPlayerPage(props: {
   const resources = activeEnrollment ? await getLessonResources(lesson.id) : [];
   const blocks = parseLessonBody(lesson);
   const embedUrl = lesson.videoUrl ? buildYouTubeEmbedUrl(lesson.videoUrl) : null;
-  const [quiz, quizLessonIds] = await Promise.all([
+  const [quiz, quizLessonIds, myNote] = await Promise.all([
     getLearnerQuizForLesson(lesson.id),
     getQuizLessonIds(course.id),
+    activeEnrollment ? getMyLessonNote(session!.user.id, lesson.id) : Promise.resolve(null),
   ]);
   const quizStats = quiz && activeEnrollment
     ? await getLearnerQuizStats(session!.user.id, quiz.id)
@@ -188,6 +191,15 @@ export default async function LessonPlayerPage(props: {
               ))}
             </div>
           </section>
+        )}
+
+        {readAccess === "enrolled" && activeEnrollment && (
+          <LessonNotesPanel
+            courseSlug={course.slug}
+            lessonSlug={lesson.slug}
+            initialBody={myNote?.body ?? ""}
+            initialUpdatedAt={myNote?.updatedAt.toISOString() ?? null}
+          />
         )}
 
         {quiz && (

@@ -471,6 +471,44 @@ export const quizAttempts = sqliteTable(
   ]
 );
 
+// ============================================================================
+// LESSON NOTES (private per-learner notes, one per lesson)
+// ----------------------------------------------------------------------------
+// Owner-only: every read/write is scoped by the authenticated user id. There is
+// deliberately no admin, Studio, export or audit surface for note content.
+// UNIQUE (user_id, lesson_id) makes the upsert idempotent. Cancelling an
+// enrollment keeps the rows; access checks in the notes service hide them until
+// the learner is enrolled again. Cascades remove notes with the lesson, course
+// or user.
+// ============================================================================
+
+export const lessonNotes = sqliteTable(
+  "lesson_notes",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    courseId: text("course_id")
+      .notNull()
+      .references(() => courses.id, { onDelete: "cascade" }),
+    lessonId: text("lesson_id")
+      .notNull()
+      .references(() => lessons.id, { onDelete: "cascade" }),
+    body: text("body").notNull(),
+    createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+    updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+  },
+  (table) => [
+    uniqueIndex("lesson_notes_user_lesson_unique").on(table.userId, table.lessonId),
+    index("lesson_notes_user_course_updated_idx").on(
+      table.userId,
+      table.courseId,
+      table.updatedAt,
+    ),
+  ],
+);
+
 export type Course = typeof courses.$inferSelect;
 export type CourseSection = typeof courseSections.$inferSelect;
 export type Lesson = typeof lessons.$inferSelect;
@@ -479,6 +517,7 @@ export type Enrollment = typeof enrollments.$inferSelect;
 export type LessonProgress = typeof lessonProgress.$inferSelect;
 export type LessonQuiz = typeof lessonQuizzes.$inferSelect;
 export type QuizAttempt = typeof quizAttempts.$inferSelect;
+export type LessonNote = typeof lessonNotes.$inferSelect;
 
 // ============================================================================
 // EDITORIAL AI DOMAIN (Mission 07 — website editorial AI foundation)

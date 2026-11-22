@@ -126,6 +126,7 @@ test.describe("mission 06 learning platform lifecycle", () => {
     const learner2Email = `e2e-learner2-${run}@example.com`;
     let resourceHref = "";
     let certificatePath = "";
+    const noteText = `Remember the small measurable plan ${run}`;
 
     // ---- ADMIN FLOW ----
     await test.step("admin login", async () => {
@@ -278,6 +279,8 @@ test.describe("mission 06 learning platform lifecycle", () => {
       await expect(page.getByText("This quiz is part of the enrolled course.", { exact: false })).toBeVisible();
       await expect(page.getByRole("button", { name: "Submit answers" })).toHaveCount(0);
       await expect(page.getByRole("link", { name: "Enroll to take the quiz →" })).toBeVisible();
+      await expect(page.getByRole("heading", { name: "Notes for this lesson" })).toHaveCount(0);
+      await expect(page.getByLabel("Your note")).toHaveCount(0);
       expect(await page.locator("#main").innerText()).not.toContain("Small scopes make progress visible.");
       await expect(page.locator("#main").getByRole("alert")).toHaveCount(0);
       await page.screenshot({ path: "test-results/learner-conversion-preview-phone.png", fullPage: true });
@@ -294,6 +297,70 @@ test.describe("mission 06 learning platform lifecycle", () => {
       await expect(page.getByText("8 min left", { exact: true })).toBeVisible();
       await page.goto("/learn/courses");
       await expect(page.getByText(courseTitle).first()).toBeVisible();
+    });
+
+    await test.step("enrolled learner saves a private note; notes page and download", async () => {
+      await page.goto(`/learn/courses/${courseSlug}/lessons/${lesson1Slug}`, {
+        waitUntil: "domcontentloaded",
+        timeout: 30_000,
+      });
+      const textarea = page.getByLabel("Your note");
+      await waitForHydration(page, textarea);
+      await expect(textarea).toHaveValue("");
+      await expect(page.getByText("Private to you", { exact: true })).toBeVisible();
+      await expect(page.getByText("No note yet", { exact: true })).toBeVisible();
+
+      await textarea.fill(noteText);
+      await expect(page.getByText("Unsaved changes", { exact: true })).toBeVisible();
+      await expect(page.getByText(`${noteText.length} / 10,000`, { exact: true })).toBeVisible();
+      await clickAction(page, page.getByRole("button", { name: "Save note", exact: true }));
+      await expect(page.locator("#main").getByText(/^Saved · \d{2}:\d{2}$/)).toBeVisible({
+        timeout: 30_000,
+      });
+
+      await page.reload({ waitUntil: "domcontentloaded" });
+      await expect(page.getByLabel("Your note")).toHaveValue(noteText);
+      await page.setViewportSize({ width: 375, height: 900 });
+      const lessonOverflow = await page.evaluate(
+        () => document.documentElement.scrollWidth - innerWidth,
+      );
+      expect(lessonOverflow).toBeLessThanOrEqual(1);
+
+      const notesResponse = await page.goto(`/learn/courses/${courseSlug}/notes`, {
+        waitUntil: "domcontentloaded",
+        timeout: 30_000,
+      });
+      expect(notesResponse?.headers()["cache-control"]).toContain("no-store");
+      await expect(page.getByRole("heading", { name: "My notes", exact: true })).toBeVisible();
+      await expect(page.getByText(noteText, { exact: true })).toBeVisible();
+      await expect(page.getByRole("link", { name: "First Lesson E2E", exact: true })).toHaveAttribute(
+        "href",
+        `/learn/courses/${courseSlug}/lessons/${lesson1Slug}`,
+      );
+      const notesOverflow = await page.evaluate(
+        () => document.documentElement.scrollWidth - innerWidth,
+      );
+      expect(notesOverflow).toBeLessThanOrEqual(1);
+      await page.screenshot({ path: "test-results/learner-notes-phone.png", fullPage: true });
+      await page.setViewportSize({ width: 1280, height: 900 });
+
+      const download = await page.request.get(`/learn/courses/${courseSlug}/notes/download`);
+      expect(download.status()).toBe(200);
+      expect(download.headers()["content-type"]).toContain("text/plain; charset=utf-8");
+      expect(download.headers()["content-disposition"]).toContain("attachment");
+      expect(download.headers()["cache-control"]).toContain("no-store");
+      const downloaded = await download.text();
+      expect(downloaded).toContain("First Lesson E2E");
+      expect(downloaded).toContain(noteText);
+
+      await page.goto(`/learn/courses/${courseSlug}`, {
+        waitUntil: "domcontentloaded",
+        timeout: 30_000,
+      });
+      await expect(page.getByRole("link", { name: "My notes (1)", exact: true })).toHaveAttribute(
+        "href",
+        `/learn/courses/${courseSlug}/notes`,
+      );
     });
 
     await test.step("incomplete completion redirects, newest enrollment is spotlight", async () => {
@@ -509,6 +576,20 @@ test.describe("mission 06 learning platform lifecycle", () => {
       await page.goto(`/learn/courses/${courseSlug}/complete`);
       await expect(page.getByRole("heading", { name: "Enrollment required" })).toBeVisible();
       await expect(page.getByRole("heading", { name: "You did it." })).toHaveCount(0);
+
+      // A second learner on the same lesson gets an empty, owner-scoped panel.
+      await page.goto(`/learn/courses/${courseSlug}`);
+      await clickAction(page, page.getByRole("button", { name: "Start free — enroll now" }));
+      await expect(page.getByText("Continue where you left off")).toBeVisible();
+      await page.goto(`/learn/courses/${courseSlug}/lessons/${lesson1Slug}`, {
+        waitUntil: "domcontentloaded",
+        timeout: 30_000,
+      });
+      const secondTextarea = page.getByLabel("Your note");
+      await waitForHydration(page, secondTextarea);
+      await expect(secondTextarea).toHaveValue("");
+      await expect(page.getByText("No note yet", { exact: true })).toBeVisible();
+      expect(await page.locator("#main").innerText()).not.toContain(noteText);
     });
 
     await test.step("normal user cannot use admin routes", async () => {
