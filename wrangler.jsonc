@@ -87,6 +87,10 @@
     "production": {
       "name": "decoded-hiring-v2",
       "workers_dev": true,
+      // Batch G: 5-minute cron backstop drains the transactional email outbox
+      // via an in-process POST from worker.ts scheduled() — local/dev config
+      // intentionally has no triggers.
+      "triggers": { "crons": ["*/5 * * * *"] },
       "migrations": [
         { "tag": "isr-queue-v1", "new_sqlite_classes": ["DOQueueHandler"] }
       ],

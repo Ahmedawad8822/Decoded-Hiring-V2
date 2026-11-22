@@ -7,6 +7,7 @@ import { admin, twoFactor } from "better-auth/plugins";
 import { getDb, users, sessions, accounts, verifications, twoFactors } from "../db";
 import { AppError } from "@/lib/errors";
 import { authAdvancedIpOptions, buildAuthRateLimitOptions } from "./rate-limit";
+import { notifyEmailVerification, notifyPasswordReset } from "../email/triggers";
 
 /**
  * Resolve the Better Auth secret from environment configuration ONLY.
@@ -65,7 +66,28 @@ function createAuth(db: Parameters<typeof drizzleAdapter>[0]) {
     emailAndPassword: {
       enabled: true,
       requireEmailVerification: false,
+      // Password resets revoke all sessions (the reset link is single-use and
+      // short-lived; sessions minted before the reset must not survive it).
+      revokeSessionsOnPasswordReset: true,
+      // Reset link valid 1 hour (matches the email_outbox expiry for the kind).
+      resetPasswordTokenExpiresIn: 3600,
+      // Queued, never sent inline: the trigger catches everything, so a mail
+      // failure can never fail the reset request (which stays generic to
+      // avoid revealing whether the account exists).
+      sendResetPassword: async ({ user, url }) => {
+        await notifyPasswordReset(user, url);
+      },
       password: { hash: hashAuthPassword, verify: verifyAuthPassword },
+    },
+    emailVerification: {
+      // Verify link valid 1 hour (matches the email_outbox expiry).
+      expiresIn: 3600,
+      // Send on signup, but never gate access: existing users and admins are
+      // not locked out when they have not verified.
+      sendOnSignUp: true,
+      sendVerificationEmail: async ({ user, url }) => {
+        await notifyEmailVerification(user, url);
+      },
     },
     // Correction 1: normal users default to "user", staff get "admin"
     plugins: [

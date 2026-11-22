@@ -6,6 +6,7 @@ import { hasLearnerAccess } from "./access";
 import { isUniqueConstraintError } from "@/lib/db/sqlite-errors";
 import { AppError } from "@/lib/errors";
 import { getEffectiveCourseAccessPolicy } from "@/features/offers/service";
+import { notifyCourseLeft, notifyEnrollmentWelcome } from "@/lib/email/triggers";
 
 // ============================================================================
 // ENROLLMENTS SERVICE (Mission 06)
@@ -88,15 +89,25 @@ export async function enrollFree(userId: string, courseId: string): Promise<Enro
       const { getEnrollmentProgress } = await import("@/features/progress/service");
       const progress = await getEnrollmentProgress(existing);
       const completed = progress.completed;
+      const reactivatedAt = new Date();
       await db
         .update(enrollments)
         .set({
           status: completed ? "completed" : "active",
-          completedAt: completed ? (existing.completedAt ?? new Date()) : null,
+          completedAt: completed ? (existing.completedAt ?? reactivatedAt) : null,
           cancelledAt: null,
         })
         .where(and(eq(enrollments.id, existing.id), eq(enrollments.status, "cancelled")));
-      return (await getEnrollment(userId, courseId))!;
+      const restored = (await getEnrollment(userId, courseId))!;
+      // Reactivation (not already-active): welcome email, deduped by time.
+      await notifyEnrollmentWelcome({
+        userId,
+        courseId,
+        courseSlug: course.slug,
+        courseTitle: course.title,
+        eventAt: reactivatedAt,
+      });
+      return restored;
     }
     return existing;
   }
@@ -124,10 +135,31 @@ export async function enrollFree(userId: string, courseId: string): Promise<Enro
     // enrollment exists, rethrow the original DB error — it was not the
     // duplicate race this recovery handles.
     const winner = await getEnrollment(userId, courseId);
-    if (winner) return winner;
+    if (winner) {
+      // Same dedupe key as the creator path: a no-op if the winning request
+      // already queued it, a backfill if that request crashed first. Never
+      // throws (email failures are caught and logged inside the trigger).
+      await notifyEnrollmentWelcome({
+        userId,
+        courseId,
+        courseSlug: course.slug,
+        courseTitle: course.title,
+        eventAt: winner.enrolledAt,
+      });
+      return winner;
+    }
     throw error;
   }
-  return (await getEnrollment(userId, courseId))!;
+  const created = (await getEnrollment(userId, courseId))!;
+  // New enrollment: welcome email. Never throws (failures stay in the log).
+  await notifyEnrollmentWelcome({
+    userId,
+    courseId,
+    courseSlug: course.slug,
+    courseTitle: course.title,
+    eventAt: created.enrolledAt,
+  });
+  return created;
 }
 
 /**
@@ -155,7 +187,21 @@ export async function cancelMyEnrollment(userId: string, courseId: string): Prom
         inArray(enrollments.status, ["active", "completed"]),
       ),
     );
-  return (await getEnrollment(userId, courseId))!;
+  const left = (await getEnrollment(userId, courseId))!;
+  // Only when the status actually changed (not already-cancelled). Never throws.
+  if (left.status === "cancelled" && left.cancelledAt) {
+    const course = await getAdminCourseById(courseId);
+    if (course) {
+      await notifyCourseLeft({
+        userId,
+        courseId,
+        courseSlug: course.slug,
+        courseTitle: course.title,
+        cancelledAt: left.cancelledAt,
+      });
+    }
+  }
+  return left;
 }
 
 /** Server-side ownership check: does this user have an active enrollment path to this course? */

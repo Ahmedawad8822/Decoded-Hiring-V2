@@ -1323,3 +1323,50 @@ export const businessEvents = sqliteTable(
 );
 
 export type BusinessEventRow = typeof businessEvents.$inferSelect;
+
+// ============================================================================
+// TRANSACTIONAL EMAIL OUTBOX (Batch G)
+// ----------------------------------------------------------------------------
+// Durable D1-backed queue for the five transactional emails. Rows are queued
+// during requests (cheap indexed inserts) and sent by drainOutbox from
+// waitUntil continuations and the 5-minute cron backstop — sending never
+// blocks a user's request. Once a row reaches sent/failed/expired its bodies
+// are cleared so reset/verification links never sit in the database.
+// dedupeKey (UNIQUE) prevents duplicate welcome/completion/left events.
+// ============================================================================
+
+export type EmailOutboxKind =
+  | "password_reset"
+  | "email_verification"
+  | "enrollment_welcome"
+  | "course_completed"
+  | "course_left";
+
+export type EmailOutboxStatus = "pending" | "sending" | "sent" | "failed" | "expired";
+
+export const emailOutbox = sqliteTable(
+  "email_outbox",
+  {
+    id: text("id").primaryKey(),
+    kind: text("kind").$type<EmailOutboxKind>().notNull(),
+    toAddress: text("to_address").notNull(),
+    subject: text("subject").notNull(),
+    textBody: text("text_body").notNull(),
+    htmlBody: text("html_body"),
+    status: text("status").$type<EmailOutboxStatus>().notNull().default("pending"),
+    attempts: integer("attempts").notNull().default(0),
+    nextAttemptAt: integer("next_attempt_at", { mode: "timestamp" }).notNull(),
+    leaseUntil: integer("lease_until", { mode: "timestamp" }),
+    lastError: text("last_error"),
+    expiresAt: integer("expires_at", { mode: "timestamp" }).notNull(),
+    dedupeKey: text("dedupe_key").unique(),
+    createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+    sentAt: integer("sent_at", { mode: "timestamp" }),
+  },
+  (table) => [
+    index("email_outbox_status_next_idx").on(table.status, table.nextAttemptAt),
+    index("email_outbox_sent_idx").on(table.sentAt),
+  ]
+);
+
+export type EmailOutboxRow = typeof emailOutbox.$inferSelect;

@@ -5,6 +5,7 @@ import { AppError } from "@/lib/errors";
 import { requireAdmin } from "@/lib/auth";
 import { recordAdminAudit } from "@/features/audit/service";
 import { getCourseCompletionState } from "@/features/progress/completion";
+import { notifyCourseCompleted } from "@/lib/email/triggers";
 import { certificateMutationSchema, generateCertificateId, isCertificateId, recipientNameSchema } from "./types";
 
 export async function getLearnerCertificate(userId: string, courseId: string) {
@@ -26,16 +27,30 @@ export async function claimCertificate(userId: string, courseSlug: string, name:
   if (!state.course.certificateEnabled) throw new AppError("forbidden", "Certificates are not enabled for this course");
   const db = await getDb();
   try {
-    return await db.insert(certificates).values({
+    const created = await db.insert(certificates).values({
       id: generateCertificateId(), userId, courseId: state.course.id,
       enrollmentId: state.enrollment.id, recipientName,
       courseTitle: state.course.title, issuedAt: new Date(),
     }).returning().get();
+    // New certificate only. Never throws (failures stay in the log).
+    await notifyCourseCompleted({
+      userId,
+      certificateId: created.id,
+      courseTitle: state.course.title,
+    });
+    return created;
   } catch (error) {
     if (!isUniqueConstraintError(error)) throw error;
     // Confirm the business-key conflict; an unrelated unique failure propagates.
     const winner = await getLearnerCertificate(userId, state.course.id);
     if (!winner) throw error;
+    // Concurrent-claim race: same dedupe key as the creator path, so this is
+    // a no-op when the winning request already queued it. Never throws.
+    await notifyCourseCompleted({
+      userId,
+      certificateId: winner.id,
+      courseTitle: state.course.title,
+    });
     return winner;
   }
 }

@@ -11,12 +11,17 @@ export const metadata = {
   description: "Your classroom home — resume where you left off.",
 };
 
-export default async function LearnHomePage() {
+export default async function LearnHomePage({
+  searchParams,
+}: {
+  searchParams?: Promise<{ verified?: string }>;
+}) {
   const session = await getServerSession();
   // The layout redirects anonymous visitors too, but layout and page render
   // concurrently, so the page must not assume a session exists.
   if (!session?.user) redirect("/login?redirect=/learn");
   const userId = session.user.id;
+  const verified = (await searchParams)?.verified === "1";
 
   // QUERY SHAPE (batched dashboard): 1 enrollments read + the domain-owned
   // batched progress path (course metadata, published curriculum, progress
@@ -50,6 +55,23 @@ export default async function LearnHomePage() {
       <div className="wrap learner-column">
         <p className="a-micro learner-mb-6">WELCOME BACK, {(session.user.name || "LEARNER").toUpperCase()}</p>
         <h1 className="a-h1 learner-mb-28">Continue learning</h1>
+
+        {verified && (
+          <p
+            role="status"
+            style={{
+              margin: "0 0 16px 0",
+              padding: "10px 14px",
+              borderRadius: "8px",
+              background: "#e6f4ea",
+              color: "#1e4620",
+              fontSize: "13px",
+              border: "1px solid rgba(52, 168, 83, 0.4)",
+            }}
+          >
+            Email verified — you&rsquo;re all set.
+          </p>
+        )}
 
         <section className="learner-section" aria-labelledby="certificates-h">
           <h2 className="a-h2" id="certificates-h">Certificates</h2>

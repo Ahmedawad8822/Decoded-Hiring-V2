@@ -30,7 +30,14 @@ function SignupForm() {
     setLoading(true);
     setError(null);
     try {
-      const res = await authClient.signUp.email({ name: name.trim(), email, password });
+      // callbackURL lands the email-verification link on /learn?verified=1
+      // (verification itself never gates access: requireEmailVerification is false).
+      const res = await authClient.signUp.email({
+        name: name.trim(),
+        email,
+        password,
+        callbackURL: "/learn?verified=1",
+      });
       if (res.error) {
         setError(res.error.message || "Could not create your account. Please try again.");
       } else {
