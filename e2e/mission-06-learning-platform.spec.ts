@@ -271,7 +271,8 @@ test.describe("mission 06 learning platform lifecycle", () => {
       expect(await page.evaluate(() => document.documentElement.scrollWidth - innerWidth)).toBeLessThanOrEqual(1);
       await page.screenshot({ path: "test-results/learner-conversion-overview-phone.png", fullPage: true });
       await preview.click();
-      await expect(page.getByRole("heading", { name: "First Lesson E2E" })).toBeVisible();
+      // First visit to the lesson route compiles cold in dev.
+      await expect(page.getByRole("heading", { name: "First Lesson E2E" })).toBeVisible({ timeout: 30_000 });
       await expect(page.getByRole("button", { name: "Complete & continue" })).toHaveCount(0);
       await expect(page.locator(".ls-mobile-bar").getByRole("link", { name: "Enroll in course →" })).toBeVisible();
       await expect(page.getByRole("link", { name: /Download/ })).toHaveCount(0);

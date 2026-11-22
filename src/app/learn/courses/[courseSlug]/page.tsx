@@ -14,6 +14,7 @@ import { getEnrollmentProgress } from "@/features/progress/service";
 import { getQuizLessonIds } from "@/features/quizzes/service";
 import { countMyCourseNotes } from "@/features/notes/service";
 import { EnrollButton } from "@/components/learner/enroll-button";
+import { LeaveCourseButton } from "@/components/learner/leave-course-button";
 import { getEffectiveCourseAccessPolicy } from "@/features/offers/service";
 import { resolveOfferPublicPresentation } from "@/features/offers/presentation";
 
@@ -51,6 +52,13 @@ function offerAccessNote(accessMode: string, available: boolean): string {
     return "Online enrollment is currently unavailable. Use the configured alternative path below.";
   return "Enrollment is currently unavailable.";
 }
+
+const leftDateFormatter = new Intl.DateTimeFormat("en-GB", {
+  day: "numeric",
+  month: "short",
+  year: "numeric",
+  timeZone: "UTC",
+});
 
 export default async function CourseOverviewPage(props: {
   params: Promise<{ courseSlug: string }>;
@@ -182,6 +190,11 @@ export default async function CourseOverviewPage(props: {
                 <p className="cc-lesson">Instant enrollment. No checkout, no card.</p>
               </div>
             </div>
+            {enrollment?.status === "cancelled" && enrollment?.cancelledAt && (
+              <p className="lrn-left-note">
+                You left this course on {leftDateFormatter.format(new Date(enrollment.cancelledAt))}. Re-enroll any time; your progress is kept.
+              </p>
+            )}
             <div className="learner-mt-12">
               {enrollmentCta}
             </div>
@@ -265,6 +278,9 @@ export default async function CourseOverviewPage(props: {
               <details key={index}><summary>{item.q}</summary><p className="lrn-plain-text">{item.a}</p></details>
             ))}
           </section>
+        )}
+        {activeEnrollment && (
+          <LeaveCourseButton courseSlug={course.slug} />
         )}
         {!activeEnrollment && enrollmentCta && <div className="lrn-enroll-bar" role="region" aria-label="Course enrollment">{enrollmentCta}</div>}
       </div>

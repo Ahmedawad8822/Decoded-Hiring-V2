@@ -197,6 +197,13 @@
       "when": 1795324006609,
       "tag": "0027_clammy_tyger_tiger",
       "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "6",
+      "when": 1795342698137,
+      "tag": "0028_stiff_zaran",
+      "breakpoints": true
     }
   ]
 }

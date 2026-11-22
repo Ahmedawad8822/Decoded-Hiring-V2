@@ -708,8 +708,9 @@ test("M06-R11: cancelled enrollments are NEVER resurrected by progress reads", a
   let row = await getEnrollment(userId, course.id);
   assert.equal(row?.status, "completed");
 
-  // 3. enrollment manually becomes cancelled (status + timestamp cleared,
-  // as a real cancellation would leave it).
+  // 3. enrollment manually becomes cancelled. The timestamp is cleared here
+  // to also cover the no-prior-date path; a real cancellation preserves the
+  // original completedAt as part of the learner's record.
   const db = await getDb();
   await db
     .update(enrollments)
@@ -743,9 +744,14 @@ test("M06-R11: cancelled enrollments are NEVER resurrected by progress reads", a
   // asserted here — so a cancelled learner gets the same 403 as a stranger.
   assert.equal(hasLearnerAccess(await getEnrollment(userId, course.id)), false);
 
-  // Explicit FREE re-enrollment is the ONLY path back to active.
+  // Explicit FREE re-enrollment is the ONLY path back. The learner's kept
+  // state is restored (Batch F): every required lesson is complete, so the
+  // enrollment returns as completed with a completion date, not plain active.
+  // (The fixture above cleared completedAt, so the date is stamped now; a
+  // real cancellation preserves the original completedAt instead.)
   const reactivated = await enrollFree(userId, course.id);
-  assert.equal(reactivated.status, "active");
+  assert.equal(reactivated.status, "completed");
+  assert.ok(reactivated.completedAt instanceof Date);
   assert.equal(hasLearnerAccess(reactivated), true);
 
   await cleanupCourse(slug);

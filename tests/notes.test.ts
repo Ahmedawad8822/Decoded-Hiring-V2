@@ -141,6 +141,17 @@ async function ageNote(userId: string, lessonId: string) {
     .where(and(eq(lessonNotes.userId, userId), eq(lessonNotes.lessonId, lessonId)));
 }
 
+// updated_at is stored with whole-second precision, so a real back-to-back
+// save can land just past the 1 s window under load. Pin the last save to
+// "just now" (rounded up) so the throttle assertion is deterministic.
+async function freshenNote(userId: string, lessonId: string) {
+  const db = await getDb();
+  await db
+    .update(lessonNotes)
+    .set({ updatedAt: new Date(Date.now() + 1_000) })
+    .where(and(eq(lessonNotes.userId, userId), eq(lessonNotes.lessonId, lessonId)));
+}
+
 // ---------------------------------------------------------------- schema
 
 test("note body schema normalises NFC, trims, caps and rejects control characters", () => {
@@ -313,6 +324,7 @@ test("saves within 1 s are rejected softly; later saves are allowed", async () =
     lessonSlug: lesson.slug,
     body: "One",
   });
+  await freshenNote(learnerA, lesson.id);
   await assert.rejects(
     () => saveMyLessonNote(learnerA, {
       courseSlug: course.slug,

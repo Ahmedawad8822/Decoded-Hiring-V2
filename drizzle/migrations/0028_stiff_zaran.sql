@@ -1,0 +1,1 @@
+ALTER TABLE `enrollments` ADD `cancelled_at` integer;
