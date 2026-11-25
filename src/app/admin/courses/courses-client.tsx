@@ -17,6 +17,7 @@ import { parseCourseLanding } from "@/features/courses/metadata";
 
 type CourseRow = Course & {
   enrollmentCount: number;
+  stuckCount: number;
   offerId: string | null;
   offerActive: boolean | null;
   effectiveAccessMode: string;
@@ -336,6 +337,14 @@ export function CoursesClient({
                 Curriculum →
               </Link>
               <Link className="btn secondary small" href={`/admin/courses/${course.id}/certificates`}>Certificates →</Link>
+              <Link className="btn secondary small" href={`/admin/courses/${course.id}/learners`}>
+                Learners →
+                {course.stuckCount > 0 && (
+                  <span className="lifecycle stuck" aria-label={`${course.stuckCount} stuck learners`}>
+                    {course.stuckCount} stuck
+                  </span>
+                )}
+              </Link>
               <Button className="btn ghost small" type="button" onClick={() => startEdit(course)}>
                 Edit
               </Button>

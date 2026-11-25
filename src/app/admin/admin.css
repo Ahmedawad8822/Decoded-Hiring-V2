@@ -169,7 +169,10 @@
 .studio .lifecycle:is(.scheduled,.requested,.uploaded,.new){background:#e7eeff;color:#234ab3}
 .studio .lifecycle:is(.archived,.closed,.inactive){background:#eeefec;color:#626961}
 .studio .lifecycle:is(.review,.in-review,.pending-approval,.pending,.ingesting){background:#fff2d5;color:#865a07}
-.studio .lifecycle:is(.error,.failed,.rejected,.cancelled,.declined,.blocked){background:#ffebe7;color:#a23725}
+.studio .lifecycle:is(.error,.failed,.rejected,.cancelled,.declined,.blocked,.left){background:#ffebe7;color:#a23725}
+.studio .lifecycle:is(.stuck){background:#fff2d5;color:#865a07}
+.studio .learner-progress{display:block;height:8px;min-width:120px;max-width:220px;border-radius:4px;background:#eceee9;overflow:hidden}
+.studio .learner-progress>i{display:block;height:100%;border-radius:4px;background:linear-gradient(90deg,var(--accent),var(--accent-end))}
 .studio .empty-state{display:grid;justify-items:center;text-align:center;padding:42px 18px;gap:12px}
 .studio .empty-state p{font-size:12px;color:var(--muted);max-width:340px}
 .studio .empty-state .btn{margin-top:7px}
