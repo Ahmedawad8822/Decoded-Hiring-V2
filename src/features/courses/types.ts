@@ -32,6 +32,51 @@ export const lessonStatusSchema = z.union([
   z.literal("archived"),
 ]);
 
+// ---------------------------------------------------------------- Batch J drip release
+
+export const releaseModeSchema = z.union([
+  z.literal("immediate"),
+  z.literal("date"),
+  z.literal("drip"),
+]);
+
+const releaseFields = {
+  releaseMode: releaseModeSchema,
+  /** ISO UTC instant (admin sends local datetime-local converted to ISO). */
+  releaseAt: z.string().trim().max(64).optional().nullable(),
+  dripDays: z.number().int().min(1).max(365).optional().nullable(),
+};
+
+function refineRelease<T extends { releaseMode: string; releaseAt?: string | null; dripDays?: number | null }>(
+  schema: z.ZodType<T>,
+) {
+  return schema.superRefine((value, ctx) => {
+    if (value.releaseMode === "date" && !value.releaseAt) {
+      ctx.addIssue({ code: "custom", message: "A release date is required for 'On a date'." });
+    }
+    if (value.releaseMode === "date" && value.releaseAt) {
+      const parsed = new Date(value.releaseAt);
+      if (Number.isNaN(parsed.getTime())) {
+        ctx.addIssue({ code: "custom", message: "Release date must be a valid date." });
+      }
+    }
+    if (value.releaseMode === "drip" && (value.dripDays === null || value.dripDays === undefined)) {
+      ctx.addIssue({ code: "custom", message: "Days after enrolling is required for drip (1–365)." });
+    }
+  });
+}
+
+export const sectionReleaseSchema = refineRelease(
+  z.object({ id: z.string().min(1), ...releaseFields }),
+);
+
+export const lessonReleaseSchema = refineRelease(
+  z.object({ id: z.string().min(1), ...releaseFields }),
+);
+
+export type SectionReleaseInput = z.input<typeof sectionReleaseSchema>;
+export type LessonReleaseInput = z.input<typeof lessonReleaseSchema>;
+
 export const outcomesSchema = z.array(z.string().trim().min(1).max(200)).max(12);
 export const faqSchema = z.array(z.object({
   q: z.string().trim().min(1).max(200),
@@ -44,6 +89,21 @@ const courseLandingFields = {
   faq: faqSchema.optional().nullable(),
   instructorName: z.string().trim().max(160).optional().nullable(),
   instructorBio: z.string().trim().max(1500).optional().nullable(),
+  // Batch J learner automations (all OFF by default; Studio course settings).
+  notifyUnlocks: z.boolean().optional(),
+  nudgeCompleted: z.boolean().optional(),
+  nudgeInactive: z.boolean().optional(),
+  nudgeQuizFailed: z.boolean().optional(),
+  coachingPath: z
+    .string()
+    .trim()
+    .max(200)
+    .refine(
+      (v) => v === "" || (v.startsWith("/") && !v.startsWith("//") && !v.includes(" ")),
+      { message: "Coaching link must be a same-site path starting with / (no //, max 200 chars)." },
+    )
+    .optional()
+    .nullable(),
 };
 const lessonMetadataFields = {
   isPreview: z.boolean().optional(),

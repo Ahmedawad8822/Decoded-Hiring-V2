@@ -7,8 +7,9 @@
 // calls requireAdmin(). Query budget is deliberately tiny (Workers Free):
 //   - listPeople:                ONE SQL statement (aggregates + tags inline)
 //   - listAllPeopleForExport:    ONE SQL statement
-//   - getPersonProfile:          user lookup, then Promise.all of 8 bounded
-//     section queries (no per-row loops); the timeline is merged in memory.
+//   - getPersonProfile:          user lookup, then Promise.all of 9 bounded
+//     section queries (Batch J adds the nudge-preference lookup); no per-row
+//     loops; the timeline is merged in memory.
 // lesson_notes are NEVER read here (learner-private by design) and email
 // bodies are never selected (kind/subject/status/dates only).
 // ============================================================================
@@ -163,6 +164,8 @@ export interface PersonProfile {
   };
   tags: PersonTag[];
   note: { body: string; updatedAt: Date; updatedBy: string } | null;
+  /** Batch J: learner's course-reminder preference (absent row = opted in). */
+  courseNudges: boolean;
   courses: PersonCourseRow[];
   quizAttempts: PersonQuizAttempt[];
   certificates: PersonCertificate[];
@@ -180,6 +183,10 @@ export const EMAIL_KIND_LABELS: Record<string, string> = {
   enrollment_welcome: "Welcome",
   course_completed: "Course completed",
   course_left: "Course left",
+  lesson_unlocked: "Lesson unlocked",
+  nudge_completed: "Nudge: completed",
+  nudge_inactive: "Nudge: inactive",
+  nudge_quiz_failed: "Nudge: quiz help",
 };
 
 export function emailKindLabel(kind: string): string {
@@ -390,6 +397,7 @@ export async function getPersonProfile(userId: string): Promise<PersonProfile | 
   const [
     tagRows,
     noteRow,
+    preferenceRow,
     courseRows,
     attemptRows,
     certificateRows,
@@ -404,6 +412,10 @@ export async function getPersonProfile(userId: string): Promise<PersonProfile | 
       .all<Record<string, unknown>>(),
     d1
       .prepare(`SELECT body, updated_at AS updatedAt, updated_by AS updatedBy FROM admin_person_notes WHERE user_id = ?`)
+      .bind(userId)
+      .first<Record<string, unknown>>(),
+    d1
+      .prepare(`SELECT course_nudges AS courseNudges FROM email_preferences WHERE user_id = ?`)
       .bind(userId)
       .first<Record<string, unknown>>(),
     d1
@@ -596,6 +608,8 @@ export async function getPersonProfile(userId: string): Promise<PersonProfile | 
     orders,
     leads,
     emails,
+    // Absent row = default opted in; stored 0 = opted out.
+    courseNudges: preferenceRow ? Number(preferenceRow.courseNudges) === 1 : true,
     timeline: buildTimeline({ email, courses, quizAttempts, certificates, bookings, orders, leads, emails }),
   };
 }

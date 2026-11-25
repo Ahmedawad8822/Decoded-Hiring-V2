@@ -42,7 +42,7 @@ export default async function CourseNotesPage(props: {
   const enrollment = await getEnrollment(session.user.id, course.id);
   if (!hasLearnerAccess(enrollment)) notFound();
 
-  const notes = await listMyCourseNotes(session.user.id, course.id);
+  const notes = await listMyCourseNotes(session.user.id, course.id, { enrolledAt: enrollment.enrolledAt });
   const courseHref = `/learn/courses/${course.slug}`;
 
   return (

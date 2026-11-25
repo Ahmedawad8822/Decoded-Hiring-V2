@@ -13,6 +13,7 @@ import {
 } from "@/lib/db";
 import { getLearnerCourseBySlug, getPublishedLessonBySlug } from "@/features/courses/service";
 import { getLessonReadAccess } from "@/features/courses/lesson-access";
+import { isLessonReleased, type ReleaseRule } from "@/features/courses/release";
 import { getEnrollment } from "@/features/enrollments/service";
 import { hasLearnerAccess } from "@/features/enrollments/access";
 import { AppError } from "@/lib/errors";
@@ -77,6 +78,16 @@ async function requireEnrolledLesson(
       `Enroll in this course to ${action} notes for this lesson.`,
     );
   }
+  // DRIP (Batch J): locked lessons refuse note reads and writes alike.
+  const db = await getDb();
+  const noteSection = await db
+    .select()
+    .from(courseSections)
+    .where(eq(courseSections.id, lesson.sectionId))
+    .get();
+  if (!isLessonReleased(noteSection ?? null, lesson, activeEnrollment.enrolledAt)) {
+    throw new AppError("forbidden", "This lesson has not unlocked yet.");
+  }
 
   return { course, lesson, enrollment: activeEnrollment };
 }
@@ -85,10 +96,13 @@ async function requireEnrolledLesson(
  * Owner-scoped read. Joins the learner's CURRENT enrollment so cancelled
  * enrollments keep their rows but read as "no note" (the UI stays hidden until
  * they re-enroll). Also requires a published lesson on a live/archived course.
+ * Batch J: pass `release` (the enrollment's enrolledAt) to also hide notes on
+ * drip-locked lessons; without it the pre-drip behavior is kept (tests).
  */
 export async function getMyLessonNote(
   userId: string,
   lessonId: string,
+  release?: { enrolledAt: Date; now?: Date } | null,
 ): Promise<LessonNote | null> {
   const db = await getDb();
   const row = await db
@@ -100,9 +114,16 @@ export async function getMyLessonNote(
       body: lessonNotes.body,
       createdAt: lessonNotes.createdAt,
       updatedAt: lessonNotes.updatedAt,
+      releaseMode: lessons.releaseMode,
+      releaseAt: lessons.releaseAt,
+      dripDays: lessons.dripDays,
+      sectionReleaseMode: courseSections.releaseMode,
+      sectionReleaseAt: courseSections.releaseAt,
+      sectionDripDays: courseSections.dripDays,
     })
     .from(lessonNotes)
     .innerJoin(lessons, eq(lessons.id, lessonNotes.lessonId))
+    .innerJoin(courseSections, eq(courseSections.id, lessons.sectionId))
     .innerJoin(courses, eq(courses.id, lessonNotes.courseId))
     .innerJoin(
       enrollments,
@@ -122,16 +143,44 @@ export async function getMyLessonNote(
       ),
     )
     .get();
-  return row ?? null;
+  if (!row) return null;
+  if (release) {
+    const section: ReleaseRule = {
+      releaseMode: row.sectionReleaseMode,
+      releaseAt: row.sectionReleaseAt,
+      dripDays: row.sectionDripDays,
+    };
+    if (
+      !isLessonReleased(
+        section,
+        { releaseMode: row.releaseMode, releaseAt: row.releaseAt, dripDays: row.dripDays, isPreview: false },
+        release.enrolledAt,
+        release.now ?? new Date(),
+      )
+    ) {
+      return null;
+    }
+  }
+  return {
+    id: row.id,
+    userId: row.userId,
+    courseId: row.courseId,
+    lessonId: row.lessonId,
+    body: row.body,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+  };
 }
 
-/** Every note the learner can currently see in one course, curriculum order. */
+/** Every note the learner can currently see in one course, curriculum order.
+ * Batch J: pass `release` to hide notes on drip-locked lessons. */
 export async function listMyCourseNotes(
   userId: string,
   courseId: string,
+  release?: { enrolledAt: Date; now?: Date } | null,
 ): Promise<CourseNoteEntry[]> {
   const db = await getDb();
-  return db
+  const rows = await db
     .select({
       id: lessonNotes.id,
       lessonId: lessonNotes.lessonId,
@@ -139,6 +188,12 @@ export async function listMyCourseNotes(
       lessonSlug: lessons.slug,
       body: lessonNotes.body,
       updatedAt: lessonNotes.updatedAt,
+      releaseMode: lessons.releaseMode,
+      releaseAt: lessons.releaseAt,
+      dripDays: lessons.dripDays,
+      sectionReleaseMode: courseSections.releaseMode,
+      sectionReleaseAt: courseSections.releaseAt,
+      sectionDripDays: courseSections.dripDays,
     })
     .from(lessonNotes)
     .innerJoin(lessons, eq(lessons.id, lessonNotes.lessonId))
@@ -163,33 +218,64 @@ export async function listMyCourseNotes(
       ),
     )
     .orderBy(asc(courseSections.position), asc(lessons.position), asc(lessons.createdAt));
+  const now = release?.now ?? new Date();
+  return rows
+    .filter((row) => {
+      if (!release) return true;
+      return isLessonReleased(
+        {
+          releaseMode: row.sectionReleaseMode,
+          releaseAt: row.sectionReleaseAt,
+          dripDays: row.sectionDripDays,
+        },
+        { releaseMode: row.releaseMode, releaseAt: row.releaseAt, dripDays: row.dripDays, isPreview: false },
+        release.enrolledAt,
+        now,
+      );
+    })
+    .map((row) => ({
+      id: row.id,
+      lessonId: row.lessonId,
+      lessonTitle: row.lessonTitle,
+      lessonSlug: row.lessonSlug,
+      body: row.body,
+      updatedAt: row.updatedAt,
+    }));
 }
 
 /**
  * ONE count query for the course-page "My notes (N)" link. Uses the same lesson
  * filters as listMyCourseNotes so the count matches the notes page; the caller
- * only runs it for an active enrollment.
+ * only runs it for an active enrollment. Batch J: pass `release` so the count
+ * matches the drip-filtered list.
  */
-export async function countMyCourseNotes(userId: string, courseId: string): Promise<number> {
-  const db = await getDb();
-  const row = await db
-    .select({ count: sql<number>`count(*)` })
-    .from(lessonNotes)
-    .innerJoin(lessons, eq(lessons.id, lessonNotes.lessonId))
-    .innerJoin(courseSections, eq(courseSections.id, lessons.sectionId))
-    .innerJoin(courses, eq(courses.id, lessonNotes.courseId))
-    .where(
-      and(
-        eq(lessonNotes.userId, userId),
-        eq(lessonNotes.courseId, courseId),
-        eq(lessons.courseId, lessonNotes.courseId),
-        eq(courseSections.courseId, lessonNotes.courseId),
-        eq(lessons.status, "published"),
-        inArray(courses.status, ["published", "archived"]),
-      ),
-    )
-    .get();
-  return Number(row?.count ?? 0);
+export async function countMyCourseNotes(
+  userId: string,
+  courseId: string,
+  release?: { enrolledAt: Date; now?: Date } | null,
+): Promise<number> {
+  if (!release) {
+    const db = await getDb();
+    const row = await db
+      .select({ count: sql<number>`count(*)` })
+      .from(lessonNotes)
+      .innerJoin(lessons, eq(lessons.id, lessonNotes.lessonId))
+      .innerJoin(courseSections, eq(courseSections.id, lessons.sectionId))
+      .innerJoin(courses, eq(courses.id, lessonNotes.courseId))
+      .where(
+        and(
+          eq(lessonNotes.userId, userId),
+          eq(lessonNotes.courseId, courseId),
+          eq(lessons.courseId, lessonNotes.courseId),
+          eq(courseSections.courseId, lessonNotes.courseId),
+          eq(lessons.status, "published"),
+          inArray(courses.status, ["published", "archived"]),
+        ),
+      )
+      .get();
+    return Number(row?.count ?? 0);
+  }
+  return (await listMyCourseNotes(userId, courseId, release)).length;
 }
 
 /**

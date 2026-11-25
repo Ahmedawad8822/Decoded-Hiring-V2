@@ -225,6 +225,13 @@
       "when": 1795584878222,
       "tag": "0031_silent_hellfire_club",
       "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "6",
+      "when": 1795586140034,
+      "tag": "0032_skinny_loki",
+      "breakpoints": true
     }
   ]
 }

@@ -49,7 +49,16 @@ const SHORT_LIVED_KINDS: ReadonlySet<EmailOutboxKind> = new Set([
   "email_verification",
 ]);
 
+const STALE_NUDGE_KINDS: ReadonlySet<EmailOutboxKind> = new Set([
+  "lesson_unlocked",
+  "nudge_completed",
+  "nudge_inactive",
+  "nudge_quiz_failed",
+]);
+
 export function expiryForKind(kind: EmailOutboxKind, now: Date): Date {
+  // Batch J: unlock/nudge emails go stale fast — never send them late.
+  if (STALE_NUDGE_KINDS.has(kind)) return new Date(now.getTime() + 48 * 3_600_000);
   const ttlMs = SHORT_LIVED_KINDS.has(kind) ? 3_600_000 : 24 * 3_600_000;
   return new Date(now.getTime() + ttlMs);
 }

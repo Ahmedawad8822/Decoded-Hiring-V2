@@ -54,6 +54,12 @@ export function CoursesClient({
   const [instructorBio, setInstructorBio] = useState("");
   const [certificateEnabled, setCertificateEnabled] = useState(false);
   const [accessMode, setAccessMode] = useState<string>("FREE");
+  // Batch J learner automations (all OFF by default).
+  const [notifyUnlocks, setNotifyUnlocks] = useState(false);
+  const [nudgeCompleted, setNudgeCompleted] = useState(false);
+  const [nudgeInactive, setNudgeInactive] = useState(false);
+  const [nudgeQuizFailed, setNudgeQuizFailed] = useState(false);
+  const [coachingPath, setCoachingPath] = useState("");
 
   const [confirmModal, setConfirmModal] = useState<{
     action: "archive";
@@ -81,6 +87,11 @@ export function CoursesClient({
     setInstructorBio("");
     setAccessMode("FREE");
     setCertificateEnabled(false);
+    setNotifyUnlocks(false);
+    setNudgeCompleted(false);
+    setNudgeInactive(false);
+    setNudgeQuizFailed(false);
+    setCoachingPath("");
     setEditing(null);
     setShowCreate(false);
     setError(null);
@@ -99,6 +110,11 @@ export function CoursesClient({
     setInstructorBio(course.instructorBio || "");
     setAccessMode(course.accessMode);
     setCertificateEnabled(course.certificateEnabled);
+    setNotifyUnlocks(course.notifyUnlocks);
+    setNudgeCompleted(course.nudgeCompleted);
+    setNudgeInactive(course.nudgeInactive);
+    setNudgeQuizFailed(course.nudgeQuizFailed);
+    setCoachingPath(course.coachingPath ?? "");
     setShowCreate(true);
   };
 
@@ -117,6 +133,11 @@ export function CoursesClient({
         faq,
         instructorName: instructorName.trim() || null,
         instructorBio: instructorBio.trim() || null,
+        notifyUnlocks,
+        nudgeCompleted,
+        nudgeInactive,
+        nudgeQuizFailed,
+        coachingPath: coachingPath.trim() || null,
         ...(!editing?.offerId ? { accessMode } : {}),
       };
       const res = editing
@@ -288,6 +309,29 @@ export function CoursesClient({
               </div>
             ))}
             <Button type="button" variant="secondary" disabled={faq.length >= 12} onClick={() => setFaq([...faq, { q: "", a: "" }])}>Add FAQ</Button>
+          </fieldset>
+          <fieldset className="s-stack s-gap-14">
+            <legend>Learner emails — all off by default</legend>
+            <label>
+              <Input type="checkbox" checked={notifyUnlocks} onChange={(e) => setNotifyUnlocks(e.target.checked)} />
+              {" "}Email learners when a lesson unlocks
+            </label>
+            <label>
+              <Input type="checkbox" checked={nudgeCompleted} onChange={(e) => setNudgeCompleted(e.target.checked)} />
+              {" "}After completion, suggest coaching
+            </label>
+            <label>
+              <Input type="checkbox" checked={nudgeInactive} onChange={(e) => setNudgeInactive(e.target.checked)} />
+              {" "}Nudge learners inactive for 7 days
+            </label>
+            <label>
+              <Input type="checkbox" checked={nudgeQuizFailed} onChange={(e) => setNudgeQuizFailed(e.target.checked)} />
+              {" "}Offer a call after two failed quiz attempts
+            </label>
+            <label className="s-stack s-gap-6 s-text-sm s-bold">
+              Coaching link <span className="s-muted">same-site path starting with / (max 200 chars) — CTA in nudges, /contact when empty</span>
+              <Input className="s-padding-10px-14px s-text-sm" aria-label="Coaching link" value={coachingPath} onChange={(e) => setCoachingPath(e.target.value)} placeholder="/contact" maxLength={200} />
+            </label>
           </fieldset>
           <label className="s-stack s-gap-6 s-text-sm s-bold" >
             {editing?.offerId ? "Course access" : "Access mode"}

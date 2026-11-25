@@ -275,6 +275,19 @@ export type CourseAccessMode = "FREE" | "PAID_ONE_TIME" | "MANUAL_INVOICE" | "PA
 export type LessonStatus = "draft" | "published" | "archived";
 export type EnrollmentStatus = "active" | "completed" | "cancelled";
 
+// ============================================================================
+// DRIP RELEASE (Batch J)
+// ----------------------------------------------------------------------------
+// `release_mode` per section AND per lesson; the effective release instant is
+// the LATER of the two rules. 'immediate' = released now, 'date' = released at
+// `release_at`, 'drip' = released `drip_days` after the enrollment's
+// `enrolled_at`. Re-enrolment never resets enrolledAt (see enrollments
+// service), so drip always counts from the learner's ORIGINAL start.
+// Preview lessons are always released; admins bypass drip everywhere.
+// ============================================================================
+
+export type ReleaseMode = "immediate" | "date" | "drip";
+
 export const courses = sqliteTable("courses", {
   id: text("id").primaryKey(),
   title: text("title").notNull(),
@@ -286,6 +299,14 @@ export const courses = sqliteTable("courses", {
   instructorName: text("instructor_name"),
   instructorBio: text("instructor_bio"),
   certificateEnabled: integer("certificate_enabled", { mode: "boolean" }).notNull().default(false),
+  // Batch J learner automations (all OFF by default; per-course toggles in
+  // Studio course settings). coaching_path is a same-site path ("/...") used
+  // as the CTA in nudges; empty falls back to /contact.
+  notifyUnlocks: integer("notify_unlocks", { mode: "boolean" }).notNull().default(false),
+  nudgeCompleted: integer("nudge_completed", { mode: "boolean" }).notNull().default(false),
+  nudgeInactive: integer("nudge_inactive", { mode: "boolean" }).notNull().default(false),
+  nudgeQuizFailed: integer("nudge_quiz_failed", { mode: "boolean" }).notNull().default(false),
+  coachingPath: text("coaching_path"),
   status: text("status").$type<CourseStatus>().notNull().default("draft"),
   accessMode: text("access_mode").$type<CourseAccessMode>().notNull().default("FREE"),
   coverImage: text("cover_image"),
@@ -303,6 +324,10 @@ export const courseSections = sqliteTable(
       .references(() => courses.id, { onDelete: "cascade" }),
     title: text("title").notNull(),
     position: integer("position").notNull().default(0),
+    // Batch J drip release (see ReleaseMode above).
+    releaseMode: text("release_mode").$type<ReleaseMode>().notNull().default("immediate"),
+    releaseAt: integer("release_at", { mode: "timestamp" }),
+    dripDays: integer("drip_days"),
     createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
     updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
   },
@@ -327,6 +352,10 @@ export const lessons = sqliteTable(
     durationMinutes: integer("duration_minutes"),
     required: integer("required", { mode: "boolean" }).notNull().default(true),
     position: integer("position").notNull().default(0),
+    // Batch J drip release (see ReleaseMode above).
+    releaseMode: text("release_mode").$type<ReleaseMode>().notNull().default("immediate"),
+    releaseAt: integer("release_at", { mode: "timestamp" }),
+    dripDays: integer("drip_days"),
     status: text("status").$type<LessonStatus>().notNull().default("draft"),
     createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
     updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
@@ -1344,7 +1373,11 @@ export type EmailOutboxKind =
   | "email_verification"
   | "enrollment_welcome"
   | "course_completed"
-  | "course_left";
+  | "course_left"
+  | "lesson_unlocked"
+  | "nudge_completed"
+  | "nudge_inactive"
+  | "nudge_quiz_failed";
 
 export type EmailOutboxStatus = "pending" | "sending" | "sent" | "failed" | "expired";
 
@@ -1419,3 +1452,22 @@ export const adminPersonNotes = sqliteTable("admin_person_notes", {
 
 export type LearnerTag = typeof learnerTags.$inferSelect;
 export type AdminPersonNote = typeof adminPersonNotes.$inferSelect;
+
+// ============================================================================
+// LEARNER EMAIL PREFERENCES (Batch J — course nudge opt-out)
+// ----------------------------------------------------------------------------
+// One row per learner. Absent row = default opted IN (course_nudges true).
+// Unsubscribe (`/email/unsubscribe`) upserts course_nudges=false without
+// sign-in via an HMAC token; the learner settings toggle (when present)
+// flips it back. Unlock + nudge automations skip opted-out users.
+// ============================================================================
+
+export const emailPreferences = sqliteTable("email_preferences", {
+  userId: text("user_id")
+    .primaryKey()
+    .references(() => users.id, { onDelete: "cascade" }),
+  courseNudges: integer("course_nudges", { mode: "boolean" }).notNull().default(true),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+});
+
+export type EmailPreferences = typeof emailPreferences.$inferSelect;

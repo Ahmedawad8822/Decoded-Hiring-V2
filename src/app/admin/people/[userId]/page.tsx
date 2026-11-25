@@ -80,7 +80,8 @@ export default async function AdminPersonPage({
         </p>
         <p className="muted s-text-sm s-margin-top-4">
           Joined {formatDateUTC(profile.user.createdAt)} · Email{" "}
-          {profile.user.emailVerified ? "verified" : "not verified"}
+          {profile.user.emailVerified ? "verified" : "not verified"} · Course reminder emails{" "}
+          {profile.courseNudges ? "on" : "off (unsubscribed)"}
         </p>
       </Card>
 

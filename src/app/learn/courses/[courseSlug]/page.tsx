@@ -19,6 +19,8 @@ import { getEffectiveCourseAccessPolicy } from "@/features/offers/service";
 import { resolveOfferPublicPresentation } from "@/features/offers/presentation";
 
 import { formatMinutes, getCourseTimeStats, lessonMetaLabel, parseCourseLanding } from "@/features/courses/metadata";
+import { isLessonReleased, lessonReleaseAt } from "@/features/courses/release";
+import { LocalDate } from "@/components/learner/local-date";
 
 export async function generateMetadata(props: {
   params: Promise<{ courseSlug: string }>;
@@ -89,7 +91,7 @@ export default async function CourseOverviewPage(props: {
   const [quizLessonIds, progress, noteCount] = await Promise.all([
     getQuizLessonIds(course.id),
     activeEnrollment ? getEnrollmentProgress(activeEnrollment) : Promise.resolve(null),
-    activeEnrollment ? countMyCourseNotes(session!.user.id, course.id) : Promise.resolve(0),
+    activeEnrollment ? countMyCourseNotes(session!.user.id, course.id, { enrolledAt: activeEnrollment.enrolledAt }) : Promise.resolve(0),
   ]);
   const certificate = activeEnrollment && progress?.completed && session?.user
     ? await getLearnerCertificate(session.user.id, course.id) : null;
@@ -181,6 +183,11 @@ export default async function CourseOverviewPage(props: {
                 </Link>
               </div>
             )}
+            {!resumeHref && !progress.completed && progress.nextUnlockAt && (
+              <p className="learner-mt-12 muted-strong">
+                Next lesson <LocalDate iso={progress.nextUnlockAt.toISOString()} prefix="unlocks" />.
+              </p>
+            )}
           </div>
         ) : access.available && access.mode === "FREE" ? (
           <div className="continue-card learner-mb-28">
@@ -243,6 +250,14 @@ export default async function CourseOverviewPage(props: {
                   const href = activeEnrollment || (course.status === "published" && lesson.isPreview)
                     ? `/learn/courses/${course.slug}/lessons/${lesson.slug}`
                     : `/learn/courses/${course.slug}`;
+                  const lockedAt =
+                    activeEnrollment
+                      ? lessonReleaseAt(entry.section, lesson, activeEnrollment.enrolledAt)
+                      : null;
+                  const isLocked =
+                    lockedAt !== null &&
+                    activeEnrollment !== null &&
+                    !isLessonReleased(entry.section, lesson, activeEnrollment.enrolledAt);
                   return (
                     <Link
                       key={lesson.id}
@@ -250,10 +265,16 @@ export default async function CourseOverviewPage(props: {
                       href={href}
                       aria-current={isCurrent ? true : undefined}
                     >
-                      <span className="tick">{done ? "✓" : ""}</span>
+                      <span className="tick">{done ? "✓" : isLocked ? "🔒" : ""}</span>
                       <span className="lrn-lesson-info">
                         <span>{lesson.title}</span>
-                        <span className="lrn-lesson-meta">{lessonMetaLabel(lesson, false, quizLessonIds.has(lesson.id))}</span>
+                        <span className="lrn-lesson-meta">
+                          {isLocked && lockedAt ? (
+                            <LocalDate iso={lockedAt.toISOString()} prefix="Unlocks" />
+                          ) : (
+                            lessonMetaLabel(lesson, false, quizLessonIds.has(lesson.id))
+                          )}
+                        </span>
                       </span>
                       {lesson.isPreview && course.status === "published" && <span className="lrn-preview-badge">Preview</span>}
                       {!lesson.required && <span className="opt">OPTIONAL</span>}
