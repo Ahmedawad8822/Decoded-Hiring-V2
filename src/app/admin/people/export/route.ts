@@ -9,6 +9,9 @@ import { recordAdminAudit } from "@/features/audit/service";
 import { buildCsv } from "@/lib/csv";
 import { httpStatusFor, publicErrorMessage } from "@/lib/errors";
 
+// Private admin data: never prerendered or cached.
+export const dynamic = "force-dynamic";
+
 function toIsoUTC(date: Date | null): string {
   return date ? date.toISOString().replace(/\.\d{3}Z$/, "Z") : "";
 }
