@@ -98,8 +98,13 @@ test.describe("drip release learner experience", () => {
     });
 
     await test.step("publish lessons + course", async () => {
-      await clickAction(page, page.getByRole("row", { name: /Open Lesson Drip E2E/ }).getByRole("button", { name: "Publish" }));
-      await clickAction(page, page.getByRole("row", { name: /Locked Lesson Drip E2E/ }).getByRole("button", { name: "Publish" }));
+      // Wait for each publish to land before moving on: navigating away while
+      // the server action is in flight can abort it on a slow runner.
+      for (const title of [/Open Lesson Drip E2E/, /Locked Lesson Drip E2E/]) {
+        const row = page.getByRole("row", { name: title });
+        await clickAction(page, row.getByRole("button", { name: "Publish" }));
+        await expect(row.getByRole("button", { name: "Unpublish" })).toBeVisible({ timeout: 30_000 });
+      }
       await page.goto("/admin/courses");
       await clickAction(page, page.locator(`[data-course-slug="${courseSlug}"]`).getByRole("button", { name: "Publish", exact: true }));
       await expect(page.locator(`[data-course-slug="${courseSlug}"]`).getByText("PUBLISHED")).toBeVisible({ timeout: 30_000 });
