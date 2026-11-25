@@ -221,12 +221,14 @@ function filterCondition(
 
 export async function listCourseLearners(
   courseId: string,
-  opts: { filter?: LearnerFilter; page?: number; q?: string; now?: Date | number } = {},
+  opts: { filter?: LearnerFilter; page?: number; q?: string; tag?: string; now?: Date | number } = {},
 ): Promise<{ rows: CourseLearnerRow[]; hasNextPage: boolean }> {
   await requireAdmin();
   const filter = opts.filter ?? "all";
   const page = opts.page ?? 1;
   const q = (opts.q ?? "").trim().slice(0, 100);
+  // Batch I: extra EXISTS filter over learner_tags (one bound param, no join).
+  const tag = (opts.tag ?? "").trim().toLowerCase().slice(0, 100);
   const nowSec = Math.floor(
     (opts.now instanceof Date ? opts.now.getTime() : (opts.now ?? Date.now())) / 1000,
   );
@@ -238,6 +240,10 @@ export async function listCourseLearners(
   if (q) {
     sql += ` AND (instr(LOWER(u.name), LOWER(?)) > 0 OR instr(LOWER(u.email), LOWER(?)) > 0)`;
     params.push(q, q);
+  }
+  if (tag) {
+    sql += ` AND EXISTS (SELECT 1 FROM learner_tags lt WHERE lt.user_id = e.user_id AND lt.tag = ?)`;
+    params.push(tag);
   }
   sql += ` ORDER BY e.last_activity DESC, e.id ASC LIMIT ? OFFSET ?`;
   params.push(LEARNERS_PAGE_SIZE + 1, (page - 1) * LEARNERS_PAGE_SIZE);
@@ -257,11 +263,12 @@ export async function listCourseLearners(
 /** Fetch up to LEARNERS_EXPORT_MAX_ROWS rows for the CSV export (one query). */
 export async function listAllCourseLearnersForExport(
   courseId: string,
-  opts: { filter?: LearnerFilter; q?: string; now?: Date | number } = {},
+  opts: { filter?: LearnerFilter; q?: string; tag?: string; now?: Date | number } = {},
 ): Promise<CourseLearnerRow[]> {
   await requireAdmin();
   const filter = opts.filter ?? "all";
   const q = (opts.q ?? "").trim().slice(0, 100);
+  const tag = (opts.tag ?? "").trim().toLowerCase().slice(0, 100);
   const nowSec = Math.floor(
     (opts.now instanceof Date ? opts.now.getTime() : (opts.now ?? Date.now())) / 1000,
   );
@@ -273,6 +280,10 @@ export async function listAllCourseLearnersForExport(
   if (q) {
     sql += ` AND (instr(LOWER(u.name), LOWER(?)) > 0 OR instr(LOWER(u.email), LOWER(?)) > 0)`;
     params.push(q, q);
+  }
+  if (tag) {
+    sql += ` AND EXISTS (SELECT 1 FROM learner_tags lt WHERE lt.user_id = e.user_id AND lt.tag = ?)`;
+    params.push(tag);
   }
   sql += ` ORDER BY e.last_activity DESC, e.id ASC LIMIT ?`;
   params.push(LEARNERS_EXPORT_MAX_ROWS);

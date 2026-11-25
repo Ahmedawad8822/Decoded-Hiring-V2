@@ -1374,3 +1374,48 @@ export const emailOutbox = sqliteTable(
 );
 
 export type EmailOutboxRow = typeof emailOutbox.$inferSelect;
+
+// ============================================================================
+// PEOPLE DOMAIN (Batch I — Studio person profiles + quiz-answer tags)
+// ----------------------------------------------------------------------------
+// learner_tags: sticky labels on a person. Quizzes set them automatically
+// (source 'quiz', with the originating quiz id for provenance); admins set
+// them by hand (source 'admin'). UNIQUE (user_id, tag) makes quiz
+// re-submissions idempotent and lets an admin tag win over a later quiz tag
+// (INSERT ... ON CONFLICT DO NOTHING preserves the first writer).
+// admin_person_notes: one private admin note per person. Body length is
+// validated in the service (max 5000). Lesson notes stay owner-only and are
+// never read here.
+// ============================================================================
+
+export type LearnerTagSource = "quiz" | "admin";
+
+export const learnerTags = sqliteTable(
+  "learner_tags",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    tag: text("tag").notNull(),
+    source: text("source").$type<LearnerTagSource>().notNull(),
+    sourceQuizId: text("source_quiz_id"),
+    createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+  },
+  (table) => [
+    uniqueIndex("learner_tags_user_tag_unique").on(table.userId, table.tag),
+    index("learner_tags_tag_user_idx").on(table.tag, table.userId),
+  ],
+);
+
+export const adminPersonNotes = sqliteTable("admin_person_notes", {
+  userId: text("user_id")
+    .primaryKey()
+    .references(() => users.id, { onDelete: "cascade" }),
+  body: text("body").notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+  updatedBy: text("updated_by").notNull(),
+});
+
+export type LearnerTag = typeof learnerTags.$inferSelect;
+export type AdminPersonNote = typeof adminPersonNotes.$inferSelect;

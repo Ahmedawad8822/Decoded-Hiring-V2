@@ -1,8 +1,10 @@
 import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import {
   getDb,
+  learnerTags,
   lessonQuizzes,
   quizAttempts,
+  type Database,
   type Lesson,
   type LessonQuiz,
 } from "@/lib/db";
@@ -31,6 +33,7 @@ import {
   toLearnerQuiz,
   type LearnerQuiz,
   type LearnerQuizStats,
+  type QuizAnswers,
   type QuizAttemptResult,
   type QuizDefinition,
   type QuizQuestion,
@@ -199,7 +202,7 @@ function buildAdminQuestions(
       while (usedOptionIds.has(optionId)) optionId = newQuizKey("o");
       usedOptionIds.add(optionId);
       if (option.id) optionIdMap.set(option.id, optionId);
-      return { id: optionId, text: option.text };
+      return { id: optionId, text: option.text, ...(option.tag ? { tag: option.tag } : {}) };
     });
 
     const correctOptionIds = question.correctOptionIds.map((inputId) => {
@@ -305,6 +308,49 @@ function validateAnswers(answers: unknown) {
 }
 
 /**
+ * Batch I: insert a learner tag for every selected option that carries one.
+ * ONE insert statement (ON CONFLICT DO NOTHING keeps re-submissions
+ * idempotent and never overwrites an admin-set tag). Best-effort by design:
+ * a tagging failure must never fail or slow the graded submission, so errors
+ * are logged (no payload) and swallowed.
+ */
+async function awardQuizOptionTags(
+  db: Database,
+  input: { userId: string; quiz: QuizDefinition; answers: QuizAnswers },
+): Promise<void> {
+  const tags = new Set<string>();
+  for (const question of input.quiz.questions) {
+    const selected = new Set(input.answers[question.id] ?? []);
+    for (const option of question.options) {
+      if (option.tag && selected.has(option.id)) tags.add(option.tag);
+    }
+  }
+  if (tags.size === 0) return;
+  const now = new Date();
+  try {
+    await db
+      .insert(learnerTags)
+      .values(
+        [...tags].map((tag) => ({
+          id: `ltag_${crypto.randomUUID().slice(0, 12)}`,
+          userId: input.userId,
+          tag,
+          source: "quiz" as const,
+          sourceQuizId: input.quiz.id,
+          createdAt: now,
+        })),
+      )
+      .onConflictDoNothing({ target: [learnerTags.userId, learnerTags.tag] });
+  } catch (error: unknown) {
+    console.error("quiz_tag_award_failed", {
+      quizId: input.quiz.id,
+      tags: tags.size,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
+/**
  * Grade and record an attempt. Authorization is resolved entirely server-side:
  * a signed-in user with an ACTIVE/COMPLETED enrollment on a readable lesson.
  * Preview-only readers cannot submit.
@@ -366,6 +412,10 @@ export async function submitQuizAttempt(
     passed: grading.passed,
     createdAt: new Date(),
   });
+
+  // Batch I: tag the learner for quiz answers that carry tags. Best-effort —
+  // never throws, so the graded submission above always stands.
+  await awardQuizOptionTags(db, { userId, quiz, answers });
 
   const shouldComplete = grading.passed || !quiz.requirePass;
   if (shouldComplete) {

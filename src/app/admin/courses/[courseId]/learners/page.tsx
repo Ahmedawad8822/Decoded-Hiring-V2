@@ -11,6 +11,7 @@ import {
   type CourseLearnerRow,
   type LearnerFilter,
 } from "@/features/learners/service";
+import { parsePeopleTag } from "@/features/people/service";
 import { DataTable, EmptyState, PageHeader, RelativeTime } from "../../../_ui";
 
 export const dynamic = "force-dynamic";
@@ -50,26 +51,29 @@ function displayStatus(row: CourseLearnerRow): { label: string; className: strin
   return { label: "Active", className: "active" };
 }
 
-function chipHref(courseId: string, filter: LearnerFilter, q: string): string {
+function chipHref(courseId: string, filter: LearnerFilter, q: string, tag: string): string {
   const params = new URLSearchParams();
   if (filter !== "all") params.set("filter", filter);
   if (q) params.set("q", q);
+  if (tag) params.set("tag", tag);
   const qs = params.toString();
   return `/admin/courses/${courseId}/learners${qs ? `?${qs}` : ""}`;
 }
 
-function pageHref(courseId: string, filter: LearnerFilter, q: string, page: number): string {
+function pageHref(courseId: string, filter: LearnerFilter, q: string, tag: string, page: number): string {
   const params = new URLSearchParams();
   if (filter !== "all") params.set("filter", filter);
   if (q) params.set("q", q);
+  if (tag) params.set("tag", tag);
   params.set("page", String(page));
   return `/admin/courses/${courseId}/learners?${params.toString()}`;
 }
 
-function exportHref(courseId: string, filter: LearnerFilter, q: string): string {
+function exportHref(courseId: string, filter: LearnerFilter, q: string, tag: string): string {
   const params = new URLSearchParams();
   if (filter !== "all") params.set("filter", filter);
   if (q) params.set("q", q);
+  if (tag) params.set("tag", tag);
   const qs = params.toString();
   return `/admin/courses/${courseId}/learners/export${qs ? `?${qs}` : ""}`;
 }
@@ -83,7 +87,7 @@ export default async function CourseLearnersPage({
   searchParams,
 }: {
   params: Promise<{ courseId: string }>;
-  searchParams: Promise<{ filter?: string; q?: string; page?: string }>;
+  searchParams: Promise<{ filter?: string; q?: string; page?: string; tag?: string }>;
 }) {
   await requireAdminPage();
   const { courseId } = await params;
@@ -91,12 +95,15 @@ export default async function CourseLearnersPage({
   const filter = parseLearnerFilter(query.filter);
   const q = parseLearnerQuery(query.q);
   const page = parseLearnerPage(query.page);
+  // Batch I: extra EXISTS filter over learner_tags (tag chips link here from
+  // the People list; the profile links back with the learner's email as q).
+  const tag = parsePeopleTag(query.tag);
 
   const course = await getAdminCourseById(courseId);
   if (!course) notFound();
 
   const [{ rows, hasNextPage }, summary] = await Promise.all([
-    listCourseLearners(courseId, { filter, page, q }),
+    listCourseLearners(courseId, { filter, page, q, tag }),
     getCourseLearnerSummary(courseId),
   ]);
 
@@ -118,7 +125,7 @@ export default async function CourseLearnersPage({
         {FILTER_ORDER.map((f) => (
           <Link
             key={f}
-            href={chipHref(courseId, f, q)}
+            href={chipHref(courseId, f, q, tag)}
             aria-current={filter === f ? "page" : undefined}
           >
             {FILTER_LABELS[f]}
@@ -127,8 +134,18 @@ export default async function CourseLearnersPage({
         ))}
       </nav>
 
+      {tag && (
+        <p className="s-text-sm s-margin-top-12">
+          Tagged <b>{tag}</b>{" "}
+          <Link href={chipHref(courseId, filter, q, "")} aria-label="Clear tag filter">
+            × clear
+          </Link>
+        </p>
+      )}
+
       <form method="get" className="filter-bar" role="search" aria-label="Search learners">
         {filter !== "all" && <input type="hidden" name="filter" value={filter} />}
+        {tag && <input type="hidden" name="tag" value={tag} />}
         <input
           className="search"
           type="search"
@@ -141,13 +158,13 @@ export default async function CourseLearnersPage({
         <button className="btn secondary small" type="submit">
           Search
         </button>
-        {(q || filter !== "all") && (
+        {(q || filter !== "all" || tag) && (
           <Link className="btn ghost small" href={`/admin/courses/${courseId}/learners`}>
             Clear
           </Link>
         )}
         {/* Plain anchor: a prefetching <Link> would hit the export route (and its audit write). */}
-        <a className="btn secondary small" href={exportHref(courseId, filter, q)} download>
+        <a className="btn secondary small" href={exportHref(courseId, filter, q, tag)} download>
           Export CSV
         </a>
       </form>
@@ -176,11 +193,13 @@ export default async function CourseLearnersPage({
                 {rows.map((row) => {
                   const badge = displayStatus(row);
                   return (
-                    <tr key={row.enrollmentId}>
-                      <td>
-                        <span className="cell-main">{row.name}</span>
-                        <span className="cell-sub s-block">{row.email}</span>
-                      </td>
+                      <tr key={row.enrollmentId}>
+                        <td>
+                          <Link href={`/admin/people/${row.userId}`} className="cell-main">
+                            {row.name}
+                          </Link>
+                          <span className="cell-sub s-block">{row.email}</span>
+                        </td>
                       <td>
                         <span
                           className="learner-progress"
@@ -214,7 +233,9 @@ export default async function CourseLearnersPage({
               return (
                 <div className="data-card" key={`card-${row.enrollmentId}`}>
                   <div className="dc-head">
-                    <span className="dc-title">{row.name}</span>
+                    <Link href={`/admin/people/${row.userId}`} className="dc-title">
+                      {row.name}
+                    </Link>
                     <span className={`lifecycle ${badge.className}`}>{badge.label}</span>
                   </div>
                   <p className="dc-meta">
@@ -234,9 +255,9 @@ export default async function CourseLearnersPage({
           </div>
 
           <nav aria-label="Learner pages" className="s-row s-gap-12 s-margin-top-20">
-            {page > 1 && <Link href={pageHref(courseId, filter, q, page - 1)}>Previous</Link>}
+            {page > 1 && <Link href={pageHref(courseId, filter, q, tag, page - 1)}>Previous</Link>}
             <span>Page {page}</span>
-            {hasNextPage && <Link href={pageHref(courseId, filter, q, page + 1)}>Next</Link>}
+            {hasNextPage && <Link href={pageHref(courseId, filter, q, tag, page + 1)}>Next</Link>}
           </nav>
         </>
       )}
