@@ -30,6 +30,7 @@ interface YTNamespace {
     element: HTMLElement,
     options: {
       videoId: string;
+      host?: string;
       playerVars?: Record<string, string | number>;
       events?: {
         onReady?: (event: { target: YTPlayer }) => void;
@@ -205,6 +206,9 @@ export function LessonVideoPlayer({
         if (cancelled || !mountRef.current) return;
         playerRef.current = new yt.Player(mountRef.current, {
           videoId,
+          // Privacy-enhanced host: the player iframe must match CSP frame-src
+          // (www.youtube-nocookie.com); the default host would be blocked.
+          host: "https://www.youtube-nocookie.com",
           playerVars: { rel: 0, origin: window.location.origin },
           events: {
             onReady: () => {
