@@ -46,7 +46,11 @@
 import { and, eq, gt } from "drizzle-orm";
 import { getDb } from "@/lib/db";
 import { slotHolds } from "@/lib/db";
+import { getD1Database } from "@/lib/cloudflare/bindings";
 import { isUniqueConstraintError } from "@/lib/db/sqlite-errors";
+import { AppError } from "@/lib/errors";
+import { getOfferForBookingType } from "@/features/offers/service";
+import { ACTIVE_BOOKING_STATUSES, assertOfferOpen } from "@/features/offers/availability";
 import { buildSlotKey, generateCandidateSlots } from "./availability";
 import { getBookingTypeById, getBookingTypeWindows } from "./policy";
 import { SchedulingDomainError } from "./errors";
@@ -204,6 +208,17 @@ export async function acquireSlotHold(
     };
   }
 
+  // Offer limits: a closed or sold-out linked offer refuses the hold with a
+  // friendly 409. The write paths below additionally guard the last seat with
+  // a conditional statement (see the seat-guard SQL), so two concurrent
+  // acquires cannot both claim it.
+  const linkedOffer = await getOfferForBookingType(bookingTypeId);
+  if (linkedOffer) await assertOfferOpen(linkedOffer, now);
+  const seatGuard =
+    linkedOffer?.seatLimit != null
+      ? { bookingTypeId, limit: linkedOffer.seatLimit, now }
+      : null;
+
   const windows = await getBookingTypeWindows(bookingTypeId);
   const canonical = await resolveCanonicalSlot(bookingType, windows, startAt, now);
   if (!canonical) {
@@ -230,6 +245,70 @@ export async function acquireSlotHold(
   if (!existing) {
     // CASE A — no existing hold. INSERT.
     const id = newId("sh");
+    if (seatGuard) {
+      // Race-safe last-seat claim: the lease row only lands while the capped
+      // booking + unlinked-hold count still has room (single statement).
+      const d1 = await getD1Database();
+      const claimed = await d1
+        .prepare(
+          `INSERT INTO slot_holds
+             (id, booking_type_id, slot_key, start_at, end_at, owner_token,
+              acquisition_key, status, expires_at, created_at, updated_at)
+           SELECT ?, ?, ?, ?, ?, ?, ?, 'HELD', ?, ?, ?
+           WHERE (SELECT COUNT(*) FROM bookings
+                  WHERE booking_type_id = ? AND status IN (${ACTIVE_BOOKING_STATUSES.map(() => "?").join(", ")}))
+               + (SELECT COUNT(*) FROM slot_holds AS h
+                  WHERE h.booking_type_id = ? AND h.status = 'HELD' AND h.expires_at > ?
+                    AND NOT EXISTS (SELECT 1 FROM bookings AS b
+                                    WHERE b.hold_id = h.id
+                                      AND b.hold_acquisition_key = h.acquisition_key)) < ?`,
+        )
+        .bind(
+          id,
+          bookingTypeId,
+          slotKey,
+          Math.floor(canonicalStart.getTime() / 1000),
+          Math.floor(canonicalEnd.getTime() / 1000),
+          ownerToken,
+          effectiveAcquisitionKey,
+          Math.floor(expiresAt.getTime() / 1000),
+          Math.floor(now.getTime() / 1000),
+          Math.floor(now.getTime() / 1000),
+          bookingTypeId,
+          ...ACTIVE_BOOKING_STATUSES,
+          bookingTypeId,
+          Math.floor(now.getTime() / 1000),
+          seatGuard.limit,
+        )
+        .run();
+      if ((claimed.meta?.changes ?? 0) === 0) {
+        // Either a concurrent slot insert won (slot race) or the last seat
+        // went concurrently (seat race). A present row means the slot race;
+        // an absent row means the seats filled first.
+        const winner = await db
+          .select()
+          .from(slotHolds)
+          .where(eq(slotHolds.slotKey, slotKey))
+          .get();
+        if (winner) {
+          const recovered = recoverSameAcquisition(winner, effectiveAcquisitionKey, now);
+          if (recovered) return recovered;
+          return classifyUnavailableHold(winner);
+        }
+        throw new AppError("conflict", "This offer has sold out.");
+      }
+      const created = await db
+        .select()
+        .from(slotHolds)
+        .where(eq(slotHolds.slotKey, slotKey))
+        .get();
+      return {
+        success: true,
+        hold: safeView(created!),
+        ownerToken,
+        acquisitionKey: effectiveAcquisitionKey,
+      };
+    }
     try {
       await db.insert(slotHolds).values({
         id,
@@ -329,6 +408,7 @@ export async function acquireSlotHold(
     expiresAt,
     now,
     db,
+    seatGuard,
   );
 }
 
@@ -405,36 +485,102 @@ async function reclaimSlot(
   expiresAt: Date,
   now: Date,
   db: Awaited<ReturnType<typeof getDb>>,
+  seatGuard: { bookingTypeId: string; limit: number; now: Date } | null,
 ): Promise<AcquireHoldResult> {
-  const updated = await db
-    .update(slotHolds)
-    .set({
-      ownerToken: newOwnerToken,
-      acquisitionKey: newAcquisitionKey,
-      status: "HELD" as const,
-      expiresAt,
-      consumedAt: null,
-      releasedAt: null,
-      updatedAt: now,
-    })
-    .where(
-      and(
-        eq(slotHolds.slotKey, slotKey),
-        eq(slotHolds.ownerToken, existing.ownerToken),
-        eq(slotHolds.status, existing.status),
-        eq(slotHolds.expiresAt, existing.expiresAt),
-      ),
-    )
-    .returning()
-    .get();
+  if (seatGuard) {
+    // Guarded reclaim: same CAS identity plus a last-seat count guard in one
+    // statement. A concurrent seat fill turns this into a no-op (0 changes)
+    // instead of overselling.
+    const d1 = await getD1Database();
+    const updated = await d1
+      .prepare(
+        `UPDATE slot_holds
+         SET owner_token = ?, acquisition_key = ?, status = 'HELD',
+             expires_at = ?, consumed_at = NULL, released_at = NULL, updated_at = ?
+         WHERE slot_key = ?
+           AND owner_token = ?
+           AND status = ?
+           AND expires_at = ?
+           AND (SELECT COUNT(*) FROM bookings
+                WHERE booking_type_id = ? AND status IN (${ACTIVE_BOOKING_STATUSES.map(() => "?").join(", ")}))
+             + (SELECT COUNT(*) FROM slot_holds AS h
+                WHERE h.booking_type_id = ? AND h.status = 'HELD' AND h.expires_at > ?
+                  AND NOT EXISTS (SELECT 1 FROM bookings AS b
+                                  WHERE b.hold_id = h.id
+                                    AND b.hold_acquisition_key = h.acquisition_key)) < ?`,
+      )
+      .bind(
+        newOwnerToken,
+        newAcquisitionKey,
+        Math.floor(expiresAt.getTime() / 1000),
+        Math.floor(now.getTime() / 1000),
+        slotKey,
+        existing.ownerToken,
+        existing.status,
+        Math.floor(existing.expiresAt.getTime() / 1000),
+        seatGuard.bookingTypeId,
+        ...ACTIVE_BOOKING_STATUSES,
+        seatGuard.bookingTypeId,
+        Math.floor(seatGuard.now.getTime() / 1000),
+        seatGuard.limit,
+      )
+      .run();
+    if ((updated.meta?.changes ?? 0) > 0) {
+      const reread = await db
+        .select()
+        .from(slotHolds)
+        .where(eq(slotHolds.slotKey, slotKey))
+        .get();
+      return {
+        success: true,
+        hold: safeView(reread!),
+        ownerToken: newOwnerToken,
+        acquisitionKey: newAcquisitionKey,
+      };
+    }
+    // No-op: CAS lost (another owner moved the lease) or seats filled. When
+    // the row is unchanged and the offer is now sold out, report the seat
+    // race rather than a stale-owner conflict.
+    const offer = await getOfferForBookingType(seatGuard.bookingTypeId);
+    if (offer) {
+      try {
+        await assertOfferOpen(offer, seatGuard.now);
+      } catch (error: unknown) {
+        if (error instanceof AppError && error.kind === "conflict") throw error;
+        throw error;
+      }
+    }
+  } else {
+    const updated = await db
+      .update(slotHolds)
+      .set({
+        ownerToken: newOwnerToken,
+        acquisitionKey: newAcquisitionKey,
+        status: "HELD" as const,
+        expiresAt,
+        consumedAt: null,
+        releasedAt: null,
+        updatedAt: now,
+      })
+      .where(
+        and(
+          eq(slotHolds.slotKey, slotKey),
+          eq(slotHolds.ownerToken, existing.ownerToken),
+          eq(slotHolds.status, existing.status),
+          eq(slotHolds.expiresAt, existing.expiresAt),
+        ),
+      )
+      .returning()
+      .get();
 
-  if (updated) {
-    return {
-      success: true,
-      hold: safeView(updated),
-      ownerToken: newOwnerToken,
-      acquisitionKey: newAcquisitionKey,
-    };
+    if (updated) {
+      return {
+        success: true,
+        hold: safeView(updated),
+        ownerToken: newOwnerToken,
+        acquisitionKey: newAcquisitionKey,
+      };
+    }
   }
 
   // CAS lost — re-read and classify the current state.
@@ -447,6 +593,65 @@ async function reclaimSlot(
   if (!reread) {
     // Slot was deleted between read and CAS — treat as available, INSERT.
     const id = newId("sh");
+    if (seatGuard) {
+      const d1 = await getD1Database();
+      const claimed = await d1
+        .prepare(
+          `INSERT INTO slot_holds
+             (id, booking_type_id, slot_key, start_at, end_at, owner_token,
+              acquisition_key, status, expires_at, created_at, updated_at)
+           SELECT ?, ?, ?, ?, ?, ?, ?, 'HELD', ?, ?, ?
+           WHERE (SELECT COUNT(*) FROM bookings
+                  WHERE booking_type_id = ? AND status IN (${ACTIVE_BOOKING_STATUSES.map(() => "?").join(", ")}))
+               + (SELECT COUNT(*) FROM slot_holds AS h
+                  WHERE h.booking_type_id = ? AND h.status = 'HELD' AND h.expires_at > ?
+                    AND NOT EXISTS (SELECT 1 FROM bookings AS b
+                                    WHERE b.hold_id = h.id
+                                      AND b.hold_acquisition_key = h.acquisition_key)) < ?`,
+        )
+        .bind(
+          id,
+          bookingTypeId,
+          slotKey,
+          Math.floor(startAt.getTime() / 1000),
+          Math.floor(endAt.getTime() / 1000),
+          newOwnerToken,
+          newAcquisitionKey,
+          Math.floor(expiresAt.getTime() / 1000),
+          Math.floor(now.getTime() / 1000),
+          Math.floor(now.getTime() / 1000),
+          bookingTypeId,
+          ...ACTIVE_BOOKING_STATUSES,
+          bookingTypeId,
+          Math.floor(now.getTime() / 1000),
+          seatGuard.limit,
+        )
+        .run();
+      if ((claimed.meta?.changes ?? 0) === 0) {
+        const winner = await db
+          .select()
+          .from(slotHolds)
+          .where(eq(slotHolds.slotKey, slotKey))
+          .get();
+        if (winner) {
+          const recovered = recoverSameAcquisition(winner, newAcquisitionKey, now);
+          if (recovered) return recovered;
+          return classifyUnavailableHold(winner);
+        }
+        throw new AppError("conflict", "This offer has sold out.");
+      }
+      const created = await db
+        .select()
+        .from(slotHolds)
+        .where(eq(slotHolds.slotKey, slotKey))
+        .get();
+      return {
+        success: true,
+        hold: safeView(created!),
+        ownerToken: newOwnerToken,
+        acquisitionKey: newAcquisitionKey,
+      };
+    }
     try {
       await db.insert(slotHolds).values({
         id,

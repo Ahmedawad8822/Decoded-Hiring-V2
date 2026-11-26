@@ -1,9 +1,9 @@
-import { ArrowDownRight, MoveUpRight, Route, ScanSearch } from "lucide-react";
+import { MoveUpRight, Route, ScanSearch } from "lucide-react";
 import Image from "next/image";
 
 import { CoachingDiagnostic } from "@/components/products/coaching-diagnostic";
+import { OfferLimitCta } from "@/components/products/offer-limit-cta";
 import { PublicScheduler } from "@/components/products/public-scheduler";
-import { TrackedOfferLink } from "@/components/products/tracked-offer-link";
 import { LeadForm } from "@/features/leads/lead-form";
 import { publicMetadata } from "@/lib/seo";
 import { PUBLIC_OFFER_SLUGS } from "@/features/offers/catalog";
@@ -65,23 +65,23 @@ export default async function CoachingPage() {
                 Currently unavailable
               </span>
             ) : (
-              <TrackedOfferLink
-                className="hg-primary"
+              <OfferLimitCta
                 offerSlug={PUBLIC_OFFER_SLUGS.coaching}
-                route="/coaching"
-                surface="hero-primary"
-                target={scheduling.enabled ? "schedule" : "lead"}
-                href={
-                  scheduling.enabled
-                    ? "#hg-coaching-schedule"
-                    : offerPresentation?.ctaHref ?? "#hg-coaching-brief"
+                scheduleHref={
+                  scheduling.enabled ? "#hg-coaching-schedule" : null
                 }
-              >
-                {scheduling.enabled
-                  ? "Choose a time"
-                  : offerPresentation?.ctaLabel ?? "Open a decision brief"}{" "}
-                <ArrowDownRight aria-hidden="true" />
-              </TrackedOfferLink>
+                primaryHref={
+                  offerPresentation?.ctaHref ?? "#hg-coaching-brief"
+                }
+                primaryLabel={
+                  offerPresentation?.ctaLabel ?? "Open a decision brief"
+                }
+                alternativeLabel={offer?.alternativeCtaLabel}
+                alternativeUrl={offer?.alternativeCtaUrl}
+                contactHref="/contact"
+                contactLabel="Contact us"
+                track={{ route: "/coaching", surface: "hero-primary" }}
+              />
             )}
           </div>
         </div>

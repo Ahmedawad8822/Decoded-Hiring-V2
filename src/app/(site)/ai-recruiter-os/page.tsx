@@ -1,6 +1,6 @@
-import { ArrowUpRight } from "lucide-react";
 import Image from "next/image";
 
+import { OfferLimitCta } from "@/components/products/offer-limit-cta";
 import { LeadForm } from "@/features/leads/lead-form";
 import { publicMetadata } from "@/lib/seo";
 import { PUBLIC_OFFER_SLUGS } from "@/features/offers/catalog";
@@ -51,13 +51,16 @@ export default async function AiRecruiterOsPage() {
                 Currently unavailable
               </span>
             ) : (
-              <a
-                className="hg-primary"
-                href={offerPresentation?.ctaHref ?? "#ai-os-waitlist"}
-              >
-                {offerPresentation?.ctaLabel ?? "Join the waitlist"}{" "}
-                <ArrowUpRight aria-hidden="true" />
-              </a>
+              <OfferLimitCta
+                offerSlug={PUBLIC_OFFER_SLUGS.aiRecruiterOs}
+                primaryHref={offerPresentation?.ctaHref ?? "#ai-os-waitlist"}
+                primaryLabel={offerPresentation?.ctaLabel ?? "Join the waitlist"}
+                alternativeLabel={offer?.alternativeCtaLabel}
+                alternativeUrl={offer?.alternativeCtaUrl}
+                contactHref="/contact"
+                contactLabel="Contact us"
+                icon="up-right"
+              />
             )}
           </div>
         </div>

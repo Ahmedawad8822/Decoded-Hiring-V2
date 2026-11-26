@@ -4,6 +4,9 @@ import { z } from "zod";
 
 import { recordBusinessEventBestEffort } from "@/features/analytics/service";
 
+import { AppError } from "@/lib/errors";
+import { getOfferBySlugForKind } from "@/features/offers/service";
+import { getAvailabilityForOffer } from "@/features/offers/availability";
 import {
   acquireSlotHold,
   releaseSlotHold,
@@ -243,6 +246,34 @@ export async function submitPublicBooking(
 
   const now = new Date();
   const requestedStartAt = new Date(parsed.data.startAt);
+
+  // Offer limits fail fast with truthful copy, before any rate-limit budget
+  // is spent or a hold is acquired. The domain guards (hold + booking
+  // creation) remain the race-safe backstops for concurrent last-seat claims.
+  const limitOffer = await getOfferBySlugForKind(
+    parsed.data.offerSlug,
+    parsed.data.offerKind,
+  );
+  if (limitOffer) {
+    const availability = await getAvailabilityForOffer(limitOffer, now);
+    if (availability.state === "closed") {
+      return {
+        ok: false,
+        code: "UNAVAILABLE",
+        message:
+          "Booking for this offer has closed. Please use the enquiry form instead.",
+      };
+    }
+    if (availability.state === "sold_out") {
+      return {
+        ok: false,
+        code: "UNAVAILABLE",
+        message:
+          "This offer has sold out. Please use the enquiry form instead.",
+      };
+    }
+  }
+
   const bookable = await resolvePublicBookableSlot({
     offerSlug: parsed.data.offerSlug,
     kind: parsed.data.offerKind as PublicSchedulingKind,
@@ -341,6 +372,16 @@ export async function submitPublicBooking(
       );
     } catch {
       // Best-effort cleanup only. The lease has a short TTL and ownership CAS.
+    }
+
+    // A concurrent last-seat claim lost after the pre-check above surfaces
+    // as a friendly 409 from the hold/booking guards.
+    if (error instanceof AppError && error.kind === "conflict") {
+      return {
+        ok: false,
+        code: "UNAVAILABLE",
+        message: `${error.message} Please use the enquiry form instead.`,
+      };
     }
 
     if (error instanceof SchedulingDomainError) {

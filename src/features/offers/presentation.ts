@@ -1,4 +1,5 @@
 import type { Offer } from "@/lib/db";
+import type { OfferAvailability } from "./availability";
 
 export type OfferPublicAction =
   | "FREE_ACCESS"
@@ -110,4 +111,30 @@ export function resolveOfferPublicPresentation(
     ctaHref: offer.alternativeCtaUrl ?? contactHref,
     action: offer.alternativeCtaUrl ? "ALTERNATIVE" : "CONTACT",
   };
+}
+
+/**
+ * Offer-limit display rule: capped offers show "N places left" once scarcity
+ * is material (20 or fewer left). Uncapped offers never show it.
+ */
+export const SEATS_LEFT_NOTICE_THRESHOLD = 20;
+
+export function formatSeatsLeftLabel(
+  availability: Pick<OfferAvailability, "seatsLeft">,
+): string | null {
+  if (availability.seatsLeft == null) return null;
+  if (availability.seatsLeft > SEATS_LEFT_NOTICE_THRESHOLD) return null;
+  if (availability.seatsLeft === 1) return "1 place left";
+  return `${availability.seatsLeft} places left`;
+}
+
+/** "Closes on 12 Jan 2026". Pass a timezone to render in it, else UTC. */
+export function formatClosesLabel(closesAt: Date, timeZone?: string): string {
+  const label = new Intl.DateTimeFormat("en-GB", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+    ...(timeZone ? { timeZone } : { timeZone: "UTC" }),
+  }).format(closesAt);
+  return `Closes on ${label}`;
 }

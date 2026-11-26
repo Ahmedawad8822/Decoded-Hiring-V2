@@ -138,7 +138,10 @@ async function readProviderStatuses(): Promise<CommerceAdminProviderStatus[]> {
   );
 }
 
-function mapOffer(row: typeof offers.$inferSelect): CommerceAdminOffer {
+function mapOffer(
+  row: typeof offers.$inferSelect,
+  availability?: { seatsTaken: number; seatsLeft: number | null; state: CommerceAdminOffer["limitState"] },
+): CommerceAdminOffer {
   return {
     id: row.id,
     kind: row.kind,
@@ -152,6 +155,11 @@ function mapOffer(row: typeof offers.$inferSelect): CommerceAdminOffer {
     alternativeCtaLabel: row.alternativeCtaLabel,
     alternativeCtaUrl: row.alternativeCtaUrl,
     active: row.active,
+    seatLimit: row.seatLimit,
+    closesAt: row.closesAt ? row.closesAt.toISOString() : null,
+    seatsTaken: availability?.seatsTaken ?? 0,
+    seatsLeft: availability?.seatsLeft ?? null,
+    limitState: availability?.state ?? "open",
     updatedAt: row.updatedAt.toISOString(),
   };
 }
@@ -296,6 +304,10 @@ export async function getCommerceAdminDashboardWithGuard(
     courses: clampedPage(request.courses, courseTotal, COURSE_LIMIT),
   };
 
+  const { getAvailabilityForOffer } = await import(
+    "@/features/offers/availability"
+  );
+
   const [
     offerRows,
     bookingTypeRows,
@@ -369,6 +381,15 @@ export async function getCommerceAdminDashboardWithGuard(
       .offset((pages.courses - 1) * COURSE_LIMIT),
   ]);
 
+  // Seats taken per offer: bounded to the listed page (at most CONFIG_LIMIT
+  // offers), each a single indexed COUNT — same budget as the lists above.
+  const offerAvailabilities = await Promise.all(
+    offerRows.map((row) => getAvailabilityForOffer(row, now)),
+  );
+  const availabilityByOfferId = new Map(
+    offerRows.map((row, index) => [row.id, offerAvailabilities[index]]),
+  );
+
   const bookingTypeIds = bookingTypeRows.map((row) => row.id);
   const [windowRows, linkedOfferRows] = bookingTypeIds.length
     ? await Promise.all([
@@ -413,7 +434,10 @@ export async function getCommerceAdminDashboardWithGuard(
       blockedEffects: blockedEffectTotal,
     },
     offers: bounded(
-      offerRows.map(mapOffer),
+      offerRows.map((row) => {
+        const availability = availabilityByOfferId.get(row.id);
+        return mapOffer(row, availability);
+      }),
       offerTotal,
       CONFIG_LIMIT,
       pages.offers,

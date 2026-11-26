@@ -32,6 +32,11 @@ import { getDb } from "@/lib/db";
 import { getD1Database } from "@/lib/cloudflare/bindings";
 import { isUniqueConstraintError } from "@/lib/db/sqlite-errors";
 import { requireAdmin } from "@/lib/auth";
+import { AppError } from "@/lib/errors";
+import {
+  ACTIVE_ORDER_STATUSES,
+  assertOfferOpen,
+} from "@/features/offers/availability";
 import type {
   PaymentGateway,
   VerifyCallbackResult,
@@ -282,6 +287,10 @@ export async function createOrder(input: CreateOrderInput): Promise<Order> {
   }
   await validateOrderTarget(offer, parsed);
 
+  // Offer limits: the dormant checkout path refuses with a friendly 409 when
+  // the offer is closed or sold out. Existing orders are never revoked.
+  await assertOfferOpen(offer, parsed.now);
+
   const id = newId("order");
   const auditId = newId("ordh");
   const now = parsed.now;
@@ -305,6 +314,82 @@ export async function createOrder(input: CreateOrderInput): Promise<Order> {
     createdAt: now,
     updatedAt: now,
   };
+
+  if (offer.seatLimit != null) {
+    // Race-safe last-seat claim: the order row only lands while the capped
+    // active-order count still has room, in the same D1 batch as its audit
+    // row (conditioned on the order row landing). Concurrent attempts cannot
+    // both win; the loser gets the idempotent winner or sold out.
+    const d1 = await getD1Database();
+    const nowSec = toUnixSeconds(now);
+    await d1.batch([
+      d1
+        .prepare(
+          `INSERT INTO orders
+             (id, offer_id, offer_kind, access_mode, course_id, booking_type_id,
+              booking_id, user_id, request_key, customer_email, quantity,
+              amount_minor, currency, status, version, transition_key,
+              created_at, updated_at)
+           SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDING', 1, NULL, ?, ?
+           WHERE (SELECT COUNT(*) FROM orders
+                  WHERE offer_id = ? AND status IN (${ACTIVE_ORDER_STATUSES.map(() => "?").join(", ")})) < ?`,
+        )
+        .bind(
+          values.id,
+          values.offerId,
+          values.offerKind,
+          values.accessMode,
+          values.courseId,
+          values.bookingTypeId,
+          values.bookingId,
+          values.userId,
+          values.requestKey,
+          values.customerEmail,
+          values.quantity,
+          values.amountMinor,
+          values.currency,
+          nowSec,
+          nowSec,
+          values.offerId,
+          ...ACTIVE_ORDER_STATUSES,
+          offer.seatLimit,
+        ),
+      d1
+        .prepare(
+          `INSERT INTO order_history
+             (id, order_id, from_status, to_status, source, actor_id, detail, created_at)
+           SELECT ?, id, NULL, 'PENDING', 'SYSTEM', NULL, ?, ?
+           FROM orders
+           WHERE id = ?`,
+        )
+        .bind(
+          auditId,
+          detail({
+            offerId: offer.id,
+            accessMode: offer.accessMode,
+            bookingId: parsed.bookingId ?? null,
+            userId: parsed.userId ?? null,
+          }),
+          nowSec,
+          id,
+        ),
+    ]);
+
+    const guarded = await getOrderById(id);
+    if (!guarded) {
+      const winner = await getOrderByRequestKey(parsed.requestKey);
+      if (winner) return assertExistingOrderBinding(winner, parsed);
+      throw new AppError("conflict", "This offer has sold out.");
+    }
+    await recordOrderBusinessEvent({
+      eventName: "checkout_started",
+      historyId: auditId,
+      order: guarded,
+      occurredAt: now,
+      source: "order_created",
+    });
+    return guarded;
+  }
 
   try {
     await db.batch([

@@ -33,6 +33,7 @@ import {
   type CommerceSchedulingProviders,
 } from "./providers";
 import { iterateCandidateSlots } from "./availability";
+import { getAvailabilityForOffer } from "@/features/offers/availability";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const MAX_PUBLIC_SLOTS = 60;
@@ -48,6 +49,8 @@ export type PublicSchedulingSlot = {
 export type PublicSchedulingDisabledReason =
   | "OFFER_MISSING"
   | "OFFER_INACTIVE"
+  | "OFFER_SOLD_OUT"
+  | "OFFER_CLOSED"
   | "BOOKING_TYPE_MISSING"
   | "BOOKING_TYPE_INACTIVE"
   | "PROVIDER_UNAVAILABLE"
@@ -320,6 +323,19 @@ export async function resolvePublicSchedulingModel(params: {
   if (!config.enabled) return config;
 
   const now = params.now ?? new Date();
+
+  // Offer limits close the live scheduler (the cached page shell keeps its
+  // config-only projection; the client slot fetch reports unavailable).
+  // This is one extra indexed COUNT, only on the live-slots path.
+  const offerRow = source?.offer;
+  if (!offerRow) return { enabled: false, reason: "OFFER_MISSING" };
+  const availability = await getAvailabilityForOffer(offerRow, now);
+  if (availability.state === "closed") {
+    return { enabled: false, reason: "OFFER_CLOSED" };
+  }
+  if (availability.state === "sold_out") {
+    return { enabled: false, reason: "OFFER_SOLD_OUT" };
+  }
   const rangeDays = Math.max(1, Math.min(params.rangeDays ?? 21, 31));
   const rangeEnd = new Date(now.getTime() + rangeDays * DAY_MS);
   let slots: PublicSchedulingSlot[];

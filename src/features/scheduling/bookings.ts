@@ -36,7 +36,16 @@ import { getDb } from "@/lib/db";
 import { getD1Database } from "@/lib/cloudflare/bindings";
 import { isUniqueConstraintError } from "@/lib/db/sqlite-errors";
 import { requireAdmin } from "@/lib/auth";
-import { getEffectiveBookingAccessPolicy } from "@/features/offers/service";
+import { AppError } from "@/lib/errors";
+import {
+  getEffectiveBookingAccessPolicy,
+  getOfferForBookingType,
+} from "@/features/offers/service";
+import {
+  ACTIVE_BOOKING_STATUSES,
+  assertOfferOpen,
+  getAvailabilityForOffer,
+} from "@/features/offers/availability";
 import { SchedulingDomainError } from "./errors";
 import {
   bookingDecisionSchema,
@@ -332,6 +341,22 @@ export async function createBookingRequest(
     );
   }
 
+  // Offer limits: a closed or sold-out linked offer refuses the booking with
+  // a friendly 409. The insert below is additionally count-guarded so the
+  // last seat cannot be double-claimed by concurrent requests. The hold this
+  // booking is created from already reserves its seat, so it is excluded
+  // from both the pre-check and the guard: converting a hold into a booking
+  // must not require a second free seat.
+  const linkedOffer = await getOfferForBookingType(bookingType.id);
+  if (linkedOffer) {
+    const availability = await getAvailabilityForOffer(
+      linkedOffer,
+      parsed.now,
+      { excludeHoldId: parsed.holdId },
+    );
+    await assertOfferOpen(linkedOffer, parsed.now, availability.seatsTaken);
+  }
+
   const hold = await db.select().from(slotHolds).where(eq(slotHolds.id, parsed.holdId)).get();
   if (!hold) {
     throw new SchedulingDomainError("Slot hold not found.", "HOLD_NOT_FOUND");
@@ -391,6 +416,114 @@ export async function createBookingRequest(
     createdAt: parsed.now,
     updatedAt: parsed.now,
   } as const;
+
+  if (linkedOffer?.seatLimit != null) {
+    // Race-safe last-seat claim: the booking row only lands while the capped
+    // booking + unlinked-hold count still has room, in the same D1 batch as
+    // its audit row (which is itself conditioned on the booking row landing).
+    // Two concurrent attempts cannot both win; the loser re-reads and gets
+    // the idempotent winner when it lost to its own retry, else sold out.
+    const d1 = await getD1Database();
+    const nowSec = toUnixSeconds(parsed.now);
+    const auditDetail = historyDetail({
+      requestKey: parsed.requestKey,
+      confirmationPolicy: bookingType.confirmationPolicy,
+      holdId: hold.id,
+      holdAcquisitionKey: parsed.holdAcquisitionKey,
+    });
+    await d1.batch([
+      d1
+        .prepare(
+          `INSERT INTO bookings
+             (id, booking_type_id, hold_id, hold_acquisition_key, request_key,
+              requester_name, requester_email, requester_phone, notes, slot_key,
+              start_at, end_at, timezone, status, version, transition_key,
+              created_at, updated_at)
+           SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, NULL, ?, ?
+           WHERE (SELECT COUNT(*) FROM bookings
+                  WHERE booking_type_id = ? AND status IN (${ACTIVE_BOOKING_STATUSES.map(() => "?").join(", ")}))
+               + (SELECT COUNT(*) FROM slot_holds AS h
+                  WHERE h.booking_type_id = ? AND h.status = 'HELD' AND h.expires_at > ?
+                    AND h.id != ?
+                    AND NOT EXISTS (SELECT 1 FROM bookings AS b
+                                    WHERE b.hold_id = h.id
+                                      AND b.hold_acquisition_key = h.acquisition_key)) < ?`,
+        )
+        .bind(
+          value.id,
+          value.bookingTypeId,
+          value.holdId,
+          value.holdAcquisitionKey,
+          value.requestKey,
+          value.requesterName,
+          value.requesterEmail,
+          value.requesterPhone,
+          value.notes,
+          value.slotKey,
+          toUnixSeconds(value.startAt),
+          toUnixSeconds(value.endAt),
+          value.timezone,
+          value.status,
+          nowSec,
+          nowSec,
+          value.bookingTypeId,
+          ...ACTIVE_BOOKING_STATUSES,
+          value.bookingTypeId,
+          nowSec,
+          value.holdId,
+          linkedOffer.seatLimit,
+        ),
+      d1
+        .prepare(
+          `INSERT INTO booking_history
+             (id, booking_id, action, from_status, to_status, actor_id, detail, created_at)
+           SELECT ?, id, 'REQUESTED', NULL, ?, NULL, ?, ?
+           FROM bookings
+           WHERE id = ?`,
+        )
+        .bind(auditId, initialStatus, auditDetail, nowSec, id),
+    ]);
+
+    const guarded = await getBookingById(id);
+    if (!guarded) {
+      const retryByRequest = await getBookingByRequestKey(parsed.requestKey);
+      if (retryByRequest) return assertRequestKeyBinding(retryByRequest, parsed);
+      const retryByGeneration = await findByHoldGeneration(
+        parsed.holdId,
+        parsed.holdAcquisitionKey,
+      );
+      if (retryByGeneration) return retryByGeneration;
+      throw new AppError("conflict", "This offer has sold out.");
+    }
+
+    await recordBookingBusinessEvent({
+      eventName: "booking_requested",
+      historyId: auditId,
+      booking: guarded,
+      occurredAt: parsed.now,
+      metadata: {
+        confirmation_policy: bookingType.confirmationPolicy,
+        initial_status: initialStatus,
+      },
+    });
+
+    if (
+      bookingType.confirmationPolicy === "AUTO_CONFIRM" &&
+      accessPolicy.mode === "FREE"
+    ) {
+      return confirmBoundBooking(
+        {
+          bookingId: guarded.id,
+          expectedVersion: guarded.version,
+          now: parsed.now,
+        },
+        "AUTO_CONFIRMED",
+        { id: "system:auto-confirm", role: "system" },
+      );
+    }
+
+    return guarded;
+  }
 
   try {
     await db.batch([

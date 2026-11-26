@@ -101,7 +101,7 @@ export function createCommerceAdminOperations(
         const parsed = createOfferSchema.parse(input);
         const created = await createOffer(parsed);
         if (actorId) {
-          await recordAdminAudit({ actorId, action: "offer.create", entityType: "offer", entityId: created.id, details: { slug: created.slug, kind: created.kind, accessMode: created.accessMode, currency: created.currency, amountMinor: created.amountMinor, active: created.active } });
+          await recordAdminAudit({ actorId, action: "offer.create", entityType: "offer", entityId: created.id, details: { slug: created.slug, kind: created.kind, accessMode: created.accessMode, currency: created.currency, amountMinor: created.amountMinor, active: created.active, seatLimit: created.seatLimit, closesAt: created.closesAt ? created.closesAt.toISOString() : null } });
         }
         return { ok: true, data: { id: created.id } };
       } catch (error: unknown) {
@@ -117,7 +117,7 @@ export function createCommerceAdminOperations(
         const parsed = updateOfferSchema.parse(input);
         const updated = await updateOffer(parsed);
         if (actorId) {
-          await recordAdminAudit({ actorId, action: "offer.update", entityType: "offer", entityId: updated.id, details: { slug: updated.slug, kind: updated.kind, accessMode: updated.accessMode, currency: updated.currency, amountMinor: updated.amountMinor, active: updated.active } });
+          await recordAdminAudit({ actorId, action: "offer.update", entityType: "offer", entityId: updated.id, details: { slug: updated.slug, kind: updated.kind, accessMode: updated.accessMode, currency: updated.currency, amountMinor: updated.amountMinor, active: updated.active, seatLimit: updated.seatLimit, closesAt: updated.closesAt ? updated.closesAt.toISOString() : null } });
         }
         return { ok: true, data: { id: updated.id } };
       } catch (error: unknown) {

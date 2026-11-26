@@ -1,6 +1,7 @@
-import { ArrowUpRight, Check, LockKeyhole, Play } from "lucide-react";
+import { Check, LockKeyhole, Play } from "lucide-react";
 import Image from "next/image";
 
+import { OfferLimitCta } from "@/components/products/offer-limit-cta";
 import { publicMetadata } from "@/lib/seo";
 import { PUBLIC_OFFER_SLUGS } from "@/features/offers/catalog";
 import { resolveOfferPublicPresentation } from "@/features/offers/presentation";
@@ -64,13 +65,18 @@ export default async function MissionPage() {
                 Currently unavailable
               </span>
             ) : (
-              <a
-                className="hg-primary"
-                href={offerPresentation?.ctaHref ?? "/login"}
-              >
-                {offerPresentation?.ctaLabel ?? "Create my free classroom"}{" "}
-                <ArrowUpRight aria-hidden="true" />
-              </a>
+              <OfferLimitCta
+                offerSlug={PUBLIC_OFFER_SLUGS.mission01}
+                primaryHref={offerPresentation?.ctaHref ?? "/login"}
+                primaryLabel={
+                  offerPresentation?.ctaLabel ?? "Create my free classroom"
+                }
+                alternativeLabel={offer?.alternativeCtaLabel}
+                alternativeUrl={offer?.alternativeCtaUrl}
+                contactHref="/contact?reason=mission-01"
+                contactLabel="Ask about Mission 01"
+                icon="up-right"
+              />
             )}
             <a className="hg-secondary" href="#mission-route">
               Preview the first checkpoint
@@ -229,13 +235,16 @@ export default async function MissionPage() {
               Currently unavailable
             </span>
           ) : (
-            <a
-              className="hg-primary"
-              href={offerPresentation?.ctaHref ?? "/login"}
-            >
-              {offerPresentation?.ctaLabel ?? "Start Mission 01"}{" "}
-              <ArrowUpRight aria-hidden="true" />
-            </a>
+            <OfferLimitCta
+              offerSlug={PUBLIC_OFFER_SLUGS.mission01}
+              primaryHref={offerPresentation?.ctaHref ?? "/login"}
+              primaryLabel={offerPresentation?.ctaLabel ?? "Start Mission 01"}
+              alternativeLabel={offer?.alternativeCtaLabel}
+              alternativeUrl={offer?.alternativeCtaUrl}
+              contactHref="/contact?reason=mission-01"
+              contactLabel="Ask about Mission 01"
+              icon="up-right"
+            />
           )}
         </div>
       </section>

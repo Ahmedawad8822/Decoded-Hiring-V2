@@ -5,7 +5,12 @@ import { getAdminCourseById } from "@/features/courses/service";
 import { hasLearnerAccess } from "./access";
 import { isUniqueConstraintError } from "@/lib/db/sqlite-errors";
 import { AppError } from "@/lib/errors";
-import { getEffectiveCourseAccessPolicy } from "@/features/offers/service";
+import { getEffectiveCourseAccessPolicy, getOfferForCourse } from "@/features/offers/service";
+import {
+  ACTIVE_ENROLLMENT_STATUSES,
+  assertOfferOpen,
+} from "@/features/offers/availability";
+import { getD1Database } from "@/lib/cloudflare/bindings";
 import { notifyCourseLeft, notifyEnrollmentWelcome } from "@/lib/email/triggers";
 
 // ============================================================================
@@ -83,21 +88,59 @@ export async function enrollFree(userId: string, courseId: string): Promise<Enro
   // fully complete => completed with a completion date, otherwise active.
   // cancelledAt is cleared; progress, quiz attempts, notes and certificates
   // are never touched here.
+  //
+  // Offer limits: a reactivation re-claims a seat, so a closed or sold-out
+  // offer refuses it. Already-active enrollments are never touched.
   const existing = await getEnrollment(userId, courseId);
+  const offer = await getOfferForCourse(courseId);
   if (existing) {
     if (existing.status === "cancelled") {
+      if (offer) await assertOfferOpen(offer);
       const { getEnrollmentProgress } = await import("@/features/progress/service");
       const progress = await getEnrollmentProgress(existing);
       const completed = progress.completed;
       const reactivatedAt = new Date();
-      await db
-        .update(enrollments)
-        .set({
-          status: completed ? "completed" : "active",
-          completedAt: completed ? (existing.completedAt ?? reactivatedAt) : null,
-          cancelledAt: null,
-        })
-        .where(and(eq(enrollments.id, existing.id), eq(enrollments.status, "cancelled")));
+      const reactivatedStatus = completed ? "completed" : "active";
+      const reactivatedCompletedAt = completed
+        ? (existing.completedAt ?? reactivatedAt)
+        : null;
+      if (offer?.seatLimit != null) {
+        // Race-safe: the reactivation only lands while a seat is still free.
+        const d1 = await getD1Database();
+        const claimed = await d1
+          .prepare(
+            `UPDATE enrollments
+             SET status = ?, completed_at = ?, cancelled_at = NULL
+             WHERE id = ? AND status = 'cancelled'
+               AND (SELECT COUNT(*) FROM enrollments
+                    WHERE course_id = ? AND status IN (${ACTIVE_ENROLLMENT_STATUSES.map(() => "?").join(", ")})) < ?`,
+          )
+          .bind(
+            reactivatedStatus,
+            reactivatedCompletedAt
+              ? Math.floor(reactivatedCompletedAt.getTime() / 1000)
+              : null,
+            existing.id,
+            courseId,
+            ...ACTIVE_ENROLLMENT_STATUSES,
+            offer.seatLimit,
+          )
+          .run();
+        if ((claimed.meta?.changes ?? 0) === 0) {
+          const reread = await getEnrollment(userId, courseId);
+          if (reread && reread.status !== "cancelled") return reread;
+          throw new AppError("conflict", "This offer has sold out.");
+        }
+      } else {
+        await db
+          .update(enrollments)
+          .set({
+            status: reactivatedStatus,
+            completedAt: reactivatedCompletedAt,
+            cancelledAt: null,
+          })
+          .where(and(eq(enrollments.id, existing.id), eq(enrollments.status, "cancelled")));
+      }
       const restored = (await getEnrollment(userId, courseId))!;
       // Reactivation (not already-active): welcome email, deduped by time.
       await notifyEnrollmentWelcome({
@@ -112,8 +155,63 @@ export async function enrollFree(userId: string, courseId: string): Promise<Enro
     return existing;
   }
 
+  if (offer) await assertOfferOpen(offer);
+
   const now = new Date();
   const id = `enroll_${crypto.randomUUID().slice(0, 12)}`;
+  if (offer?.seatLimit != null) {
+    // Race-safe last-seat claim: the INSERT only lands while the capped
+    // COUNT(*) subquery still has room, in a single statement, so two
+    // concurrent attempts cannot both win. D1 executes the statement
+    // atomically; the loser sees 0 changes and gets the sold-out conflict
+    // (or the idempotent winner when it lost to its own retry).
+    const d1 = await getD1Database();
+    const claimed = await d1
+      .prepare(
+        `INSERT INTO enrollments
+           (id, user_id, course_id, status, access_source, enrolled_at, completed_at)
+         SELECT ?, ?, ?, 'active', 'free', ?, NULL
+         WHERE (SELECT COUNT(*) FROM enrollments
+                WHERE course_id = ? AND status IN (${ACTIVE_ENROLLMENT_STATUSES.map(() => "?").join(", ")})) < ?
+           AND NOT EXISTS (SELECT 1 FROM enrollments
+                           WHERE user_id = ? AND course_id = ?)`,
+      )
+      .bind(
+        id,
+        userId,
+        courseId,
+        Math.floor(now.getTime() / 1000),
+        courseId,
+        ...ACTIVE_ENROLLMENT_STATUSES,
+        offer.seatLimit,
+        userId,
+        courseId,
+      )
+      .run();
+    if ((claimed.meta?.changes ?? 0) === 0) {
+      const winner = await getEnrollment(userId, courseId);
+      if (winner && winner.status !== "cancelled") {
+        await notifyEnrollmentWelcome({
+          userId,
+          courseId,
+          courseSlug: course.slug,
+          courseTitle: course.title,
+          eventAt: winner.enrolledAt,
+        });
+        return winner;
+      }
+      throw new AppError("conflict", "This offer has sold out.");
+    }
+    const created = (await getEnrollment(userId, courseId))!;
+    await notifyEnrollmentWelcome({
+      userId,
+      courseId,
+      courseSlug: course.slug,
+      courseTitle: course.title,
+      eventAt: created.enrolledAt,
+    });
+    return created;
+  }
   try {
     await db.insert(enrollments).values({
       id,

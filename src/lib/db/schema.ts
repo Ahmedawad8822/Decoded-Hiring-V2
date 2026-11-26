@@ -1033,6 +1033,11 @@ export const offers = sqliteTable(
     alternativeCtaLabel: text("alternative_cta_label"),
     alternativeCtaUrl: text("alternative_cta_url"),
     active: integer("active", { mode: "boolean" }).notNull().default(true),
+    // Offer limits: null seatLimit means unlimited places, null closesAt means
+    // the offer never closes. Seats taken are derived (enrollments/bookings/
+    // holds/orders), never stored, so lowering a limit never revokes access.
+    seatLimit: integer("seat_limit"),
+    closesAt: integer("closes_at", { mode: "timestamp" }),
     createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
     updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
   },
