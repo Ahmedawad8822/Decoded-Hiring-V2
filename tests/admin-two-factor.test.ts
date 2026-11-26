@@ -127,7 +127,7 @@ test("enroll, verify a TOTP from the stored secret, then sign-in returns the 2FA
   const created = await auth.api.signUpEmail({
     body: { email: EMAIL, password: PASSWORD, name: "2FA Admin" },
   });
-  await db.update(users).set({ role: "admin" }).where(eq(users.id, created.user.id));
+  await db.update(users).set({ role: "admin", emailVerified: true }).where(eq(users.id, created.user.id));
 
   // Plain sign-in: no 2FA yet, so a session cookie comes back.
   const signIn = await auth.handler(post("sign-in/email", { email: EMAIL, password: PASSWORD }));

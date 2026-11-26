@@ -232,6 +232,13 @@
       "when": 1795586140034,
       "tag": "0032_skinny_loki",
       "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "6",
+      "when": 1795681075921,
+      "tag": "0033_verify_existing_users",
+      "breakpoints": true
     }
   ]
 }

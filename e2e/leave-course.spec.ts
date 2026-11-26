@@ -1,6 +1,7 @@
 import { test, expect } from "@playwright/test";
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { completeSignupVerification } from "./helpers/verification";
 import { clickAction, waitForHydration } from "./helpers/actions";
 
 function localEnv(key: string): string {
@@ -92,7 +93,7 @@ test.describe("leave a course", () => {
       await page.getByLabel(/Email/).fill(learnerEmail);
       await page.getByLabel(/^Password/).fill("e2e-password-123");
       await clickAction(page, page.getByRole("button", { name: "Create account" }));
-      await expect(page).toHaveURL(/\/learn/, { timeout: 90_000 });
+      await completeSignupVerification(page, learnerEmail);
 
       await page.goto(`/learn/courses/${courseSlug}`);
       await clickAction(page, page.getByRole("button", { name: "Start free — enroll now" }));

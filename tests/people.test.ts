@@ -15,6 +15,7 @@
  * Runs through tsx via `npm test` (no Playwright).
  */
 import "./helpers/env"; // MUST be first: throwaway DH_LOCAL_STATE_DIR + test secret.
+import { markEmailVerified } from "./helpers/verified";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
@@ -101,6 +102,7 @@ async function account(admin: boolean) {
     body: { email, password, name: "Person Fixture" },
   });
   if (admin) await (await getDb()).update(users).set({ role: "admin" }).where(eq(users.id, created.user.id));
+  await markEmailVerified(created.user.id);
   const signIn = await auth.api.signInEmail({ body: { email, password }, returnHeaders: true });
   return {
     id: created.user.id,

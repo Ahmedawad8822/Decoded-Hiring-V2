@@ -27,7 +27,7 @@ import { createRequire } from "node:module";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { eq } from "drizzle-orm";
-import { emailOutbox, getDb, type EmailOutboxRow } from "../src/lib/db";
+import { emailOutbox, getDb, users, type EmailOutboxRow } from "../src/lib/db";
 import { migrateLocalDb } from "../src/lib/db/migrate";
 import { disposeCloudflareBindings, getD1Database } from "../src/lib/cloudflare/bindings";
 import { getAuth } from "../src/lib/auth";
@@ -659,25 +659,48 @@ test("better-auth wiring: signup queues verification; reset request queues, rese
   const email = `reset-flow-${uid()}@example.test`;
   const oldPassword = `Fixture-${crypto.randomUUID()}`;
 
-  // Signup queues an email_verification row and still signs in
-  // (requireEmailVerification stays false — no lockout). callbackURL mirrors
-  // what the signup page sends, so the verify link lands on /learn?verified=1.
+  // Signup queues an email_verification row but returns no session
+  // (requireEmailVerification). callbackURL mirrors what the signup page sends.
   const created = await auth.api.signUpEmail({
-    body: { email, password: oldPassword, name: "Reset Flow", callbackURL: "/learn?verified=1" },
+    body: { email, password: oldPassword, name: "Reset Flow", callbackURL: "/email-verified?next=%2Flearn" },
   });
-  assert.ok(created.user.id, "signup succeeds without a verified email");
+  assert.ok(created.user.id, "signup creates the account");
+  assert.equal(created.token, null, "signup does not sign in before verification");
   const verifyRows = (await outboxRows(email)).filter((r) => r.kind === "email_verification");
   assert.equal(verifyRows.length, 1, "signup queued one verification email");
-  assert.match(verifyRows[0]?.textBody ?? "", /\/verify-email\?token=/);
-  assert.match(verifyRows[0]?.textBody ?? "", /callbackURL=%2Flearn%3Fverified%3D1/);
+  const verifyUrl = verifyRows[0]?.textBody.match(/https?:\/\/\S+\/verify-email\?\S+/)?.[0];
+  assert.ok(verifyUrl, "verification email carries the verify link");
+  assert.match(verifyUrl, /callbackURL=%2Femail-verified%3Fnext%3D%252Flearn/);
+
+  // Unverified accounts cannot sign in.
+  await assert.rejects(
+    () => auth.api.signInEmail({ body: { email, password: oldPassword } }),
+    (error: unknown) => (error as { body?: { code?: string } }).body?.code === "EMAIL_NOT_VERIFIED",
+  );
+
+  // A tampered link is refused and lands on the callback with an error.
+  const tampered = await auth.handler(new Request(verifyUrl.replace(/token=[^&]+/, "token=not-a-token")));
+  assert.equal(tampered.status, 302);
+  assert.match(tampered.headers.get("location") ?? "", /^\/email-verified\?next=%2Flearn&error=INVALID_TOKEN$/);
+
+  // The emailed link verifies, signs the learner in, and redirects to the callback.
+  const verified = await auth.handler(new Request(verifyUrl));
+  assert.equal(verified.status, 302);
+  assert.equal(verified.headers.get("location"), "/email-verified?next=%2Flearn");
+  assert.ok(verified.headers.getSetCookie().length > 0, "verification signs the learner in");
 
   // A pre-reset session exists (proves revocation below actually revokes).
   const userId = created.user.id;
   const db = await getDb();
   const { sessions } = await import("../src/lib/db");
+  assert.equal(
+    (await db.select().from(users).where(eq(users.id, userId)).get())?.emailVerified,
+    true,
+    "the link marked the email verified",
+  );
   assert.ok(
     (await db.select().from(sessions).where(eq(sessions.userId, userId))).length >= 1,
-    "signup minted a session",
+    "verification minted a session",
   );
 
   // Reset request is generic and queues exactly one reset email (no throw for

@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { authClient } from "@/lib/auth/client";
 import { safeRedirectPath } from "@/lib/safe-redirect";
+import { CheckInbox, verificationCallbackURL } from "@/components/auth/check-inbox";
 
 function SignupForm() {
   const router = useRouter();
@@ -16,6 +17,8 @@ function SignupForm() {
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [sentTo, setSentTo] = useState<string | null>(null);
+  const next = safeRedirectPath(redirect);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -30,19 +33,21 @@ function SignupForm() {
     setLoading(true);
     setError(null);
     try {
-      // callbackURL lands the email-verification link on /learn?verified=1
-      // (verification itself never gates access: requireEmailVerification is false).
+      // requireEmailVerification: sign-up never returns a session. The emailed
+      // link verifies, signs in, and lands on /email-verified.
       const res = await authClient.signUp.email({
         name: name.trim(),
         email,
         password,
-        callbackURL: "/learn?verified=1",
+        callbackURL: verificationCallbackURL(next),
       });
       if (res.error) {
         setError(res.error.message || "Could not create your account. Please try again.");
-      } else {
-        router.push(safeRedirectPath(redirect));
+      } else if (res.data?.token) {
+        router.push(next);
         router.refresh();
+      } else {
+        setSentTo(email);
       }
     } catch (err: unknown) {
       setError((err as Error).message || "An unexpected error occurred.");
@@ -79,7 +84,9 @@ function SignupForm() {
             Free courses enroll instantly — no checkout, no card, no waitlist.
           </p>
 
-          {error && (
+          {sentTo && <CheckInbox email={sentTo} next={next} intro="Almost there." />}
+
+          {!sentTo && error && (
             <div
               role="alert"
               style={{
@@ -96,6 +103,7 @@ function SignupForm() {
             </div>
           )}
 
+          {!sentTo && (
           <form onSubmit={handleSubmit} style={{ display: "grid", gap: "16px", marginTop: "20px" }}>
             <div style={{ display: "grid", gap: "6px" }}>
               <label htmlFor="signup-name" style={{ fontSize: "12.5px", fontWeight: 600 }}>
@@ -182,6 +190,7 @@ function SignupForm() {
               {loading ? "Creating account..." : "Create account & start free"}
             </button>
           </form>
+          )}
 
           <p style={{ fontSize: "12.5px", color: "var(--muted)", marginTop: "20px", textAlign: "center" }}>
             Already learning?{" "}

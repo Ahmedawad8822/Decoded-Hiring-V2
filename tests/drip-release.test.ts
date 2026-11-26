@@ -15,6 +15,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
 import "./helpers/env"; // MUST be first: fake TEST-ONLY secret before any app module.
+import { markEmailVerified } from "./helpers/verified";
 
 import { eq } from "drizzle-orm";
 import {
@@ -88,6 +89,7 @@ async function account(admin: boolean) {
   if (admin) {
     await (await getDb()).update(users).set({ role: "admin" }).where(eq(users.id, created.user.id));
   }
+  await markEmailVerified(created.user.id);
   const signIn = await auth.api.signInEmail({ body: { email, password }, returnHeaders: true });
   return {
     id: created.user.id,

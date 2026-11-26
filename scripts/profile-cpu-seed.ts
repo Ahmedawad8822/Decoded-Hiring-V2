@@ -119,6 +119,10 @@ async function main() {
     await auth.api.signUpEmail({ body: { email: learnerEmail, password: learnerPassword, name: "Profile Learner" } });
     learner = await db.select().from(users).where(eq(users.email, learnerEmail)).get();
   }
+  // Local profiling fixture: sign-in requires a verified email.
+  if (learner && !learner.emailVerified) {
+    await db.update(users).set({ emailVerified: true }).where(eq(users.id, learner.id));
+  }
   const demo = await db.select().from(courses).where(eq(courses.slug, "mission-01-demo")).get();
   if (!learner || !demo) throw new Error("Missing learner or demo course fixture");
   await enrollFree(learner.id, demo.id);

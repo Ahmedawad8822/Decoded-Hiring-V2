@@ -235,10 +235,13 @@ export async function prepareSession(options: ReturnType<typeof parseArgs>, env:
   const signIn = await client.request("/api/auth/sign-in/email", { email, password });
   let signed: Record<string, unknown>;
   if (!signIn.ok) {
+    if (signIn.status === 403) fail("This account has not verified its email. Open the verification email, click the link, then rerun.");
     if (options.mode !== "learner" || signIn.status !== 401) fail(`Sign-in failed (HTTP ${signIn.status}); no retries performed.`);
     const name = env.CPU_LEARNER_NAME;
     if (!name) fail("Set CPU_LEARNER_NAME for first-time signup.");
     signed = await client.json("/sign-up/email", { email, password, name });
+    // Sign-up never returns a session while email verification is required.
+    if (!signed.token) fail("Learner account created. Open the verification email, click the link, then rerun.");
   } else signed = await signIn.json() as Record<string, unknown>;
   const user = signed.user as { role?: string; twoFactorEnabled?: boolean } | undefined;
   if (options.mode === "admin") {
