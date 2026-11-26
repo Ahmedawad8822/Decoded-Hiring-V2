@@ -1,6 +1,9 @@
 import Link from "next/link";
 import { safeRedirectPath } from "@/lib/safe-redirect";
 
+// Rendered per request: the outcome comes from the link's query string.
+export const dynamic = "force-dynamic";
+
 // Better Auth's /api/auth/verify-email redirects here: with `?error=` when the
 // link is expired or invalid, otherwise after marking the email verified and
 // signing the learner in (autoSignInAfterVerification).
