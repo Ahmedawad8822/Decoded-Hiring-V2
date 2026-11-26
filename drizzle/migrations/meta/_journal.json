@@ -239,6 +239,13 @@
       "when": 1795681075921,
       "tag": "0033_verify_existing_users",
       "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "6",
+      "when": 1795691166835,
+      "tag": "0034_fantastic_revanche",
+      "breakpoints": true
     }
   ]
 }

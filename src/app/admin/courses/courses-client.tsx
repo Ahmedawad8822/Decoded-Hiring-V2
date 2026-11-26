@@ -53,6 +53,7 @@ export function CoursesClient({
   const [instructorName, setInstructorName] = useState("");
   const [instructorBio, setInstructorBio] = useState("");
   const [certificateEnabled, setCertificateEnabled] = useState(false);
+  const [sequential, setSequential] = useState(false);
   const [accessMode, setAccessMode] = useState<string>("FREE");
   // Batch J learner automations (all OFF by default).
   const [notifyUnlocks, setNotifyUnlocks] = useState(false);
@@ -87,6 +88,7 @@ export function CoursesClient({
     setInstructorBio("");
     setAccessMode("FREE");
     setCertificateEnabled(false);
+    setSequential(false);
     setNotifyUnlocks(false);
     setNudgeCompleted(false);
     setNudgeInactive(false);
@@ -110,6 +112,7 @@ export function CoursesClient({
     setInstructorBio(course.instructorBio || "");
     setAccessMode(course.accessMode);
     setCertificateEnabled(course.certificateEnabled);
+    setSequential(course.sequential);
     setNotifyUnlocks(course.notifyUnlocks);
     setNudgeCompleted(course.nudgeCompleted);
     setNudgeInactive(course.nudgeInactive);
@@ -125,6 +128,7 @@ export function CoursesClient({
     try {
       const payload = {
         certificateEnabled,
+        sequential,
         title: title.trim(),
         slug: slug.trim(),
         description: description.trim() || null,
@@ -294,6 +298,10 @@ export function CoursesClient({
           <label>
             <Input type="checkbox" checked={certificateEnabled} onChange={(e) => setCertificateEnabled(e.target.checked)} />
             {" "}Issue certificates on completion
+          </label>
+          <label>
+            <Input type="checkbox" checked={sequential} onChange={(e) => setSequential(e.target.checked)} />
+            {" "}Lessons unlock in order (each lesson needs the earlier required lessons)
           </label>
           <fieldset className="s-stack s-gap-14">
             <legend>Frequently asked questions</legend>

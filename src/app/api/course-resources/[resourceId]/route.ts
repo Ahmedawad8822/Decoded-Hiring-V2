@@ -1,10 +1,11 @@
-import { getDb, courseSections, lessonResources, lessons } from "@/lib/db";
+import { getDb, courseSections, courses, lessonProgress, lessonResources, lessons } from "@/lib/db";
 import { getServerSession } from "@/lib/auth";
 import { getCourseResourceObject } from "@/lib/course-resources/service";
 import { resolveLessonResourceAccess } from "@/lib/course-resources/access";
-import { lessonReleaseAt } from "@/features/courses/release";
+import { findSequentialBlocker, lessonReleaseAt } from "@/features/courses/release";
 import { getEnrollment } from "@/features/enrollments/service";
-import { eq } from "drizzle-orm";
+import { hasLearnerAccess } from "@/features/enrollments/access";
+import { and, asc, eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
 
 /**
@@ -54,7 +55,11 @@ export async function GET(
   // the lesson is unreleased; admins bypass. Section carries the section rule.
   let dripLocked = false;
   let dripReleaseAt: Date | null = null;
-  if (lesson && role !== "admin" && enrollment) {
+  // SEQUENTIAL (learner polish): same locked verdict while earlier required
+  // lessons are incomplete; previews bypass. One ordered curriculum read only
+  // when the course has `sequential` on.
+  let sequentialLocked = false;
+  if (lesson && role !== "admin" && hasLearnerAccess(enrollment)) {
     const section = await db
       .select()
       .from(courseSections)
@@ -62,6 +67,28 @@ export async function GET(
       .get();
     dripReleaseAt = lessonReleaseAt(section ?? null, lesson, enrollment.enrolledAt);
     dripLocked = dripReleaseAt !== null && dripReleaseAt.getTime() > Date.now();
+    if (!dripLocked && !lesson.isPreview) {
+      const course = await db
+        .select({ sequential: courses.sequential })
+        .from(courses)
+        .where(eq(courses.id, resource.courseId))
+        .get();
+      if (course?.sequential) {
+        const published = await db
+          .select()
+          .from(lessons)
+          .innerJoin(courseSections, eq(lessons.sectionId, courseSections.id))
+          .where(and(eq(lessons.courseId, resource.courseId), eq(lessons.status, "published")))
+          .orderBy(asc(courseSections.position), asc(lessons.position), asc(lessons.createdAt));
+        const ordered = published.map((row) => row.lessons);
+        const doneRows = await db
+          .select({ lessonId: lessonProgress.lessonId })
+          .from(lessonProgress)
+          .where(eq(lessonProgress.enrollmentId, enrollment.id));
+        sequentialLocked =
+          findSequentialBlocker(ordered, new Set(doneRows.map((r) => r.lessonId)), lesson.id) !== null;
+      }
+    }
   }
 
   const verdict = resolveLessonResourceAccess({
@@ -70,6 +97,7 @@ export async function GET(
     enrollment,
     dripLocked,
     dripReleaseAt,
+    sequentialLocked,
   });
 
   if (verdict.status === "not-found") {
@@ -83,10 +111,12 @@ export async function GET(
   }
   if (verdict.status === "locked") {
     return NextResponse.json(
-      {
-        error: "This lesson has not unlocked yet.",
-        ...(verdict.releaseAt ? { releaseAt: verdict.releaseAt.toISOString() } : {}),
-      },
+      sequentialLocked
+        ? { error: "Finish the previous lesson to unlock this one." }
+        : {
+            error: "This lesson has not unlocked yet.",
+            ...(verdict.releaseAt ? { releaseAt: verdict.releaseAt.toISOString() } : {}),
+          },
       { status: 403 }
     );
   }

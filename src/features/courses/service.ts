@@ -122,6 +122,7 @@ export async function createCourse(input: CreateCourseInput): Promise<Course> {
       audience: input.audience || null,
       instructorName: input.instructorName || null,
       instructorBio: input.instructorBio || null,
+      sequential: input.sequential ?? false,
       notifyUnlocks: input.notifyUnlocks ?? false,
       nudgeCompleted: input.nudgeCompleted ?? false,
       nudgeInactive: input.nudgeInactive ?? false,
@@ -192,6 +193,10 @@ export async function updateCourse(id: string, input: UpdateCourseInput): Promis
   if (typeof input.description !== "undefined") patch.description = input.description || null;
   if (typeof input.accessMode !== "undefined") patch.accessMode = input.accessMode;
   if (typeof input.coverImage !== "undefined") patch.coverImage = input.coverImage || null;
+  // Learner polish sequential lock (Studio course settings; OFF by default).
+  // Toggling it never rewrites progress: locked required lessons still count
+  // in totalRequired, so completion reconciles on the next write path.
+  if (typeof input.sequential !== "undefined") patch.sequential = input.sequential;
   // Batch J learner automations (Studio course settings; all OFF by default).
   if (typeof input.notifyUnlocks !== "undefined") patch.notifyUnlocks = input.notifyUnlocks;
   if (typeof input.nudgeCompleted !== "undefined") patch.nudgeCompleted = input.nudgeCompleted;
