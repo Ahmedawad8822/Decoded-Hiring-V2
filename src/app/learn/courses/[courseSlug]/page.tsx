@@ -15,6 +15,7 @@ import { getQuizLessonIds } from "@/features/quizzes/service";
 import { countMyCourseNotes } from "@/features/notes/service";
 import { EnrollButton } from "@/components/learner/enroll-button";
 import { LeaveCourseButton } from "@/components/learner/leave-course-button";
+import { RestartCourseButton } from "@/components/learner/restart-course-button";
 import { getEffectiveCourseAccessPolicy } from "@/features/offers/service";
 import {
   formatSeatsLeftLabel,
@@ -23,7 +24,7 @@ import {
 import { getOfferAvailability } from "@/features/offers/availability";
 
 import { formatMinutes, getCourseTimeStats, lessonMetaLabel, parseCourseLanding } from "@/features/courses/metadata";
-import { isLessonReleased, lessonReleaseAt } from "@/features/courses/release";
+import { findSequentialBlocker, isLessonReleased, lessonReleaseAt } from "@/features/courses/release";
 import { LocalDate } from "@/components/learner/local-date";
 
 export async function generateMetadata(props: {
@@ -310,6 +311,12 @@ export default async function CourseOverviewPage(props: {
                     lockedAt !== null &&
                     activeEnrollment !== null &&
                     !isLessonReleased(entry.section, lesson, activeEnrollment.enrolledAt);
+                  // Sequential lock shares the 🔒 tick; the lesson page explains it.
+                  const isSequentiallyLocked =
+                    course.sequential &&
+                    activeEnrollment !== null &&
+                    !lesson.isPreview &&
+                    findSequentialBlocker(publishedLessons, completedSet, lesson.id) !== null;
                   return (
                     <Link
                       key={lesson.id}
@@ -317,7 +324,7 @@ export default async function CourseOverviewPage(props: {
                       href={href}
                       aria-current={isCurrent ? true : undefined}
                     >
-                      <span className="tick">{done ? "✓" : isLocked ? "🔒" : ""}</span>
+                      <span className="tick">{done ? "✓" : isLocked || isSequentiallyLocked ? "🔒" : ""}</span>
                       <span className="lrn-lesson-info">
                         <span>{lesson.title}</span>
                         <span className="lrn-lesson-meta">
@@ -351,6 +358,9 @@ export default async function CourseOverviewPage(props: {
               <details key={index}><summary>{item.q}</summary><p className="lrn-plain-text">{item.a}</p></details>
             ))}
           </section>
+        )}
+        {activeEnrollment && (
+          <RestartCourseButton courseSlug={course.slug} />
         )}
         {activeEnrollment && (
           <LeaveCourseButton courseSlug={course.slug} />

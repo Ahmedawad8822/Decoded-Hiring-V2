@@ -1,4 +1,4 @@
-import { index, integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
+import { index, integer, primaryKey, real, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 import type { ContentStatus } from "@/features/publishing/types";
 import type {
   LeadSubmissionKind,
@@ -306,6 +306,10 @@ export const courses = sqliteTable("courses", {
   nudgeCompleted: integer("nudge_completed", { mode: "boolean" }).notNull().default(false),
   nudgeInactive: integer("nudge_inactive", { mode: "boolean" }).notNull().default(false),
   nudgeQuizFailed: integer("nudge_quiz_failed", { mode: "boolean" }).notNull().default(false),
+  // Learner polish: when true, a lesson stays locked until every earlier
+  // REQUIRED lesson (course order: section position, then lesson position)
+  // is complete. Free-preview lessons stay readable regardless.
+  sequential: integer("sequential", { mode: "boolean" }).notNull().default(false),
   coachingPath: text("coaching_path"),
   status: text("status").$type<CourseStatus>().notNull().default("draft"),
   accessMode: text("access_mode").$type<CourseAccessMode>().notNull().default("FREE"),
@@ -509,6 +513,36 @@ export const quizAttempts = sqliteTable(
 );
 
 // ============================================================================
+// LESSON VIDEO POSITIONS (per-learner resume + 90% auto-complete)
+// ----------------------------------------------------------------------------
+// One row per (learner, lesson): the furthest watched position the player
+// reported, plus the video duration when known. Owner-only: every write is
+// scoped by the authenticated user id and requires an active/completed
+// enrollment checked server-side in the video-positions service. Cleared
+// when the learner restarts the course. Cascades remove rows with the
+// lesson or user.
+// ============================================================================
+
+export const lessonVideoPositions = sqliteTable(
+  "lesson_video_positions",
+  {
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    lessonId: text("lesson_id")
+      .notNull()
+      .references(() => lessons.id, { onDelete: "cascade" }),
+    positionSeconds: real("position_seconds").notNull(),
+    durationSeconds: real("duration_seconds"),
+    updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.userId, table.lessonId] }),
+    index("lesson_video_positions_user_idx").on(table.userId),
+  ]
+);
+
+// ============================================================================
 // LESSON NOTES (private per-learner notes, one per lesson)
 // ----------------------------------------------------------------------------
 // Owner-only: every read/write is scoped by the authenticated user id. There is
@@ -555,6 +589,60 @@ export type LessonProgress = typeof lessonProgress.$inferSelect;
 export type LessonQuiz = typeof lessonQuizzes.$inferSelect;
 export type QuizAttempt = typeof quizAttempts.$inferSelect;
 export type LessonNote = typeof lessonNotes.$inferSelect;
+export type LessonVideoPosition = typeof lessonVideoPositions.$inferSelect;
+
+// ============================================================================
+// LESSON QUESTIONS (private learner -> instructor Q&A, optionally published)
+// ----------------------------------------------------------------------------
+// A learner enrolled in a course can ask a question on a lesson. Questions
+// are private by default: the learner sees only their own rows, other
+// learners see only answered + public rows with no identity attached, and the
+// instructor answers in the Studio inbox. Leaving a course keeps the rows;
+// the notes-style enrollment gate hides them until re-enrollment.
+// `idempotency_key` is a client-generated per-submit key (UNIQUE) so a
+// double submit or retry returns the original row instead of a duplicate.
+// Daily ask budget (10/learner/day) is enforced by counting rows in the
+// service against the (user_id, created_at) index.
+// ============================================================================
+
+export type LessonQuestionStatus = "open" | "answered" | "closed";
+
+export const lessonQuestions = sqliteTable(
+  "lesson_questions",
+  {
+    id: text("id").primaryKey(),
+    lessonId: text("lesson_id")
+      .notNull()
+      .references(() => lessons.id, { onDelete: "cascade" }),
+    courseId: text("course_id")
+      .notNull()
+      .references(() => courses.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    body: text("body").notNull(),
+    status: text("status").$type<LessonQuestionStatus>().notNull().default("open"),
+    answerBody: text("answer_body"),
+    answeredAt: integer("answered_at", { mode: "timestamp" }),
+    answeredBy: text("answered_by"),
+    isPublic: integer("is_public", { mode: "boolean" }).notNull().default(false),
+    idempotencyKey: text("idempotency_key").notNull().unique(),
+    createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+    updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+  },
+  (table) => [
+    // One learner's questions on one lesson (owner reads).
+    index("lesson_questions_user_lesson_idx").on(table.userId, table.lessonId, table.createdAt),
+    // Daily ask-budget count (user_id + created_at range).
+    index("lesson_questions_user_created_idx").on(table.userId, table.createdAt),
+    // Studio inbox by status, newest first.
+    index("lesson_questions_status_created_idx").on(table.status, table.createdAt),
+    // Public answered Q&A per lesson (no identity projected).
+    index("lesson_questions_public_lesson_idx").on(table.lessonId, table.status, table.isPublic),
+  ],
+);
+
+export type LessonQuestion = typeof lessonQuestions.$inferSelect;
 
 // ============================================================================
 // EDITORIAL AI DOMAIN (Mission 07 — website editorial AI foundation)
@@ -1379,10 +1467,12 @@ export type EmailOutboxKind =
   | "enrollment_welcome"
   | "course_completed"
   | "course_left"
+  | "course_restarted"
   | "lesson_unlocked"
   | "nudge_completed"
   | "nudge_inactive"
-  | "nudge_quiz_failed";
+  | "nudge_quiz_failed"
+  | "question_answered";
 
 export type EmailOutboxStatus = "pending" | "sending" | "sent" | "failed" | "expired";
 

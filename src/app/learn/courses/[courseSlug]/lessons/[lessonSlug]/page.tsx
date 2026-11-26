@@ -14,12 +14,19 @@ import { hasLearnerAccess } from "@/features/enrollments/access";
 import { getEnrollmentProgress, getLessonContinuationHref } from "@/features/progress/service";
 import { getLessonResources } from "@/features/courses/service";
 import { ContentBlockRenderer } from "@/components/publishing/ContentBlockRenderer";
-import { buildYouTubeEmbedUrl } from "@/features/courses/youtube";
+import { buildYouTubeEmbedUrl, extractYouTubeVideoId } from "@/features/courses/youtube";
 import { CompleteButton } from "@/components/learner/complete-button";
+import { LessonVideoPlayer } from "@/components/learner/lesson-video-player";
+import { getMyVideoPosition } from "@/features/video-positions/service";
 import { QuizPanel } from "@/components/learner/quiz-panel";
 import { LessonNotesPanel } from "@/components/learner/lesson-notes-panel";
+import { LessonQuestionsPanel } from "@/components/learner/lesson-questions-panel";
 import { LessonPlayerShell } from "@/components/learner/lesson-player-shell";
 import { getMyLessonNote } from "@/features/notes/service";
+import {
+  listMyLessonQuestions,
+  listPublicLessonQuestions,
+} from "@/features/lesson-questions/service";
 import {
   getLearnerQuizForLesson,
   getLearnerQuizStats,
@@ -27,7 +34,7 @@ import {
 } from "@/features/quizzes/service";
 
 import { getLessonReadAccess } from "@/features/courses/lesson-access";
-import { isLessonReleased, lessonReleaseAt } from "@/features/courses/release";
+import { findSequentialBlocker, isLessonReleased, lessonReleaseAt } from "@/features/courses/release";
 import { lessonMetaLabel } from "@/features/courses/metadata";
 import { LocalDate } from "@/components/learner/local-date";
 
@@ -121,13 +128,52 @@ export default async function LessonPlayerPage(props: {
 
   const progress = activeEnrollment ? await getEnrollmentProgress(activeEnrollment) : null;
   const completedSet = new Set(progress?.completedLessonIds ?? []);
+  // SEQUENTIAL (learner polish): locked until every earlier required lesson
+  // is complete. Previews stay readable; drip and sequential combine (both
+  // must allow). The blocker doubles as the "continue here" link target.
+  const flatLessons = curriculum.flatMap((c) => c.publishedLessons);
+  const sequentialBlockerId =
+    course.sequential && activeEnrollment && readAccess === "enrolled" && !lesson.isPreview
+      ? findSequentialBlocker(flatLessons, completedSet, lesson.id)
+      : null;
+  const sequentialBlocker = sequentialBlockerId
+    ? (flatLessons.find((l) => l.id === sequentialBlockerId) ?? null)
+    : null;
+  if (sequentialBlocker) {
+    return (
+      <main className="sec-app learner-page" id="main">
+        <div className="wrap learner-column">
+          <p className="a-micro learner-mb-6">
+            <Link className="learner-inherit" href={`/learn/courses/${course.slug}`}>
+              {course.title.toUpperCase()}
+            </Link>
+          </p>
+          <h1 className="a-h1"><span aria-hidden="true">🔒 </span>{lesson.title}</h1>
+          <p className="muted-strong learner-intro">
+            Finish the previous lesson to unlock this one.
+          </p>
+          <div className="learner-mt-16">
+            <Link className="btn primary learner-link" href={`/learn/courses/${course.slug}/lessons/${sequentialBlocker.slug}`}>
+              Continue with {sequentialBlocker.title} →
+            </Link>
+          </div>
+        </div>
+      </main>
+    );
+  }
   const resources = activeEnrollment ? await getLessonResources(lesson.id) : [];
   const blocks = parseLessonBody(lesson);
   const embedUrl = lesson.videoUrl ? buildYouTubeEmbedUrl(lesson.videoUrl) : null;
-  const [quiz, quizLessonIds, myNote] = await Promise.all([
+  // Learner polish: enrolled learners get the resume/auto-complete player;
+  // previews and signed-out readers keep the plain iframe.
+  const videoId = lesson.videoUrl ? extractYouTubeVideoId(lesson.videoUrl) : null;
+  const [quiz, quizLessonIds, myNote, videoPosition, myQuestions, publicQuestions] = await Promise.all([
     getLearnerQuizForLesson(lesson.id),
     getQuizLessonIds(course.id),
     activeEnrollment ? getMyLessonNote(session!.user.id, lesson.id, { enrolledAt: activeEnrollment.enrolledAt }) : Promise.resolve(null),
+    activeEnrollment ? getMyVideoPosition(session!.user.id, lesson.id) : Promise.resolve(null),
+    activeEnrollment ? listMyLessonQuestions(session!.user.id, lesson.id, course.id) : Promise.resolve([]),
+    activeEnrollment ? listPublicLessonQuestions(lesson.id, session!.user.id) : Promise.resolve([]),
   ]);
   const quizStats = quiz && activeEnrollment
     ? await getLearnerQuizStats(session!.user.id, quiz.id)
@@ -139,7 +185,7 @@ export default async function LessonPlayerPage(props: {
     !completedSet.has(lesson.id),
   );
 
-  const flat = curriculum.flatMap((c) => c.publishedLessons);
+  const flat = flatLessons;
   const idx = flat.findIndex((l) => l.id === lesson.id);
   const prev = idx > 0 && (activeEnrollment || flat[idx - 1].isPreview) ? flat[idx - 1] : null;
   const next = idx >= 0 && idx < flat.length - 1 && (activeEnrollment || flat[idx + 1].isPreview) ? flat[idx + 1] : null;
@@ -171,6 +217,13 @@ export default async function LessonPlayerPage(props: {
               lockedAt !== null &&
               activeEnrollment !== null &&
               !isLessonReleased(entry.section, l, activeEnrollment.enrolledAt);
+            // Sequential lock shares the 🔒 tick; the lesson page explains it.
+            const isSequentiallyLocked =
+              course.sequential &&
+              activeEnrollment !== null &&
+              readAccess === "enrolled" &&
+              !l.isPreview &&
+              findSequentialBlocker(flat, completedSet, l.id) !== null;
             return (
               <Link
                 key={l.id}
@@ -178,7 +231,7 @@ export default async function LessonPlayerPage(props: {
                 href={activeEnrollment || l.isPreview ? `/learn/courses/${course.slug}/lessons/${l.slug}` : `/learn/courses/${course.slug}`}
                 aria-current={current ? true : undefined}
               >
-                <span className="tick">{done ? "✓" : isLocked ? "🔒" : ""}</span>
+                <span className="tick">{done ? "✓" : isLocked || isSequentiallyLocked ? "🔒" : ""}</span>
                 <span className="lrn-lesson-info">
                   <span>{l.title}</span>
                   <span className="lrn-lesson-meta">
@@ -207,7 +260,20 @@ export default async function LessonPlayerPage(props: {
         <p className="lrn-lesson-meta">{lessonMetaLabel(lesson, resources.length > 0, Boolean(quiz))}</p>
         {readAccess === "preview" && <p className="learner-mt-12">Free preview · Enroll for the full course, progress tracking and downloadable resources.</p>}
 
-        {embedUrl && (
+        {embedUrl && activeEnrollment && videoId && (
+          <LessonVideoPlayer
+            videoId={videoId}
+            title={lesson.title}
+            courseSlug={course.slug}
+            lessonSlug={lesson.slug}
+            enrollmentId={activeEnrollment.id}
+            lessonId={lesson.id}
+            initialPositionSeconds={videoPosition?.positionSeconds ?? null}
+            initialDurationSeconds={videoPosition?.durationSeconds ?? null}
+            alreadyDone={completedSet.has(lesson.id)}
+          />
+        )}
+        {embedUrl && !activeEnrollment && (
           <div className="lesson-video">
             <iframe
               className="lesson-video-frame"
@@ -247,6 +313,26 @@ export default async function LessonPlayerPage(props: {
             lessonSlug={lesson.slug}
             initialBody={myNote?.body ?? ""}
             initialUpdatedAt={myNote?.updatedAt.toISOString() ?? null}
+          />
+        )}
+
+        {readAccess === "enrolled" && activeEnrollment && (
+          <LessonQuestionsPanel
+            courseSlug={course.slug}
+            lessonSlug={lesson.slug}
+            initialMine={myQuestions.map((question) => ({
+              id: question.id,
+              body: question.body,
+              status: question.status,
+              answerBody: question.answerBody,
+              answeredAt: question.answeredAt ? question.answeredAt.toISOString() : null,
+            }))}
+            initialPublic={publicQuestions.map((question) => ({
+              id: question.id,
+              body: question.body,
+              answerBody: question.answerBody,
+              answeredAt: question.answeredAt.toISOString(),
+            }))}
           />
         )}
 

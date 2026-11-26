@@ -94,7 +94,7 @@ Set as a **static** header in `next.config.ts` (no per-request nonce, so public 
 
 | Directive | Value | Consequence |
 |---|---|---|
-| `script-src` | `'self' 'unsafe-inline'` (+ `'unsafe-eval'` in dev only) | Next's inline bootstrap cannot be hashed in a static header. Tightening needs nonces or hashes |
+| `script-src` | `'self' 'unsafe-inline'` `https://www.youtube.com` (+ `'unsafe-eval'` in dev only) | Next's inline bootstrap cannot be hashed in a static header. Tightening needs nonces or hashes. The youtube origin hosts only the IFrame Player API loader (`lesson-video-player.tsx`); video stays in `frame-src` |
 | `style-src` | `'self' 'unsafe-inline'` | React `style={{}}` allowed |
 | `img-src` | `'self' data: blob:` | No external image hosts. Content `https://` cover URLs pass `isSafeMediaUrl` but will not render under this CSP unless the CSP is widened (see Divergence below) |
 | `font-src` | `'self' data:` | System fonts only; no `next/font`, no Google Fonts |

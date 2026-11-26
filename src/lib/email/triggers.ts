@@ -5,9 +5,11 @@ import { redactEmails, requestEmailDelivery } from "./outbox";
 import {
   courseCompletedTemplate,
   courseLeftTemplate,
+  courseRestartedTemplate,
   emailVerificationTemplate,
   enrollmentWelcomeTemplate,
   passwordResetTemplate,
+  questionAnsweredTemplate,
 } from "./templates";
 
 // ============================================================================
@@ -143,6 +145,35 @@ export async function notifyCourseCompleted(input: {
   }
 }
 
+/** restartMyEnrollment cleared lesson progress (no enrollment: no email). */
+export async function notifyCourseRestarted(input: {
+  userId: string;
+  courseId: string;
+  courseSlug: string;
+  courseTitle: string;
+  restartedAt: Date;
+}): Promise<void> {
+  try {
+    const recipient = await lookupRecipient(input.userId);
+    if (!recipient) return;
+    const template = courseRestartedTemplate({
+      userName: recipient.name,
+      courseTitle: input.courseTitle,
+      courseUrl: `${siteBase()}/learn/courses/${input.courseSlug}`,
+    });
+    await requestEmailDelivery({
+      kind: "course_restarted",
+      toAddress: recipient.email,
+      subject: template.subject,
+      textBody: template.text,
+      htmlBody: template.html,
+      dedupeKey: `course_restarted:${input.userId}:${input.courseId}:${input.restartedAt.getTime()}`,
+    });
+  } catch (error) {
+    logTriggerFailure("course_restarted", error);
+  }
+}
+
 /** cancelMyEnrollment actually changed the status (already-cancelled: no email). */
 export async function notifyCourseLeft(input: {
   userId: string;
@@ -170,5 +201,41 @@ export async function notifyCourseLeft(input: {
     });
   } catch (error) {
     logTriggerFailure("course_left", error);
+  }
+}
+
+/**
+ * answerLessonQuestion answered (or re-answered) a question. Transactional
+ * reply to the learner's own question — not a course nudge, so the
+ * course-reminder opt-out does not apply. Queued once per question via the
+ * dedupe key: editing an answer later never sends a second email.
+ */
+export async function notifyQuestionAnswered(input: {
+  userId: string;
+  courseTitle: string;
+  courseSlug: string;
+  lessonTitle: string;
+  lessonSlug: string;
+  questionId: string;
+}): Promise<void> {
+  try {
+    const recipient = await lookupRecipient(input.userId);
+    if (!recipient) return;
+    const template = questionAnsweredTemplate({
+      userName: recipient.name,
+      courseTitle: input.courseTitle,
+      lessonTitle: input.lessonTitle,
+      lessonUrl: `${siteBase()}/learn/courses/${input.courseSlug}/lessons/${input.lessonSlug}`,
+    });
+    await requestEmailDelivery({
+      kind: "question_answered",
+      toAddress: recipient.email,
+      subject: template.subject,
+      textBody: template.text,
+      htmlBody: template.html,
+      dedupeKey: `question_answered:${input.questionId}`,
+    });
+  } catch (error) {
+    logTriggerFailure("question_answered", error);
   }
 }

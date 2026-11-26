@@ -49,12 +49,13 @@ Slug-redirect rules (`features/slug-redirects/service.ts`): a row is written onl
 
 | Entity (table) | Key fields | Statuses | Slug | Relationships | Public? |
 |---|---|---|---|---|---|
-| **Course** (`courses`) | `title`, `slug`, `description`, `accessMode` (`FREE`/`PAID_ONE_TIME`/`MANUAL_INVOICE`/`PAYMENT_DISABLED`), `coverImage`, `publishedAt` | `draft`/`published`/`archived` | globally unique; redirect on rename | 1:N sections, lessons, enrollments; 0..1 Offer (`offers.courseId` unique) | Not a marketing page. Learner area `/learn/courses/[slug]` shows a published course to anyone; `/learn/courses` needs a session |
+| **Course** (`courses`) | `title`, `slug`, `description`, `accessMode` (`FREE`/`PAID_ONE_TIME`/`MANUAL_INVOICE`/`PAYMENT_DISABLED`), `coverImage`, `publishedAt`, `sequential` (default false: each lesson needs the earlier required lessons, previews exempt) | `draft`/`published`/`archived` | globally unique; redirect on rename | 1:N sections, lessons, enrollments; 0..1 Offer (`offers.courseId` unique) | Not a marketing page. Learner area `/learn/courses/[slug]` shows a published course to anyone; `/learn/courses` needs a session |
 | **Course Section** (`course_sections`) | `courseId`, `title`, `position` | none | none | cascades from Course | with the course |
 | **Lesson** (`lessons`) | `courseId`, `sectionId`, `title`, `slug`, `body`, `videoUrl` (YouTube only, normalised), `required`, `position`, `publishedAt` | `draft`/`published`/`archived` | unique per course (`lessons_course_slug_unique`); redirect scoped by course id | belongs to Section and Course; 1:N resources, progress | published lessons only, behind enrollment |
 | **Lesson Resource** (`lesson_resources`) | `storageKey` (unique, R2 `course-resources/<courseId>/...`), `filename`, `contentType` (PDF only), `size` (max 10 MB), `position` | none | none | cascades from Lesson and Course | Never public: streamed through `/api/course-resources/[id]` to admins and learners with access (`resolveLessonResourceAccess`) |
 | **Enrollment** (`enrollments`) | `userId`, `courseId`, `status` (`active`/`completed`/`cancelled`), `accessSource`, `enrolledAt`, `completedAt` | see below | none | unique per (user, course) | private |
 | **Lesson Progress** (`lesson_progress`) | `enrollmentId`, `lessonId`, `completedAt` | none | none | unique per (enrollment, lesson) | private |
+| **Lesson Video Position** (`lesson_video_positions`) | `userId`, `lessonId`, `positionSeconds`, `durationSeconds`, `updatedAt` | none | none | primary key (user, lesson); cascades from user and lesson; cleared on course restart | private |
 
 Certificates are opt-in per course (`certificateEnabled`, default false). A signed-in
 learner with access and computed course completion can claim one certificate per

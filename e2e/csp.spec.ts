@@ -42,6 +42,8 @@ for (const route of routes) {
     expect(csp).toContain("object-src 'none'");
     expect(csp).toContain("frame-ancestors 'self'");
     expect(csp).toContain("frame-src https://www.youtube-nocookie.com");
+    // Learner polish: the lesson player loads the YouTube IFrame API script.
+    expect(csp).toContain("https://www.youtube.com");
 
     // page.goto already waited for "load"; networkidle is discouraged by Playwright
     // and flaky with dev-server HMR connections. Settle on a paint instead.

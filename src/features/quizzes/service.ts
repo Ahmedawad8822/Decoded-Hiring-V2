@@ -22,6 +22,7 @@ import {
   completeLessonAndContinue,
   getEnrollmentProgress,
   getLessonContinuationHref,
+  getSequentialBlocker,
   isLessonComplete,
 } from "@/features/progress/service";
 import { AppError } from "@/lib/errors";
@@ -386,6 +387,14 @@ export async function submitQuizAttempt(
     .get();
   if (!isLessonReleased(quizSection ?? null, lesson, activeEnrollment.enrolledAt)) {
     throw new AppError("forbidden", "This lesson has not unlocked yet.");
+  }
+  // SEQUENTIAL (learner polish): attempts on a lesson locked behind earlier
+  // required lessons are refused. Previews stay submittable in any order.
+  if (course.sequential) {
+    const blocker = await getSequentialBlocker({ course, enrollment: activeEnrollment, lesson });
+    if (blocker) {
+      throw new AppError("forbidden", "Finish the previous lesson to unlock this one.");
+    }
   }
 
   const quiz = await getLessonQuiz(lesson.id);

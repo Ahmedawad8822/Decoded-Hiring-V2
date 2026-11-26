@@ -12,7 +12,7 @@ export const dynamic = "force-dynamic";
 export const metadata = { title: "Home · Studio | Decoded Hiring", robots: { index: false, follow: false } };
 export default async function AdminHomePage() {
   const session = await requireAdminPage();
-  const [{ leads, drafts, commerce }, learners, guides, notes, courses, audit] = await Promise.all([
+  const [{ leads, drafts, commerce, questions }, learners, guides, notes, courses, audit] = await Promise.all([
     readStudioAttention(), getStudioLearnerAttention(), getAllAdminGuides(), getAllAdminFieldNotes(),
     getAllAdminCourses(), listAdminAudit({ pageSize: 7 }),
   ]);
@@ -28,6 +28,7 @@ export default async function AdminHomePage() {
       <StatCard icon="sparkles" value={drafts.length} label="Drafts in review" attention href="/admin/editorial?status=IN_REVIEW" />
       <StatCard icon="calendar" value={commerce.summary.approvalQueue} label="Bookings to approve" attention href="/admin/commerce?tab=bookings" />
       <StatCard icon="orders" value={commerce.summary.openOrders} label="Open orders" attention href="/admin/commerce?tab=orders" />
+      <StatCard icon="inbox" value={questions} label="Open questions" attention href="/admin/questions" />
       <StatCard icon="content" value={[...guides, ...notes].filter(item => item.status === "published").length} label="Published guides & notes" href="/admin/content" />
       <StatCard icon="courses" value={Object.values(enrollments).reduce((sum, count) => sum + count, 0)} label="Course enrollments" detail="Across all courses" href="/admin/courses" />
     </section>

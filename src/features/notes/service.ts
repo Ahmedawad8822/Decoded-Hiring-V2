@@ -12,6 +12,7 @@ import {
   type LessonNote,
 } from "@/lib/db";
 import { getLearnerCourseBySlug, getPublishedLessonBySlug } from "@/features/courses/service";
+import { getSequentialBlocker } from "@/features/progress/service";
 import { getLessonReadAccess } from "@/features/courses/lesson-access";
 import { isLessonReleased, type ReleaseRule } from "@/features/courses/release";
 import { getEnrollment } from "@/features/enrollments/service";
@@ -87,6 +88,14 @@ async function requireEnrolledLesson(
     .get();
   if (!isLessonReleased(noteSection ?? null, lesson, activeEnrollment.enrolledAt)) {
     throw new AppError("forbidden", "This lesson has not unlocked yet.");
+  }
+  // SEQUENTIAL (learner polish): notes on a lesson locked behind earlier
+  // required lessons are refused, same as progress and quiz writes.
+  if (course.sequential) {
+    const blocker = await getSequentialBlocker({ course, enrollment: activeEnrollment, lesson });
+    if (blocker) {
+      throw new AppError("forbidden", "Finish the previous lesson to unlock this one.");
+    }
   }
 
   return { course, lesson, enrollment: activeEnrollment };

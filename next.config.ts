@@ -13,7 +13,10 @@ const contentSecurityPolicy = [
   "default-src 'self'",
   // Self-hosted bundles + Next's inline bootstrap (see note above);
   // 'unsafe-eval' only in dev for React debugging / HMR.
-  `script-src 'self' 'unsafe-inline'${isProd ? "" : " 'unsafe-eval'"}`,
+  // https://www.youtube.com hosts ONLY the IFrame Player API loader
+  // (src/components/learner/lesson-video-player.tsx); the video itself stays
+  // in the privacy-enhanced frame-src origin below.
+  `script-src 'self' 'unsafe-inline' https://www.youtube.com${isProd ? "" : " 'unsafe-eval'"}`,
   // Same-origin CSS; React style={{}} attributes and Next-inlined CSS need
   // 'unsafe-inline'.
   "style-src 'self' 'unsafe-inline'",

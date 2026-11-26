@@ -54,7 +54,7 @@ export async function updateCourseAction(
       return { ok: false, error: parsed.error.issues.map((i) => i.message).join(", ") };
     }
     const updated = await courseService.updateCourse(parsed.data.id, parsed.data);
-    await recordAdminAudit({ actorId: session.user.id, action: "course.update", entityType: "course", entityId: updated.id, details: { slug: updated.slug, certificateEnabled: updated.certificateEnabled } });
+    await recordAdminAudit({ actorId: session.user.id, action: "course.update", entityType: "course", entityId: updated.id, details: { slug: updated.slug, certificateEnabled: updated.certificateEnabled, sequential: updated.sequential } });
     revalidatePath("/admin/courses");
     revalidatePath(`/learn/courses/${updated.slug}`);
     return { ok: true, data: { id: updated.id, slug: updated.slug } };

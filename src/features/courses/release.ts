@@ -72,6 +72,48 @@ export function isLessonReleased(
   return at === null || at.getTime() <= now.getTime();
 }
 
+// ============================================================================
+// SEQUENTIAL LOCK (learner polish)
+// ----------------------------------------------------------------------------
+// When a course has `sequential` on, a lesson is locked until every EARLIER
+// required lesson (course order: section position, then lesson position) is
+// complete. Optional earlier lessons never block. Free-preview lessons stay
+// readable regardless (matching the drip rule that previews are always open).
+// Drip and sequential combine: both must allow. Pure: no I/O. Callers pass
+// published lessons already in course order.
+// ============================================================================
+
+export type SequentialLesson = Pick<Lesson, "id" | "required" | "isPreview">;
+
+/**
+ * First earlier required lesson that is still incomplete, or null when the
+ * target is open. The returned id doubles as the "continue here" link target.
+ */
+export function findSequentialBlocker(
+  orderedLessons: SequentialLesson[],
+  completedLessonIds: Set<string> | Iterable<string>,
+  lessonId: string,
+): string | null {
+  const done = completedLessonIds instanceof Set ? completedLessonIds : new Set(completedLessonIds);
+  const idx = orderedLessons.findIndex((l) => l.id === lessonId);
+  if (idx < 0) return null;
+  if (orderedLessons[idx].isPreview) return null;
+  for (let i = 0; i < idx; i++) {
+    const earlier = orderedLessons[i];
+    if (earlier.required && !done.has(earlier.id)) return earlier.id;
+  }
+  return null;
+}
+
+/** True when the sequential rule alone would lock this lesson. */
+export function isSequentiallyLocked(
+  orderedLessons: SequentialLesson[],
+  completedLessonIds: Set<string> | Iterable<string>,
+  lessonId: string,
+): boolean {
+  return findSequentialBlocker(orderedLessons, completedLessonIds, lessonId) !== null;
+}
+
 /**
  * Earliest future release instant among incomplete lessons, or null when
  * nothing pending is scheduled. Used for "Next lesson unlocks on <date>".
