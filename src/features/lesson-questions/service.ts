@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gte, ne, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, isNull, ne, sql } from "drizzle-orm";
 import {
   courseSections,
   courses,
@@ -328,11 +328,16 @@ export async function listAdminQuestions(opts: {
   const conditions = [];
   if (status) conditions.push(eq(lessonQuestions.status, status));
   if (opts.courseId) conditions.push(eq(lessonQuestions.courseId, opts.courseId));
+  // Trashed lessons/courses are answered from the Trash page (restore first),
+  // never from the normal Studio inbox.
+  conditions.push(isNull(lessons.trashedAt), isNull(courses.trashedAt));
   const where = conditions.length ? and(...conditions) : undefined;
 
   const [{ total }] = await db
     .select({ total: sql<number>`count(*)` })
     .from(lessonQuestions)
+    .innerJoin(courses, eq(courses.id, lessonQuestions.courseId))
+    .innerJoin(lessons, eq(lessons.id, lessonQuestions.lessonId))
     .where(where);
   const pageCount = Math.max(1, Math.ceil(Number(total) / pageSize));
   const page = Math.min(Math.max(1, Math.floor(opts.page ?? 1) || 1), pageCount);
@@ -386,6 +391,8 @@ export async function listQuestionCourses(): Promise<Array<{ id: string; title: 
     .selectDistinct({ id: courses.id, title: courses.title })
     .from(lessonQuestions)
     .innerJoin(courses, eq(courses.id, lessonQuestions.courseId))
+    .innerJoin(lessons, eq(lessons.id, lessonQuestions.lessonId))
+    .where(and(isNull(courses.trashedAt), isNull(lessons.trashedAt)))
     .orderBy(asc(courses.title));
   return rows;
 }

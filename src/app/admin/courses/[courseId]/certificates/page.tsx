@@ -18,7 +18,7 @@ export default async function CourseCertificatesPage({ params, searchParams }: {
   const requested = Number((await searchParams).page);
   const page = Number.isSafeInteger(requested) ? Math.max(1, Math.min(10000, requested)) : 1;
   const course = await getAdminCourseById(courseId);
-  if (!course) notFound();
+  if (!course || course.trashedAt !== null) notFound();
   const rows = await listCourseCertificates(courseId, page);
   return <>
     <PageHeader eyebrow="Learning" title="Certificates" description={course.title} />

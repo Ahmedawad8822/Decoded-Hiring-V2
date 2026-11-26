@@ -10,7 +10,7 @@ import {
   type Enrollment,
   type Lesson,
 } from "@/lib/db";
-import { and, asc, eq, inArray } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull } from "drizzle-orm";
 import {
   getAdminCourseById,
   getAdminLessonById,
@@ -540,7 +540,8 @@ export async function getBatchedEnrollmentProgress(
     .where(
       and(
         inArray(lessons.courseId, courseIds),
-        eq(lessons.status, "published")
+        eq(lessons.status, "published"),
+        isNull(lessons.trashedAt)
       )
     )
     .orderBy(asc(courseSections.position), asc(lessons.position), asc(lessons.createdAt));

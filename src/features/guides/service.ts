@@ -1,13 +1,17 @@
-import { getDb, guides, Guide } from "@/lib/db";
-import { and, desc, eq, ne } from "drizzle-orm";
+import { getDb, guides, slugRedirects, Guide } from "@/lib/db";
+import { and, desc, eq, isNull, ne } from "drizzle-orm";
 import { CreateGuideInput, UpdateGuideInput } from "./types";
 import { resolvePreviewAccess } from "@/features/publishing/preview";
 import {
+  assertGuideTransition,
+  assertNotTrashed,
   buildArchiveUpdate,
   buildEditTouch,
   buildPublishUpdate,
+  buildRestoreFromArchiveUpdate,
+  buildRestoreFromTrashUpdate,
+  buildTrashUpdate,
   buildUnpublishUpdate,
-  assertGuideTransition,
 } from "@/features/publishing/lifecycle";
 import { isUniqueConstraintError } from "@/lib/db/sqlite-errors";
 import { AppError } from "@/lib/errors";
@@ -15,13 +19,17 @@ import {
   buildReleaseSlugStatement,
   buildSlugChangeStatements,
 } from "@/features/slug-redirects/service";
+import {
+  collectContentMediaKeys,
+  deleteMediaIfUnreferenced,
+} from "@/features/trash/media-cleanup";
 
 export async function getPublishedGuides(): Promise<Guide[]> {
   const db = await getDb();
   return db
     .select()
     .from(guides)
-    .where(eq(guides.status, "published"))
+    .where(and(eq(guides.status, "published"), isNull(guides.trashedAt)))
     .orderBy(desc(guides.publishedAt), desc(guides.updatedAt));
 }
 
@@ -33,6 +41,12 @@ export async function getPublicGuideBySlug(
   const guide = await db.select().from(guides).where(eq(guides.slug, slug)).get();
 
   if (!guide) {
+    return null;
+  }
+
+  // Trashed guides are hidden everywhere except the Studio Trash page —
+  // not even admin preview may resolve them.
+  if (guide.trashedAt !== null) {
     return null;
   }
 
@@ -52,7 +66,8 @@ export async function getPublicGuideBySlug(
 
 export async function getAllAdminGuides(): Promise<Guide[]> {
   const db = await getDb();
-  return db.select().from(guides).orderBy(desc(guides.updatedAt));
+  // Trashed rows live only in the Studio Trash page, never in normal lists.
+  return db.select().from(guides).where(isNull(guides.trashedAt)).orderBy(desc(guides.updatedAt));
 }
 
 export async function getAdminGuideById(id: string): Promise<Guide | null> {
@@ -192,6 +207,7 @@ export async function publishGuide(id: string): Promise<Guide> {
     throw new AppError("not_found", `Guide with id "${id}" not found`);
   }
 
+  assertNotTrashed(current, "guide");
   assertGuideTransition(current.status, "publish");
 
   const now = new Date();
@@ -210,6 +226,7 @@ export async function unpublishGuide(id: string): Promise<Guide> {
     throw new AppError("not_found", `Guide with id "${id}" not found`);
   }
 
+  assertNotTrashed(current, "guide");
   assertGuideTransition(current.status, "unpublish");
 
   const now = new Date();
@@ -243,6 +260,7 @@ export async function archiveGuide(id: string): Promise<Guide> {
     throw new AppError("not_found", `Guide with id "${id}" not found`);
   }
 
+  assertNotTrashed(current, "guide");
   assertGuideTransition(current.status, "archive");
 
   const now = new Date();
@@ -252,4 +270,113 @@ export async function archiveGuide(id: string): Promise<Guide> {
     .where(eq(guides.id, id));
 
   return (await getAdminGuideById(id))!;
+}
+
+/**
+ * Restore from archive (§1 lifecycle): archived -> draft. Never straight
+ * to published — the editor reviews before re-publishing.
+ */
+export async function restoreGuideFromArchive(id: string): Promise<Guide> {
+  const db = await getDb();
+  const current = await getAdminGuideById(id);
+  if (!current) {
+    throw new AppError("not_found", `Guide with id "${id}" not found`);
+  }
+
+  assertNotTrashed(current, "guide");
+  assertGuideTransition(current.status, "restore");
+
+  const now = new Date();
+  await db
+    .update(guides)
+    .set(buildRestoreFromArchiveUpdate(now))
+    .where(eq(guides.id, id));
+
+  return (await getAdminGuideById(id))!;
+}
+
+/**
+ * Move to Trash (§1 lifecycle). Allowed only from draft or archived; a
+ * published guide must be unpublished/archived first. Hidden from every
+ * normal Studio list and every public view; recoverable.
+ */
+export async function trashGuide(id: string): Promise<Guide> {
+  const db = await getDb();
+  const current = await getAdminGuideById(id);
+  if (!current) {
+    throw new AppError("not_found", `Guide with id "${id}" not found`);
+  }
+
+  const now = new Date();
+  await db
+    .update(guides)
+    .set(buildTrashUpdate(current, now))
+    .where(eq(guides.id, id));
+
+  return (await getAdminGuideById(id))!;
+}
+
+/** Restore from Trash: clears the flag, status returns to trashedFromStatus. */
+export async function restoreGuideFromTrash(id: string): Promise<Guide> {
+  const db = await getDb();
+  const current = await getAdminGuideById(id);
+  if (!current) {
+    throw new AppError("not_found", `Guide with id "${id}" not found`);
+  }
+
+  const now = new Date();
+  await db
+    .update(guides)
+    .set(buildRestoreFromTrashUpdate(current, now))
+    .where(eq(guides.id, id));
+
+  return (await getAdminGuideById(id))!;
+}
+
+/**
+ * Permanently delete a trashed guide (§1 lifecycle). Irreversible: removes
+ * the row, slug redirects pointing at it, and R2 media (cover + embedded)
+ * that no other content references. Slugs stay reserved until this runs.
+ * Guides have no learner-data dependencies, so Trash membership is the only
+ * gate — plus a typed-title confirmation the caller must verify. Returns a
+ * snapshot for audit + cache revalidation.
+ */
+export async function deleteGuidePermanently(
+  id: string,
+  confirmTitle: string
+): Promise<{ title: string; slug: string; oldSlugs: string[] }> {
+  const db = await getDb();
+  const current = await getAdminGuideById(id);
+  if (!current) {
+    throw new AppError("not_found", `Guide with id "${id}" not found`);
+  }
+  if (current.trashedAt === null) {
+    throw new AppError("invalid", "Only items in Trash can be deleted permanently. Move this guide to Trash first.");
+  }
+  if (confirmTitle.trim() !== current.title) {
+    throw new AppError("invalid", "The typed title does not match. Type the exact title to confirm permanent deletion.");
+  }
+
+  const mediaKeys = collectContentMediaKeys(current.coverImage, current.body);
+  const redirectRows = await db
+    .select({ oldSlug: slugRedirects.oldSlug })
+    .from(slugRedirects)
+    .where(and(eq(slugRedirects.entityType, "guide"), eq(slugRedirects.entityId, id)));
+
+  // One D1 transaction: redirects + row. R2/media-row cleanup follows and is
+  // best-effort (an orphaned object is harmless; a missing one no error).
+  await db.batch([
+    db
+      .delete(slugRedirects)
+      .where(and(eq(slugRedirects.entityType, "guide"), eq(slugRedirects.entityId, id))),
+    db.delete(guides).where(eq(guides.id, id)),
+  ]);
+
+  await deleteMediaIfUnreferenced(mediaKeys, {
+    table: "guides",
+    id,
+    coverImage: current.coverImage,
+  });
+
+  return { title: current.title, slug: current.slug, oldSlugs: redirectRows.map((r) => r.oldSlug) };
 }
