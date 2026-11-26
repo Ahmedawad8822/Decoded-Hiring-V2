@@ -1,5 +1,7 @@
 import { TRASH_PURGE_BATCH_LIMIT } from "@/features/publishing/lifecycle";
 import { purgeExpiredTrash } from "@/features/trash/service";
+import { archiveEndedCampaigns } from "@/features/landing-pages/service";
+import { revalidatePath } from "next/cache";
 import { isValidDrainToken } from "@/lib/email/drain-token";
 
 // ============================================================================
@@ -27,9 +29,16 @@ export async function POST(request: Request) {
   if (!isValidDrainToken(request.headers.get("x-email-drain-token"))) {
     return notFound();
   }
-  const purged = await purgeExpiredTrash(new Date(), TRASH_PURGE_BATCH_LIMIT);
+  const now = new Date();
+  const purged = await purgeExpiredTrash(now, TRASH_PURGE_BATCH_LIMIT);
+  // Campaigns past their end date move to archived (bounded per run).
+  const archivedIds = await archiveEndedCampaigns(now, 20);
+  if (archivedIds.length > 0) {
+    revalidatePath("/sitemap.xml");
+    revalidatePath("/admin/content");
+  }
   return Response.json(
-    { purged },
+    { purged, archivedCampaigns: archivedIds.length },
     { headers: { "Cache-Control": "private, no-store" } }
   );
 }

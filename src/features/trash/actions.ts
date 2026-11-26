@@ -23,7 +23,7 @@ import {
 // toActionResult (never throw out of the action).
 // ============================================================================
 
-const trashTypeSchema = z.enum(["guide", "field_note", "course", "lesson", "page"]);
+const trashTypeSchema = z.enum(["guide", "field_note", "course", "lesson", "page", "landing_page"]);
 
 const trashItemSchema = z.object({
   type: trashTypeSchema,
@@ -46,6 +46,9 @@ function revalidateTrashMutation(result: TrashMutationResult, oldSlugs: string[]
     revalidatePath("/field-notes");
     revalidatePath(`/field-notes/${result.slug}`);
     for (const old of oldSlugs) revalidatePath(`/field-notes/${old}`);
+    revalidatePath("/admin/content");
+  } else if (result.type === "landing_page") {
+    revalidatePath(`/go/${result.slug}`);
     revalidatePath("/admin/content");
   } else if (result.type === "page") {
     revalidatePath(`/${result.slug}`);

@@ -1,4 +1,12 @@
 import {
+  deleteLandingPagePermanently,
+  getAdminLandingPageById,
+  listTrashedLandingPages,
+  moveLandingPageToTrash,
+  purgeExpiredLandingPages,
+  restoreLandingPageFromTrash,
+} from "@/features/landing-pages/service";
+import {
   deletePagePermanently,
   listTrashedPages,
   movePageToTrash,
@@ -54,7 +62,7 @@ import {
 // batched per row only on the small trashed set.
 // ============================================================================
 
-export type TrashTypeName = "guide" | "field_note" | "course" | "lesson" | "page";
+export type TrashTypeName = "guide" | "field_note" | "course" | "lesson" | "page" | "landing_page";
 
 export interface TrashItem {
   type: TrashTypeName;
@@ -511,7 +519,46 @@ const pageType: TrashableType = {
   },
 };
 
-export const TRASHABLE_TYPES: TrashableType[] = [guideType, fieldNoteType, courseType, lessonType, pageType];
+// Landing page services write their own audit rows.
+const landingPageType: TrashableType = {
+  type: "landing_page",
+  label: "Landing page",
+  async listTrashed(): Promise<TrashItem[]> {
+    const rows = await listTrashedLandingPages();
+    const now = new Date();
+    return rows.map((row) => ({
+      type: "landing_page" as const,
+      typeLabel: "Landing page",
+      id: row.id,
+      title: row.title,
+      slug: row.slug,
+      status: row.trashedFromStatus ?? row.status,
+      trashedAt: row.trashedAt as Date,
+      daysLeft: daysLeftBeforePurge(row.trashedAt as Date, now),
+      expired: isTrashExpired(row.trashedAt as Date, now),
+      protected: false,
+      protectionReason: null,
+    }));
+  },
+  async trash(id: string): Promise<TrashMutationResult> {
+    const trashed = await moveLandingPageToTrash(id);
+    return { type: "landing_page", id, slug: trashed.slug, title: trashed.title, status: trashed.status, courseId: null, courseSlug: null };
+  },
+  async restore(id: string, actorId: string): Promise<TrashMutationResult> {
+    const restored = await restoreLandingPageFromTrash(id, actorId);
+    return { type: "landing_page", id, slug: restored.slug, title: restored.title, status: restored.status, courseId: null, courseSlug: null };
+  },
+  async deletePermanently(id: string, actorId: string, confirmTitle: string): Promise<TrashMutationResult & { title: string; oldSlugs: string[] }> {
+    const current = await getAdminLandingPageById(id);
+    await deleteLandingPagePermanently(id, actorId, confirmTitle);
+    return { type: "landing_page", id, slug: current?.slug ?? "", title: current?.title ?? "", oldSlugs: [], courseId: null, courseSlug: null };
+  },
+  async purgeExpired(now: Date, limit: number): Promise<number> {
+    return (await purgeExpiredLandingPages(now, limit)).length;
+  },
+};
+
+export const TRASHABLE_TYPES: TrashableType[] = [guideType, fieldNoteType, courseType, lessonType, pageType, landingPageType];
 
 export function getTrashableType(type: string): TrashableType | null {
   return TRASHABLE_TYPES.find((t) => t.type === type) ?? null;
