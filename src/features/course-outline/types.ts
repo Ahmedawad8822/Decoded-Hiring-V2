@@ -37,19 +37,21 @@ export type OutlineBrief = z.infer<typeof outlineBriefSchema>;
 // clamps titles/summaries/durations and drops unknown source ids after
 // validation, so an over-long or out-of-range value is repaired, not fatal.
 export const rawOutlineLessonSchema = z.object({
-  title: z.string().min(1),
-  summary: z.string().min(1),
-  durationMinutes: z.number().int().optional().nullable(),
-  sourceIds: z.array(z.string()).max(10).optional().default([]),
+  title: z.string().catch(""),
+  summary: z.string().catch(""),
+  durationMinutes: z.unknown().optional(),
+  sourceIds: z.array(z.string()).optional().catch([]),
 });
 
+// Caps and empties are enforced by sanitizeOutline (slice + drop), so an
+// over-long or partly empty outline is trimmed rather than rejected.
 export const rawOutlineSectionSchema = z.object({
-  title: z.string().min(1),
-  lessons: z.array(rawOutlineLessonSchema).min(1).max(MAX_OUTLINE_LESSONS_PER_SECTION),
+  title: z.string().catch(""),
+  lessons: z.array(rawOutlineLessonSchema).catch([]),
 });
 
 export const rawOutlineSchema = z.object({
-  sections: z.array(rawOutlineSectionSchema).min(1).max(MAX_OUTLINE_SECTIONS),
+  sections: z.array(rawOutlineSectionSchema).min(1),
 });
 
 export type RawOutline = z.infer<typeof rawOutlineSchema>;

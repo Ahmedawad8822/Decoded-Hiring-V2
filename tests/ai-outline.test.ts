@@ -273,6 +273,45 @@ test("unknown cited source ids are dropped, known ones kept", async () => {
   assert.deepEqual(lesson.sourceIds, [realSourceId]);
 });
 
+test("repairable model output is trimmed, not rejected", async () => {
+  const word = `repair${uid()}`;
+  const course = await makeCourse(uid());
+  await seedKnowledge(word, `Repair ${word}`);
+  const lesson = (n: number) => ({ title: `Lesson ${n}`, summary: "Summary.", durationMinutes: "25" });
+  const draft = await draftCourseOutline({ courseId: course.id, topic: word }, adminId, {
+    generateRawJson: async () => ({
+      sections: [
+        { title: "Empty", lessons: [] },
+        ...Array.from({ length: 14 }, (_, i) => ({
+          title: `Section ${i}`,
+          lessons: Array.from({ length: 13 }, (_, j) => lesson(j)),
+        })),
+      ],
+    }),
+  });
+  assert.equal(draft.sections.length, 12, "capped at 12 sections, empty one dropped");
+  assert.equal(draft.sections[0]!.title, "Section 0");
+  assert.equal(draft.sections[0]!.lessons.length, 12);
+  assert.equal(draft.sections[0]!.lessons[0]!.durationMinutes, 25, "string minutes coerced");
+});
+
+test("entity-encoded markup is stripped too", async () => {
+  const word = `entity${uid()}`;
+  const course = await makeCourse(uid());
+  await seedKnowledge(word, `Entity ${word}`);
+  const draft = await draftCourseOutline({ courseId: course.id, topic: word }, adminId, {
+    generateRawJson: async () => ({
+      sections: [{
+        title: "Notes &amp; habits",
+        lessons: [{ title: "Use &lt;em&gt;structured&lt;/em&gt; notes", summary: "Score 3 < 5 &lt;b&gt;always&lt;/b&gt;." }],
+      }],
+    }),
+  });
+  assert.equal(draft.sections[0]!.title, "Notes & habits");
+  assert.equal(draft.sections[0]!.lessons[0]!.title, "Use structured notes");
+  assert.equal(draft.sections[0]!.lessons[0]!.summary, "Score 3 < 5 always.");
+});
+
 test("no retrieved evidence fails with a clear message", async () => {
   const course = await makeCourse(uid());
   await assert.rejects(

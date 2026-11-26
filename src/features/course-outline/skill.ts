@@ -79,8 +79,9 @@ export function buildOutlineUserPrompt(
 
 /** Strip HTML tags and collapse whitespace (model output is never trusted). */
 export function stripHtml(raw: string): string {
+  // Decode entities FIRST so escaped markup (&lt;em&gt;) is stripped too,
+  // then drop tag-like runs only (a bare "<" in prose survives).
   return raw
-    .replace(/<[^>]*>/g, "")
     .replace(/&(?:amp|lt|gt|quot|#39);/g, (entity) => {
       switch (entity) {
         case "&amp;":
@@ -95,6 +96,7 @@ export function stripHtml(raw: string): string {
           return "'";
       }
     })
+    .replace(/<\/?[a-zA-Z!][^>]*>/g, "")
     .replace(/\s+/g, " ")
     .trim();
 }
@@ -109,20 +111,21 @@ export function sanitizeOutline(raw: unknown, retrieved: RetrievedChunk[]): Cour
   const knownSources = new Set(retrieved.map((c) => c.sourceId));
 
   const sections: OutlineSection[] = [];
-  for (const rawSection of parsed.sections.slice(0, MAX_OUTLINE_SECTIONS)) {
+  for (const rawSection of parsed.sections) {
+    if (sections.length >= MAX_OUTLINE_SECTIONS) break;
     const title = stripHtml(rawSection.title).slice(0, 160);
     if (!title) continue;
     const lessons = [];
-    for (const rawLesson of rawSection.lessons.slice(0, MAX_OUTLINE_LESSONS_PER_SECTION)) {
+    for (const rawLesson of rawSection.lessons) {
+      if (lessons.length >= MAX_OUTLINE_LESSONS_PER_SECTION) break;
       const lessonTitle = stripHtml(rawLesson.title).slice(0, 160);
       const summary = stripHtml(rawLesson.summary).slice(0, 500);
       if (!lessonTitle || !summary) continue;
+      // Models send 25, 25.5 or "25": round anything numeric into 1–600.
+      const minutes = Math.round(Number(rawLesson.durationMinutes));
       const duration =
-        typeof rawLesson.durationMinutes === "number" &&
-        Number.isInteger(rawLesson.durationMinutes) &&
-        rawLesson.durationMinutes >= 1 &&
-        rawLesson.durationMinutes <= 600
-          ? rawLesson.durationMinutes
+        rawLesson.durationMinutes != null && Number.isFinite(minutes) && minutes >= 1 && minutes <= 600
+          ? minutes
           : null;
       // Grounding: keep only cited ids that were actually retrieved, deduped.
       const sourceIds = Array.from(

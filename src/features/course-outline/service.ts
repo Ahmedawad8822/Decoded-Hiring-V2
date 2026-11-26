@@ -251,11 +251,11 @@ export async function applyCourseOutline(
   const db = await getDb();
   const [existingSections, existingLessons] = await Promise.all([
     db
-      .select()
+      .select({ position: courseSections.position })
       .from(courseSections)
       .where(eq(courseSections.courseId, parsed.courseId))
       .orderBy(asc(courseSections.position)),
-    db.select().from(lessons).where(eq(lessons.courseId, parsed.courseId)),
+    db.select({ slug: lessons.slug }).from(lessons).where(eq(lessons.courseId, parsed.courseId)),
   ]);
   const takenSlugs = new Set(existingLessons.map((l) => l.slug));
   const nextSectionPosition =
