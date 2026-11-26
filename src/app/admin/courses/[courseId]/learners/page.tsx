@@ -100,7 +100,7 @@ export default async function CourseLearnersPage({
   const tag = parsePeopleTag(query.tag);
 
   const course = await getAdminCourseById(courseId);
-  if (!course) notFound();
+  if (!course || course.trashedAt !== null) notFound();
 
   const [{ rows, hasNextPage }, summary] = await Promise.all([
     listCourseLearners(courseId, { filter, page, q, tag }),

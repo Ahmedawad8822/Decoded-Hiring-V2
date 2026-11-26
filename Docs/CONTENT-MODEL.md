@@ -17,15 +17,17 @@ Implementation inventory. Schema source: `src/lib/db/schema.ts` and `drizzle/mig
 
 ## 2. Lifecycle (shared transition table)
 
-`draft` is the only editable-from-scratch state; `archived` is **terminal**.
+`draft` is the editable state. `archived` hides content from public/learner navigation (data, history and relationships kept) and restores to `draft` — never straight to `published`.
 
-| From | publish | unpublish | archive |
-|---|---|---|---|
-| `draft` | to `published` | rejected | to `archived` |
-| `published` | rejected | to `draft` | to `archived` |
-| `archived` | rejected | rejected | rejected |
+| From | publish | unpublish | archive | restore |
+|---|---|---|---|---|
+| `draft` | to `published` | rejected | to `archived` | rejected |
+| `published` | rejected | to `draft` | to `archived` | rejected |
+| `archived` | rejected | rejected | rejected | to `draft` |
 
-Enforced by `assertGuideTransition` / `assertFieldNoteTransition` (`publishing/lifecycle.ts`). Courses and Lessons use the same shape hand-coded in `courses/service.ts`: publish is rejected from `published` and `archived`; unpublish only from `published`; Course archive is allowed from `draft` and `published`. Archiving a Course takes no new Enrollments but keeps access for entitled learners (`getLearnerCourseBySlug`). Publishing, unpublishing or changing a lesson's `required` flag calls `reconcileCourseEnrollments` (`progress/reconcile.ts`), which flips Enrollments `active` and `completed` as the required set changes.
+Enforced by `assertGuideTransition` / `assertFieldNoteTransition` / `assertCourseTransition` / `assertLessonTransition` (`publishing/lifecycle.ts`). Archiving a Course takes no new Enrollments but keeps access for entitled learners (`getLearnerCourseBySlug`). Publishing, unpublishing, archiving, trashing or restoring a lesson calls `reconcileCourseEnrollments` (`progress/reconcile.ts`), which flips Enrollments `active` and `completed` as the required set changes.
+
+Trash is a separate flag, not a status (`trashed_at` + `trashed_from_status` on guides, field notes, courses, lessons; `features/trash/` registry). Move to Trash is allowed only from `draft` or `archived` (published must be unpublished/archived first); restore returns to `trashed_from_status`. Trashed rows are hidden from every normal Studio list and every public/learner view (including admin preview and slug redirects) and listed only on the Studio Trash page (`/admin/trash`). Slugs stay reserved until permanent delete. Permanent delete is allowed only from Trash, needs a typed-title confirmation, runs the per-type dependency checks, and is also how the 5-minute cron auto-purges items trashed longer than 30 days (a few per run; protected items stay in Trash and are flagged). Full rules: `Docs/PAGE-TYPE-SPECS.md` §1.
 
 Draft-only hard delete exists only as an internal compensation primitive (`discardGuideDraft`, `discardFieldNoteDraft`) for Editorial AI. It refuses anything that is not `draft`.
 
@@ -121,10 +123,11 @@ Revalidation for drafts is admin-side only (`/admin/editorial`, `/admin/content`
 
 | Gap | State |
 |---|---|
-| **Trash / restore / permanent delete**  | Built for Standard Pages only (`pages.trashedAt`/`trashedFromStatus`, `listTrashedPages`, `restorePageFromTrash`, `deletePagePermanently`, `purgeExpiredPages`). Still not built for Guides, Field Notes, Courses or Lessons |
-| **Restore from archive** | Possible for Standard Pages only (`restorePageFromArchive`: archived to draft). Still terminal for Guides, Field Notes, Courses and Lessons. Only Editorial Memory otherwise has a restore (`unarchiveMemory`). Knowledge Sources have no unarchive function, though the ingest error text says "Unarchive first" |
-| **Course permanent delete** | Guard exists (`assertCourseDeletable`) but is called by nothing. Deletion guard blocks deletion when enrollments exist |
-| **Lesson archive** | `archived` is a valid `LessonStatus`, but no service function sets it, so it is unreachable from the Studio |
+| **Trash / restore / permanent delete**  | Built for Guides, Field Notes, Courses, Lessons and Standard Pages (`features/trash/` + Trash page). Standard Pages and Landing Pages plug into the same registry when those types land |
+| **Restore from archive** | Built (archived → draft) for Guides, Field Notes, Courses, Lessons and Standard Pages. Only Editorial Memory otherwise (`unarchiveMemory`). Knowledge Sources have no unarchive function, though the ingest error text says "Unarchive first" |
+| **Course permanent delete** | Built for learner-free trashed courses (sections, lessons, resources + R2 objects, quizzes, offer, redirects). Blocked with a clear error while any enrollment, certificate or order exists |
+| **Lesson archive** | Built (`archiveLessonAction` in the curriculum editor) |
+| **Lesson permanent delete** | Built for trashed lessons with no progress, attempts, notes or questions. Lesson resource rows delete with their R2 objects |
 | **Lesson Resource delete / replace** | No delete path. Orphaned R2 objects are not tracked |
 | **Media delete / usage tracking** | No delete, no "where used"; `media` rows are never referenced by FK |
 | **Enrollment cancellation** | No flow sets `cancelled`; reactivation rule undecided |

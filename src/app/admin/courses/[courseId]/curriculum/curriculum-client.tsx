@@ -9,6 +9,7 @@ import type { ContentBlock } from "@/features/publishing/types";
 import { StructuredBlockEditor } from "@/components/publishing/StructuredBlockEditor";
 import type { Course, CourseSection, Lesson, LessonResource } from "@/lib/db";
 import {
+  archiveLessonAction,
   createLessonAction,
   createSectionAction,
   moveLessonAction,
@@ -20,6 +21,10 @@ import {
   updateLessonReleaseAction,
   updateSectionReleaseAction,
 } from "@/features/courses/actions";
+import {
+  restoreArchivedItemAction,
+  trashItemAction,
+} from "@/features/trash/actions";
 import { deleteQuizAction, saveQuizAction } from "@/features/quizzes/actions";
 import type { CourseQuizStats } from "@/features/quizzes/service";
 import type { QuizDefinition } from "@/features/quizzes/types";
@@ -636,7 +641,15 @@ export function CurriculumClient({
                             <Button className="btn ghost small" type="button" onClick={() => runAction(`pls-${lesson.id}`, async () => { const r = await publishLessonAction(lesson.id); return { ok: r.ok, error: r.error, notice: r.ok ? "Lesson published — live for learners on next load." : undefined }; })}>Publish</Button>
                           ) : lesson.status === "published" ? (
                             <Button className="btn ghost small" type="button" onClick={() => runAction(`upls-${lesson.id}`, async () => { const r = await unpublishLessonAction(lesson.id); return { ok: r.ok, error: r.error }; })}>Unpublish</Button>
-                          ) : null}{" "}
+                          ) : (
+                            <Button className="btn ghost small" type="button" onClick={() => runAction(`rels-${lesson.id}`, async () => { const r = await restoreArchivedItemAction({ type: "lesson", id: lesson.id }); return { ok: r.ok, error: "error" in r ? r.error : undefined, notice: r.ok ? "Lesson restored to draft." : undefined }; })}>Restore to draft</Button>
+                          )}{" "}
+                          {lesson.status !== "archived" && (
+                            <Button className="btn ghost small" type="button" onClick={() => { if (window.confirm(`Archive "${lesson.title}"? It will be hidden from learner navigation but kept.`)) runAction(`arls-${lesson.id}`, async () => { const r = await archiveLessonAction(lesson.id); return { ok: r.ok, error: r.error }; }); }}>Archive</Button>
+                          )}{" "}
+                          {(lesson.status === "draft" || lesson.status === "archived") && (
+                            <Button className="btn ghost small" type="button" onClick={() => { if (window.confirm(`Move "${lesson.title}" to Trash? Recover it from Admin → Trash within 30 days.`)) runAction(`trls-${lesson.id}`, async () => { const r = await trashItemAction({ type: "lesson", id: lesson.id }); return { ok: r.ok, error: "error" in r ? r.error : undefined }; }); }}>Move to Trash</Button>
+                          )}{" "}
                           <Button className="btn ghost small" type="button" onClick={() => { setUploadingTo(uploadingTo === lesson.id ? null : lesson.id); setUploadTitle(""); }}>
                             ＋ PDF
                           </Button>
@@ -698,13 +711,19 @@ export function CurriculumClient({
         <h3>Danger zone</h3>
         <p className="ss-hint">
           {enrollmentCount > 0
-            ? `This course has ${enrollmentCount} active enrollment${enrollmentCount === 1 ? "" : "s"}. Permanent delete is blocked while real progress depends on it.`
-            : "No enrollments yet. Archive this course when you no longer need it."}
+            ? `This course has ${enrollmentCount} active enrollment${enrollmentCount === 1 ? "" : "s"}. Permanent delete stays blocked while learners are attached — archive instead. Moving to Trash hides it from every learner view but keeps all data.`
+            : "No enrollments yet. Moving to Trash hides this course from every list and learner view; recover it from Admin → Trash within 30 days."}
         </p>
         <div className="s-row s-gap-10 s-flex-wrap-wrap" >
-          <Button className="btn danger small" type="button" disabled title={enrollmentCount > 0 ? `Blocked: ${enrollmentCount} active enrollments depend on this course` : "Permanent delete is not available"} aria-disabled="true">
-            Delete permanently — {enrollmentCount > 0 ? `blocked by ${enrollmentCount} enrollments` : "not available"}
-          </Button>
+          {(course.status === "draft" || course.status === "archived") ? (
+            <Button className="btn danger small" type="button" disabled={busy === "trash-course"} onClick={() => { if (window.confirm(`Move course "${course.title}" to Trash? Recover it from Admin → Trash within 30 days.`)) runAction("trash-course", async () => { const r = await trashItemAction({ type: "course", id: course.id }); return { ok: r.ok, error: "error" in r ? r.error : undefined, notice: r.ok ? "Course moved to Trash." : undefined }; }); }}>
+              {busy === "trash-course" ? "Moving…" : "Move course to Trash"}
+            </Button>
+          ) : (
+            <Button className="btn danger small" type="button" disabled title="Unpublish or archive the course first — published courses cannot move to Trash">
+              Move course to Trash — unpublish or archive first
+            </Button>
+          )}
         </div>
       </div>
 

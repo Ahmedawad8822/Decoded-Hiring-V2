@@ -1,13 +1,17 @@
-import { getDb, fieldNotes, fieldNoteRevisions, FieldNote, FieldNoteRevision } from "@/lib/db";
-import { and, desc, eq, ne } from "drizzle-orm";
+import { getDb, fieldNotes, fieldNoteRevisions, slugRedirects, FieldNote, FieldNoteRevision } from "@/lib/db";
+import { and, desc, eq, isNull, ne } from "drizzle-orm";
 import { CreateFieldNoteInput, UpdateFieldNoteInput } from "./types";
 import { resolvePreviewAccess } from "@/features/publishing/preview";
 import {
+  assertFieldNoteTransition,
+  assertNotTrashed,
   buildArchiveUpdate,
   buildEditTouch,
   buildPublishUpdate,
+  buildRestoreFromArchiveUpdate,
+  buildRestoreFromTrashUpdate,
+  buildTrashUpdate,
   buildUnpublishUpdate,
-  assertFieldNoteTransition,
 } from "@/features/publishing/lifecycle";
 import { isUniqueConstraintError } from "@/lib/db/sqlite-errors";
 import type { FieldNoteRevisionTrigger } from "@/lib/db";
@@ -16,6 +20,10 @@ import {
   buildReleaseSlugStatement,
   buildSlugChangeStatements,
 } from "@/features/slug-redirects/service";
+import {
+  collectContentMediaKeys,
+  deleteMediaIfUnreferenced,
+} from "@/features/trash/media-cleanup";
 
 // ============================================================================
 // FIELD NOTE SERVICE (Mission 05)
@@ -34,7 +42,7 @@ export async function getPublishedFieldNotes(): Promise<FieldNote[]> {
   return db
     .select()
     .from(fieldNotes)
-    .where(eq(fieldNotes.status, "published"))
+    .where(and(eq(fieldNotes.status, "published"), isNull(fieldNotes.trashedAt)))
     .orderBy(desc(fieldNotes.publishedAt), desc(fieldNotes.updatedAt));
 }
 
@@ -46,6 +54,12 @@ export async function getPublicFieldNoteBySlug(
   const note = await db.select().from(fieldNotes).where(eq(fieldNotes.slug, slug)).get();
 
   if (!note) {
+    return null;
+  }
+
+  // Trashed notes are hidden everywhere except the Studio Trash page —
+  // not even admin preview may resolve them.
+  if (note.trashedAt !== null) {
     return null;
   }
 
@@ -65,7 +79,8 @@ export async function getPublicFieldNoteBySlug(
 
 export async function getAllAdminFieldNotes(): Promise<FieldNote[]> {
   const db = await getDb();
-  return db.select().from(fieldNotes).orderBy(desc(fieldNotes.updatedAt));
+  // Trashed rows live only in the Studio Trash page, never in normal lists.
+  return db.select().from(fieldNotes).where(isNull(fieldNotes.trashedAt)).orderBy(desc(fieldNotes.updatedAt));
 }
 
 export async function getAdminFieldNoteById(id: string): Promise<FieldNote | null> {
@@ -241,6 +256,7 @@ export async function publishFieldNote(
     throw new AppError("not_found", `Field note with id "${id}" not found`);
   }
 
+  assertNotTrashed(current, "field note");
   assertFieldNoteTransition(current.status, "publish");
 
   const now = new Date();
@@ -264,6 +280,7 @@ export async function unpublishFieldNote(
     throw new AppError("not_found", `Field note with id "${id}" not found`);
   }
 
+  assertNotTrashed(current, "field note");
   assertFieldNoteTransition(current.status, "unpublish");
 
   const now = new Date();
@@ -302,6 +319,7 @@ export async function archiveFieldNote(
     throw new AppError("not_found", `Field note with id "${id}" not found`);
   }
 
+  assertNotTrashed(current, "field note");
   assertFieldNoteTransition(current.status, "archive");
 
   const now = new Date();
@@ -313,4 +331,114 @@ export async function archiveFieldNote(
   const archived = (await getAdminFieldNoteById(id))!;
   await recordRevision(archived, "archive", options?.createdBy);
   return archived;
+}
+
+/**
+ * Restore from archive (§1 lifecycle): archived -> draft. Never straight
+ * to published — the editor reviews before re-publishing.
+ */
+export async function restoreFieldNoteFromArchive(id: string): Promise<FieldNote> {
+  const db = await getDb();
+  const current = await getAdminFieldNoteById(id);
+  if (!current) {
+    throw new AppError("not_found", `Field note with id "${id}" not found`);
+  }
+
+  assertNotTrashed(current, "field note");
+  assertFieldNoteTransition(current.status, "restore");
+
+  const now = new Date();
+  await db
+    .update(fieldNotes)
+    .set(buildRestoreFromArchiveUpdate(now))
+    .where(eq(fieldNotes.id, id));
+
+  return (await getAdminFieldNoteById(id))!;
+}
+
+/**
+ * Move to Trash (§1 lifecycle). Allowed only from draft or archived; a
+ * published note must be unpublished/archived first. Hidden from every
+ * normal Studio list and every public view; recoverable.
+ */
+export async function trashFieldNote(id: string): Promise<FieldNote> {
+  const db = await getDb();
+  const current = await getAdminFieldNoteById(id);
+  if (!current) {
+    throw new AppError("not_found", `Field note with id "${id}" not found`);
+  }
+
+  const now = new Date();
+  await db
+    .update(fieldNotes)
+    .set(buildTrashUpdate(current, now))
+    .where(eq(fieldNotes.id, id));
+
+  return (await getAdminFieldNoteById(id))!;
+}
+
+/** Restore from Trash: clears the flag, status returns to trashedFromStatus. */
+export async function restoreFieldNoteFromTrash(id: string): Promise<FieldNote> {
+  const db = await getDb();
+  const current = await getAdminFieldNoteById(id);
+  if (!current) {
+    throw new AppError("not_found", `Field note with id "${id}" not found`);
+  }
+
+  const now = new Date();
+  await db
+    .update(fieldNotes)
+    .set(buildRestoreFromTrashUpdate(current, now))
+    .where(eq(fieldNotes.id, id));
+
+  return (await getAdminFieldNoteById(id))!;
+}
+
+/**
+ * Permanently delete a trashed field note (§1 lifecycle). Irreversible:
+ * removes the row, its revisions, slug redirects pointing at it, and R2
+ * media that no other content references. Slugs stay reserved until this
+ * runs. Field notes have no learner-data dependencies, so Trash membership
+ * is the only gate — plus a typed-title confirmation. Returns a snapshot
+ * for audit + cache revalidation.
+ */
+export async function deleteFieldNotePermanently(
+  id: string,
+  confirmTitle: string
+): Promise<{ title: string; slug: string; oldSlugs: string[] }> {
+  const db = await getDb();
+  const current = await getAdminFieldNoteById(id);
+  if (!current) {
+    throw new AppError("not_found", `Field note with id "${id}" not found`);
+  }
+  if (current.trashedAt === null) {
+    throw new AppError("invalid", "Only items in Trash can be deleted permanently. Move this field note to Trash first.");
+  }
+  if (confirmTitle.trim() !== current.title.trim()) {
+    throw new AppError("invalid", "The typed title does not match. Type the exact title to confirm permanent deletion.");
+  }
+
+  const mediaKeys = collectContentMediaKeys(current.coverImage, current.body);
+  const redirectRows = await db
+    .select({ oldSlug: slugRedirects.oldSlug })
+    .from(slugRedirects)
+    .where(and(eq(slugRedirects.entityType, "field_note"), eq(slugRedirects.entityId, id)));
+
+  // One D1 transaction: revisions + redirects + row. R2/media-row cleanup
+  // follows and is best-effort.
+  await db.batch([
+    db.delete(fieldNoteRevisions).where(eq(fieldNoteRevisions.fieldNoteId, id)),
+    db
+      .delete(slugRedirects)
+      .where(and(eq(slugRedirects.entityType, "field_note"), eq(slugRedirects.entityId, id))),
+    db.delete(fieldNotes).where(eq(fieldNotes.id, id)),
+  ]);
+
+  await deleteMediaIfUnreferenced(mediaKeys, {
+    table: "field_notes",
+    id,
+    coverImage: current.coverImage,
+  });
+
+  return { title: current.title, slug: current.slug, oldSlugs: redirectRows.map((r) => r.oldSlug) };
 }

@@ -264,8 +264,15 @@
     {
       "idx": 37,
       "version": "6",
-      "when": 1795699442677,
-      "tag": "0037_condemned_leper_queen",
+      "when": 1795698802445,
+      "tag": "0037_minor_strong_guy",
+      "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "6",
+      "when": 1795702362587,
+      "tag": "0038_brown_rage",
       "breakpoints": true
     }
   ]

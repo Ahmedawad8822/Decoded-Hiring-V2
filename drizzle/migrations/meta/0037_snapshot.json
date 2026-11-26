@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "110222b0-abf7-4360-9bc3-e519a0011218",
+  "id": "2eb62ff2-5d82-4308-9418-e2a9ac3b631f",
   "prevId": "416185c5-150d-4c51-9e96-2f13f0eddda3",
   "tables": {
     "account": {
@@ -1373,6 +1373,20 @@
           "notNull": false,
           "autoincrement": false
         },
+        "trashed_at": {
+          "name": "trashed_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "trashed_from_status": {
+          "name": "trashed_from_status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
         "created_at": {
           "name": "created_at",
           "type": "integer",
@@ -1402,6 +1416,13 @@
             "slug"
           ],
           "isUnique": true
+        },
+        "courses_trashed_at_idx": {
+          "name": "courses_trashed_at_idx",
+          "columns": [
+            "trashed_at"
+          ],
+          "isUnique": false
         }
       },
       "foreignKeys": {},
@@ -2401,6 +2422,20 @@
           "notNull": false,
           "autoincrement": false
         },
+        "trashed_at": {
+          "name": "trashed_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "trashed_from_status": {
+          "name": "trashed_from_status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
         "created_at": {
           "name": "created_at",
           "type": "integer",
@@ -2430,6 +2465,13 @@
             "slug"
           ],
           "isUnique": true
+        },
+        "field_notes_trashed_at_idx": {
+          "name": "field_notes_trashed_at_idx",
+          "columns": [
+            "trashed_at"
+          ],
+          "isUnique": false
         }
       },
       "foreignKeys": {},
@@ -2533,6 +2575,20 @@
           "notNull": false,
           "autoincrement": false
         },
+        "trashed_at": {
+          "name": "trashed_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "trashed_from_status": {
+          "name": "trashed_from_status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
         "created_at": {
           "name": "created_at",
           "type": "integer",
@@ -2562,6 +2618,13 @@
             "slug"
           ],
           "isUnique": true
+        },
+        "guides_trashed_at_idx": {
+          "name": "guides_trashed_at_idx",
+          "columns": [
+            "trashed_at"
+          ],
+          "isUnique": false
         }
       },
       "foreignKeys": {},
@@ -3954,6 +4017,20 @@
           "autoincrement": false,
           "default": "'draft'"
         },
+        "trashed_at": {
+          "name": "trashed_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "trashed_from_status": {
+          "name": "trashed_from_status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
         "created_at": {
           "name": "created_at",
           "type": "integer",
@@ -3998,6 +4075,13 @@
             "slug"
           ],
           "isUnique": true
+        },
+        "lessons_trashed_at_idx": {
+          "name": "lessons_trashed_at_idx",
+          "columns": [
+            "trashed_at"
+          ],
+          "isUnique": false
         }
       },
       "foreignKeys": {
@@ -4979,233 +5063,6 @@
           "onUpdate": "no action"
         }
       },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "checkConstraints": {}
-    },
-    "page_revisions": {
-      "name": "page_revisions",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "page_id": {
-          "name": "page_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "title": {
-          "name": "title",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "body": {
-          "name": "body",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "status": {
-          "name": "status",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "trigger": {
-          "name": "trigger",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "created_by": {
-          "name": "created_by",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        }
-      },
-      "indexes": {
-        "page_revisions_page_idx": {
-          "name": "page_revisions_page_idx",
-          "columns": [
-            "page_id"
-          ],
-          "isUnique": false
-        }
-      },
-      "foreignKeys": {
-        "page_revisions_page_id_pages_id_fk": {
-          "name": "page_revisions_page_id_pages_id_fk",
-          "tableFrom": "page_revisions",
-          "tableTo": "pages",
-          "columnsFrom": [
-            "page_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "checkConstraints": {}
-    },
-    "pages": {
-      "name": "pages",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "title": {
-          "name": "title",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "slug": {
-          "name": "slug",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "summary": {
-          "name": "summary",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "body": {
-          "name": "body",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "cover_image": {
-          "name": "cover_image",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "status": {
-          "name": "status",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "'draft'"
-        },
-        "meta_title": {
-          "name": "meta_title",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "meta_description": {
-          "name": "meta_description",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "noindex": {
-          "name": "noindex",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": false
-        },
-        "trashed_at": {
-          "name": "trashed_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "trashed_from_status": {
-          "name": "trashed_from_status",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "published_at": {
-          "name": "published_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        }
-      },
-      "indexes": {
-        "pages_slug_unique": {
-          "name": "pages_slug_unique",
-          "columns": [
-            "slug"
-          ],
-          "isUnique": true
-        },
-        "pages_status_idx": {
-          "name": "pages_status_idx",
-          "columns": [
-            "status"
-          ],
-          "isUnique": false
-        },
-        "pages_trashed_at_idx": {
-          "name": "pages_trashed_at_idx",
-          "columns": [
-            "trashed_at"
-          ],
-          "isUnique": false
-        }
-      },
-      "foreignKeys": {},
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "checkConstraints": {}
