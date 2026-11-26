@@ -185,8 +185,8 @@ Worker shutdown and throwaway-state removal were verified after HTTP runs.
 
 | Resource | Name / origin |
 | --- | --- |
-| Worker | `decoded-hiring-v2` (`workers_dev: true`) |
-| Site/auth origin | https://decoded-hiring-v2.hdv2.workers.dev |
+| Worker | `decoded-hiring-v2` (`workers_dev: true`; workers.dev 308s to the domain) |
+| Site/auth origin | https://decodedhiring.com (custom domains: apex + `www`, `www` 308s to the apex) |
 | D1 (`DB` and `NEXT_TAG_CACHE_D1`) | `decoded-hiring-v2-db` |
 | Media R2 | `decoded-hiring-v2-media` |
 | Incremental cache R2 | `decoded-hiring-v2-next-cache` |
@@ -231,11 +231,11 @@ to Workers Builds. `dh-cputest` keeps its existing auto-deploy build command
    HEAD. It then runs these steps, stopping on the first failure:
 
    ```sh
-   npx tsx scripts/prewarm.ts --check --base-url https://decoded-hiring-v2.hdv2.workers.dev
+   npx tsx scripts/prewarm.ts --check --base-url https://decodedhiring.com
    npm run db:migrate:remote
    npx tsx scripts/build-env.ts --env production
    npx opennextjs-cloudflare deploy --env production
-   npm run prewarm -- --base-url https://decoded-hiring-v2.hdv2.workers.dev
+   npm run prewarm -- --base-url https://decodedhiring.com
    ```
 
    Remote migrations apply to production D1 before building. OpenNext deploy
@@ -264,9 +264,15 @@ to Workers Builds. `dh-cputest` keeps its existing auto-deploy build command
    2FA, publication invalidation and time-based ISR on the deployed Worker.
    Run the [edge health check](ISR-QUEUE.md#regeneration-cpu-watch) for Worker/DO
    errors and CPU. These are distinct from a successful local build.
-7. **Launch later.** Remain on workers.dev until a separately approved custom
-   domain and DNS cutover. Update both production origin vars before building
-   for the new domain; `NEXT_PUBLIC_SITE_URL` is compiled into the build.
+7. **Custom domain.** Production serves `decodedhiring.com` through Worker
+   custom domains (`routes` in `env.production`). Wrangler creates their DNS
+   records and certificates on deploy, so the zone must be active on Cloudflare
+   and must hold no other record for the apex or `www` (delete the previous
+   site's A/CNAME records right before the cutover deploy). Mail records (MX,
+   SPF, DKIM, DMARC, SRV) are unrelated and stay DNS-only. `NEXT_PUBLIC_SITE_URL`
+   is compiled into the build, so change both origin vars before building.
+   Requests to `www` or the workers.dev address are 308-redirected to the same
+   path on the apex by `worker.ts`; the cron's in-process request is unaffected.
 
 ### Build isolation
 
