@@ -248,6 +248,44 @@ export default async function AdminPersonPage({
         )}
       </Section>
 
+      <Section title="Questions" count={profile.questions.length}>
+        {profile.questions.length === 0 ? (
+          <EmptyState icon="inbox" title="No questions yet">
+            Lesson questions from this learner appear here, newest first.
+          </EmptyState>
+        ) : (
+          <div className="table-scroll">
+            <DataTable>
+              <thead>
+                <tr>
+                  <th scope="col">Lesson</th>
+                  <th scope="col">Status</th>
+                  <th scope="col">Asked</th>
+                  <th scope="col">Thread</th>
+                </tr>
+              </thead>
+              <tbody>
+                {profile.questions.map((question) => (
+                  <tr key={question.id}>
+                    <td>
+                      <span className="cell-main">{question.lessonTitle}</span>
+                      <span className="cell-sub s-block s-text-xs">{question.courseTitle}</span>
+                    </td>
+                    <td>
+                      <StatusPill status={question.status}>{humanLabel(question.status)}</StatusPill>
+                    </td>
+                    <td>{formatDateUTC(question.createdAt)}</td>
+                    <td>
+                      <Link href={`/admin/questions/${question.id}`}>View</Link>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </DataTable>
+          </div>
+        )}
+      </Section>
+
       <Section title="Bookings" count={profile.bookings.length}>
         {profile.bookings.length === 0 ? (
           <EmptyState icon="calendar" title="No bookings yet">
@@ -389,7 +427,7 @@ export default async function AdminPersonPage({
       <Section title="Timeline" count={profile.timeline.length}>
         {profile.timeline.length === 0 ? (
           <EmptyState icon="clock" title="Nothing here yet">
-            Enrollments, completions, quizzes, bookings, orders, leads and emails land here.
+            Enrollments, completions, quizzes, questions, bookings, orders, leads and emails land here.
           </EmptyState>
         ) : (
           <div className="table-scroll">

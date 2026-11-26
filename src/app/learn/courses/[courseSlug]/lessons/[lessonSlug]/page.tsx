@@ -18,8 +18,13 @@ import { buildYouTubeEmbedUrl } from "@/features/courses/youtube";
 import { CompleteButton } from "@/components/learner/complete-button";
 import { QuizPanel } from "@/components/learner/quiz-panel";
 import { LessonNotesPanel } from "@/components/learner/lesson-notes-panel";
+import { LessonQuestionsPanel } from "@/components/learner/lesson-questions-panel";
 import { LessonPlayerShell } from "@/components/learner/lesson-player-shell";
 import { getMyLessonNote } from "@/features/notes/service";
+import {
+  listMyLessonQuestions,
+  listPublicLessonQuestions,
+} from "@/features/lesson-questions/service";
 import {
   getLearnerQuizForLesson,
   getLearnerQuizStats,
@@ -124,10 +129,12 @@ export default async function LessonPlayerPage(props: {
   const resources = activeEnrollment ? await getLessonResources(lesson.id) : [];
   const blocks = parseLessonBody(lesson);
   const embedUrl = lesson.videoUrl ? buildYouTubeEmbedUrl(lesson.videoUrl) : null;
-  const [quiz, quizLessonIds, myNote] = await Promise.all([
+  const [quiz, quizLessonIds, myNote, myQuestions, publicQuestions] = await Promise.all([
     getLearnerQuizForLesson(lesson.id),
     getQuizLessonIds(course.id),
     activeEnrollment ? getMyLessonNote(session!.user.id, lesson.id, { enrolledAt: activeEnrollment.enrolledAt }) : Promise.resolve(null),
+    activeEnrollment ? listMyLessonQuestions(session!.user.id, lesson.id, course.id) : Promise.resolve([]),
+    activeEnrollment ? listPublicLessonQuestions(lesson.id, session!.user.id) : Promise.resolve([]),
   ]);
   const quizStats = quiz && activeEnrollment
     ? await getLearnerQuizStats(session!.user.id, quiz.id)
@@ -247,6 +254,26 @@ export default async function LessonPlayerPage(props: {
             lessonSlug={lesson.slug}
             initialBody={myNote?.body ?? ""}
             initialUpdatedAt={myNote?.updatedAt.toISOString() ?? null}
+          />
+        )}
+
+        {readAccess === "enrolled" && activeEnrollment && (
+          <LessonQuestionsPanel
+            courseSlug={course.slug}
+            lessonSlug={lesson.slug}
+            initialMine={myQuestions.map((question) => ({
+              id: question.id,
+              body: question.body,
+              status: question.status,
+              answerBody: question.answerBody,
+              answeredAt: question.answeredAt ? question.answeredAt.toISOString() : null,
+            }))}
+            initialPublic={publicQuestions.map((question) => ({
+              id: question.id,
+              body: question.body,
+              answerBody: question.answerBody,
+              answeredAt: question.answeredAt.toISOString(),
+            }))}
           />
         )}
 
