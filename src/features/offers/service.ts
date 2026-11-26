@@ -37,6 +37,8 @@ type ValidatedOfferInput = {
   alternativeCtaLabel: string | null;
   alternativeCtaUrl: string | null;
   active: boolean;
+  seatLimit: number | null;
+  closesAt: Date | null;
 };
 
 function normalizeOfferInput(input: {
@@ -51,6 +53,8 @@ function normalizeOfferInput(input: {
   alternativeCtaLabel?: string | null;
   alternativeCtaUrl?: string | null;
   active?: boolean;
+  seatLimit?: number | null;
+  closesAt?: Date | null;
 }): ValidatedOfferInput {
   const value: ValidatedOfferInput = {
     kind: input.kind,
@@ -64,7 +68,24 @@ function normalizeOfferInput(input: {
     alternativeCtaLabel: input.alternativeCtaLabel?.trim() || null,
     alternativeCtaUrl: input.alternativeCtaUrl?.trim() || null,
     active: input.active ?? true,
+    seatLimit: input.seatLimit ?? null,
+    closesAt: input.closesAt ?? null,
   };
+
+  // Defence in depth: the zod schemas already bound these, but the service
+  // never trusts its caller.
+  if (value.seatLimit != null) {
+    if (
+      !Number.isInteger(value.seatLimit) ||
+      value.seatLimit < 1 ||
+      value.seatLimit > 10000
+    ) {
+      throw new AppError("invalid", "Seat limit must be between 1 and 10000.");
+    }
+  }
+  if (value.closesAt != null && Number.isNaN(value.closesAt.getTime())) {
+    throw new AppError("invalid", "Closing date is invalid.");
+  }
 
   if (value.kind === "COURSE") {
     if (!value.courseId) {
@@ -301,6 +322,8 @@ export async function updateOffer(input: UpdateOfferInput): Promise<Offer> {
         ? current.alternativeCtaUrl
         : parsed.alternativeCtaUrl,
     active: parsed.active ?? current.active,
+    seatLimit: parsed.seatLimit === undefined ? current.seatLimit : parsed.seatLimit,
+    closesAt: parsed.closesAt === undefined ? current.closesAt : parsed.closesAt,
   });
   await assertLinkedEntities(merged);
 

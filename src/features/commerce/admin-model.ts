@@ -40,6 +40,11 @@ export type CommerceAdminOffer = {
   alternativeCtaLabel: string | null;
   alternativeCtaUrl: string | null;
   active: boolean;
+  seatLimit: number | null;
+  closesAt: string | null;
+  seatsTaken: number;
+  seatsLeft: number | null;
+  limitState: "open" | "sold_out" | "closed";
   updatedAt: string;
 };
 

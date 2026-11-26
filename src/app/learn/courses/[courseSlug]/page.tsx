@@ -17,7 +17,11 @@ import { EnrollButton } from "@/components/learner/enroll-button";
 import { LeaveCourseButton } from "@/components/learner/leave-course-button";
 import { RestartCourseButton } from "@/components/learner/restart-course-button";
 import { getEffectiveCourseAccessPolicy } from "@/features/offers/service";
-import { resolveOfferPublicPresentation } from "@/features/offers/presentation";
+import {
+  formatSeatsLeftLabel,
+  resolveOfferPublicPresentation,
+} from "@/features/offers/presentation";
+import { getOfferAvailability } from "@/features/offers/availability";
 
 import { formatMinutes, getCourseTimeStats, lessonMetaLabel, parseCourseLanding } from "@/features/courses/metadata";
 import { findSequentialBlocker, isLessonReleased, lessonReleaseAt } from "@/features/courses/release";
@@ -85,6 +89,23 @@ export default async function CourseOverviewPage(props: {
         contactHref: "/contact",
       })
     : null;
+  // Live limits: learner pages are private and dynamic, so availability is
+  // read per request (no cached shell to work around).
+  const availability = access.offer
+    ? await getOfferAvailability(access.offer.id)
+    : null;
+  const limitClosed = availability != null && availability.state !== "open";
+  const seatsNote = availability
+    ? formatSeatsLeftLabel(availability)
+    : null;
+  // Close date in the learner's own timezone (SSR paints UTC, then swaps).
+  const closesNote =
+    access.offer?.closesAt != null ? (
+      <LocalDate
+        iso={access.offer.closesAt.toISOString()}
+        prefix={availability?.state === "closed" ? "Closed on" : "Closes on"}
+      />
+    ) : null;
   // Cancelled enrollments see the page as strangers: no progress card, no
   // resume link — just the enroll CTA (re-enroll reactivates, correction C).
   const activeEnrollment = hasLearnerAccess(enrollment) ? enrollment : null;
@@ -101,11 +122,19 @@ export default async function CourseOverviewPage(props: {
   const stats = getCourseTimeStats(publishedLessons, completedSet);
   const previewCount = course.status === "published" ? publishedLessons.filter((lesson) => lesson.isPreview).length : 0;
   const landing = parseCourseLanding(course);
-  const enrollmentCta = access.available && access.mode === "FREE"
-    ? <EnrollButton courseId={course.id} courseSlug={course.slug} />
-    : (offerPresentation?.ctaHref || access.source === "LEGACY_COURSE")
-      ? <a className="btn secondary learner-link" href={offerPresentation?.ctaHref ?? "/contact"}>{offerPresentation?.ctaLabel ?? "Contact us"} →</a>
-      : null;
+  const limitAlternativeHref =
+    access.offer?.alternativeCtaUrl ?? "/contact";
+  const limitAlternativeLabel =
+    access.offer?.alternativeCtaLabel ?? "Contact us";
+  // A sold-out or closed offer disables enrollment for newcomers. Existing
+  // enrollments keep access (handled above via activeEnrollment).
+  const enrollmentCta = limitClosed
+    ? null
+    : access.available && access.mode === "FREE"
+      ? <EnrollButton courseId={course.id} courseSlug={course.slug} />
+      : (offerPresentation?.ctaHref || access.source === "LEGACY_COURSE")
+        ? <a className="btn secondary learner-link" href={offerPresentation?.ctaHref ?? "/contact"}>{offerPresentation?.ctaLabel ?? "Contact us"} →</a>
+        : null;
 
   const resumeHref =
     activeEnrollment && progress?.resumeLesson
@@ -190,12 +219,33 @@ export default async function CourseOverviewPage(props: {
               </p>
             )}
           </div>
+        ) : limitClosed ? (
+          <div className="continue-card learner-mb-28">
+            <div className="cc-top">
+              <div>
+                <h3>{availability?.state === "sold_out" ? "This course is full" : "Enrollment has closed"}</h3>
+                <p className="cc-lesson">
+                  {availability?.state === "sold_out"
+                    ? "This course has sold out."
+                    : "Enrollment for this course has closed."}
+                </p>
+                {closesNote && availability?.state === "closed" && (
+                  <p className="cc-lesson">{closesNote}</p>
+                )}
+              </div>
+            </div>
+            <div className="learner-mt-12">
+              <a className="btn secondary learner-link" href={limitAlternativeHref}>{limitAlternativeLabel} →</a>
+            </div>
+          </div>
         ) : access.available && access.mode === "FREE" ? (
           <div className="continue-card learner-mb-28">
             <div className="cc-top">
               <div>
                 <h3>Start learning — free</h3>
                 <p className="cc-lesson">Instant enrollment. No checkout, no card.</p>
+                {seatsNote && <p className="cc-lesson">{seatsNote}</p>}
+                {closesNote && <p className="cc-lesson">{closesNote}</p>}
               </div>
             </div>
             {enrollment?.status === "cancelled" && enrollment?.cancelledAt && (
@@ -223,6 +273,8 @@ export default async function CourseOverviewPage(props: {
                     ? offerAccessNote(access.mode, access.available)
                     : legacyAccessNote(access.mode)}
                 </p>
+                {seatsNote && <p className="cc-lesson">{seatsNote}</p>}
+                {closesNote && <p className="cc-lesson">{closesNote}</p>}
               </div>
               <span className="cc-count mono">
                 {offerPresentation?.badge ?? access.mode}

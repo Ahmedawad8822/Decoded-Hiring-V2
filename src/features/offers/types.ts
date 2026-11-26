@@ -29,6 +29,16 @@ const safeCtaUrlSchema = z
     }
   }, "CTA URL must be a same-site path/fragment, mailto address, or HTTPS URL.");
 
+const seatLimitSchema = z
+  .number()
+  .int("Seat limit must be a whole number of places.")
+  .min(1, "Seat limit must be at least 1.")
+  .max(10000, "Seat limit cannot exceed 10000.")
+  .optional()
+  .nullable();
+
+const closesAtSchema = z.coerce.date().optional().nullable();
+
 export const createOfferSchema = z.object({
   kind: offerKindSchema,
   courseId: z.string().trim().min(1).optional().nullable(),
@@ -41,6 +51,8 @@ export const createOfferSchema = z.object({
   alternativeCtaLabel: z.string().trim().min(1).max(100).optional().nullable(),
   alternativeCtaUrl: safeCtaUrlSchema.optional().nullable(),
   active: z.boolean().optional().default(true),
+  seatLimit: seatLimitSchema,
+  closesAt: closesAtSchema,
 });
 
 export const updateOfferSchema = z.object({
@@ -61,6 +73,8 @@ export const updateOfferSchema = z.object({
   alternativeCtaLabel: z.string().trim().min(1).max(100).optional().nullable(),
   alternativeCtaUrl: safeCtaUrlSchema.optional().nullable(),
   active: z.boolean().optional(),
+  seatLimit: seatLimitSchema,
+  closesAt: closesAtSchema,
 });
 
 export type CreateOfferInput = z.input<typeof createOfferSchema>;

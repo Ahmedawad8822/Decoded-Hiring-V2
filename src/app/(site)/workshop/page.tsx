@@ -1,8 +1,8 @@
 import Link from "next/link";
-import { ArrowUpRight } from "lucide-react";
 import Image from "next/image";
 
 import { WorkshopProgramme } from "@/components/products/workshop-programme";
+import { OfferLimitCta } from "@/components/products/offer-limit-cta";
 import { PublicScheduler } from "@/components/products/public-scheduler";
 import { TrackedOfferLink } from "@/components/products/tracked-offer-link";
 import { WorkshopSystemMap } from "@/components/products/workshop-system-map";
@@ -68,23 +68,20 @@ export default async function WorkshopPage() {
                 Currently unavailable
               </span>
             ) : (
-              <TrackedOfferLink
-                className="hg-primary"
+              <OfferLimitCta
                 offerSlug={PUBLIC_OFFER_SLUGS.workshop}
-                route="/workshop"
-                surface="hero-primary"
-                target={scheduling.enabled ? "schedule" : "lead"}
-                href={
-                  scheduling.enabled
-                    ? "#workshop-schedule"
-                    : offerPresentation?.ctaHref ?? "#workshop-brief"
+                scheduleHref={scheduling.enabled ? "#workshop-schedule" : null}
+                primaryHref={offerPresentation?.ctaHref ?? "#workshop-brief"}
+                primaryLabel={
+                  offerPresentation?.ctaLabel ?? "Bring this to my team"
                 }
-              >
-                {scheduling.enabled
-                  ? "Choose a time"
-                  : offerPresentation?.ctaLabel ?? "Bring this to my team"}{" "}
-                <ArrowUpRight aria-hidden="true" />
-              </TrackedOfferLink>
+                alternativeLabel={offer?.alternativeCtaLabel}
+                alternativeUrl={offer?.alternativeCtaUrl}
+                contactHref="/contact"
+                contactLabel="Contact us"
+                icon="up-right"
+                track={{ route: "/workshop", surface: "hero-primary" }}
+              />
             )}
             <TrackedOfferLink
               className="hg-secondary"

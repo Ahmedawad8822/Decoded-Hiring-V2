@@ -13,6 +13,15 @@ export function OffersSection({ initial }: { initial: CommerceAdminDashboard }) 
   const [newKind, setNewKind] = useState<CommerceAdminOffer["kind"]>("COACHING");
   const [newMode, setNewMode] = useState<CommerceAdminOffer["accessMode"]>("FREE");
 
+  function limitFields(form: FormData): { seatLimit: number | null; closesAt: string | null } {
+    const seatRaw = nullable(form.get("seatLimit"));
+    const closesRaw = nullable(form.get("closesAt"));
+    return {
+      seatLimit: seatRaw === null ? null : integer(form.get("seatLimit"), Number.NaN),
+      closesAt: closesRaw,
+    };
+  }
+
   async function create(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
@@ -23,6 +32,7 @@ export function OffersSection({ initial }: { initial: CommerceAdminDashboard }) 
       kind: newKind, courseId, bookingTypeId, title: String(form.get("title") || "").trim(), slug: String(form.get("slug") || "").trim(), accessMode: newMode,
       currency: nullable(form.get("currency")), amountMinor: amount === null ? null : integer(form.get("amountMinor")),
       alternativeCtaLabel: nullable(form.get("alternativeCtaLabel")), alternativeCtaUrl: nullable(form.get("alternativeCtaUrl")), active: true,
+      ...limitFields(form),
     }));
   }
 
@@ -33,6 +43,7 @@ export function OffersSection({ initial }: { initial: CommerceAdminDashboard }) 
       accessMode: String(form.get("accessMode") || offer.accessMode), currency: nullable(form.get("currency")),
       amountMinor: amount === null ? null : integer(form.get("amountMinor")), alternativeCtaLabel: nullable(form.get("alternativeCtaLabel")),
       alternativeCtaUrl: nullable(form.get("alternativeCtaUrl")), active: form.get("active") === "on",
+      ...limitFields(form),
     }));
   }
 
@@ -57,6 +68,8 @@ export function OffersSection({ initial }: { initial: CommerceAdminDashboard }) 
             <label className="ui-field" >Amount minor units<Input className="ui-input" name="amountMinor" type="number" min={0} step={1} /></label>
             <label className="ui-field" >Alternative CTA label<Input className="ui-input" name="alternativeCtaLabel" /></label>
             <label className="ui-field" >Alternative CTA URL<Input className="ui-input" name="alternativeCtaUrl" /></label>
+            <label className="ui-field" >Seat limit (blank = unlimited)<Input className="ui-input" name="seatLimit" type="number" min={1} max={10000} step={1} /></label>
+            <label className="ui-field" >Closes at (blank = never)<Input className="ui-input" name="closesAt" type="datetime-local" /></label>
           </div>
           <Button className="btn primary small s-justify-self-start" disabled={mutation.busy === "create-offer"} >Create Offer</Button>
         </form>
@@ -65,7 +78,7 @@ export function OffersSection({ initial }: { initial: CommerceAdminDashboard }) 
       {initial.offers.items.length === 0 && <EmptyState icon="content" title="Your next offer belongs here">Use New offer above to create it.</EmptyState>}
       {initial.offers.items.map(offer => (
         <details className="ui-card" key={offer.id} >
-          <summary ><b>{offer.title}</b> <span className="muted s-text-sm" >· {humanLabel(offer.kind)} · {humanLabel(offer.accessMode)} · {offer.active ? "ACTIVE" : "INACTIVE"}</span></summary>
+          <summary ><b>{offer.title}</b> <span className="muted s-text-sm" >· {humanLabel(offer.kind)} · {humanLabel(offer.accessMode)} · {offer.active ? "ACTIVE" : "INACTIVE"} · {offer.seatLimit == null ? "Unlimited" : `${offer.seatsTaken}/${offer.seatLimit} taken`} · {offer.limitState === "open" ? "OPEN" : offer.limitState === "sold_out" ? "SOLD OUT" : "CLOSED"}</span></summary>
           <form className="s-stack s-gap-12 s-margin-top-16" onSubmit={e => update(e, offer)} >
             <p className="muted s-text-sm s-margin-0" >Linked entity is fixed. Create a new Offer if commercial identity must change.</p>
             <div className="s-stack s-columns-auto s-gap-10" >
@@ -76,6 +89,8 @@ export function OffersSection({ initial }: { initial: CommerceAdminDashboard }) 
               <label className="ui-field" >Amount minor units<Input className="ui-input" name="amountMinor" type="number" min={0} step={1} defaultValue={offer.amountMinor ?? ""} /></label>
               <label className="ui-field" >Alternative CTA label<Input className="ui-input" name="alternativeCtaLabel" defaultValue={offer.alternativeCtaLabel || ""} /></label>
               <label className="ui-field" >Alternative CTA URL<Input className="ui-input" name="alternativeCtaUrl" defaultValue={offer.alternativeCtaUrl || ""} /></label>
+              <label className="ui-field" >Seat limit (blank = unlimited)<Input className="ui-input" name="seatLimit" type="number" min={1} max={10000} step={1} defaultValue={offer.seatLimit ?? ""} /></label>
+              <label className="ui-field" >Closes at (blank = never)<Input className="ui-input" name="closesAt" type="datetime-local" defaultValue={offer.closesAt ? offer.closesAt.slice(0, 16) : ""} /></label>
             </div>
             <label className="ui-field s-row s-align-items-center s-gap-8" ><Input name="active" type="checkbox" defaultChecked={offer.active} />Active</label>
             <div className="s-row s-gap-10 s-align-items-center s-flex-wrap-wrap" ><Button className="btn secondary small" disabled={mutation.busy === `offer-${offer.id}`}>Save Offer</Button><span className="muted s-text-sm" >{money(offer.amountMinor, offer.currency)}</span></div>
