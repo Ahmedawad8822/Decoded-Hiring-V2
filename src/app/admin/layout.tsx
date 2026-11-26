@@ -27,7 +27,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
   let mayReadAttention = false;
   try { checkAdmin(session); mayReadAttention = true; }
   catch (error) { if (!(error instanceof AppError)) throw error; }
-  const attention = mayReadAttention ? await readStudioAttention().then(({ leads, drafts, commerce }) => ({ leads: leads.total, drafts: drafts.length, bookings: commerce.summary.approvalQueue })) : undefined;
+  const attention = mayReadAttention ? await readStudioAttention().then(({ leads, drafts, commerce, questions }) => ({ leads: leads.total, drafts: drafts.length, bookings: commerce.summary.approvalQueue, questions })) : undefined;
   return (
     <div className="env-studio">
       <AdminStudioShell user={session?.user} attention={attention}>{children}</AdminStudioShell>

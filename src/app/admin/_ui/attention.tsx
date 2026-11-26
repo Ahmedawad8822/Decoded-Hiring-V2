@@ -2,7 +2,7 @@
 
 import { createContext, useContext, type ReactNode } from "react";
 
-export type Attention = Partial<Record<"leads" | "drafts" | "bookings", number>>;
+export type Attention = Partial<Record<"leads" | "drafts" | "bookings" | "questions", number>>;
 const Context = createContext<Attention>({});
 
 export function AttentionProvider({ children, initialCounts = {} }: { children: ReactNode; initialCounts?: Attention }) {

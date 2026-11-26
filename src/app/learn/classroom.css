@@ -274,6 +274,9 @@ body.env-learner { padding-bottom: 64px; } /* tab-bar clearance */
 .note-entry-title a { text-decoration: underline; text-underline-offset: 3px; }
 .note-entry-time { font-size: 12px; color: var(--muted); white-space: nowrap; }
 .note-entry-body { margin-top: 12px; font-size: 15px; line-height: 1.7; color: var(--muted-strong); white-space: pre-wrap; overflow-wrap: anywhere; }
+/* Private lesson questions: same card rhythm as resources, answers read as notes. */
+.question-list { display: grid; gap: 10px; margin-top: 12px; padding: 0; list-style: none; }
+.question-list .note-entry-body { margin-top: 8px; font-size: 14px; }
 @media (max-width: 759px) {
   .notes-actions .btn { flex: 1; }
   .note-entry { padding: 16px; }

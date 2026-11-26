@@ -592,6 +592,59 @@ export type LessonNote = typeof lessonNotes.$inferSelect;
 export type LessonVideoPosition = typeof lessonVideoPositions.$inferSelect;
 
 // ============================================================================
+// LESSON QUESTIONS (private learner -> instructor Q&A, optionally published)
+// ----------------------------------------------------------------------------
+// A learner enrolled in a course can ask a question on a lesson. Questions
+// are private by default: the learner sees only their own rows, other
+// learners see only answered + public rows with no identity attached, and the
+// instructor answers in the Studio inbox. Leaving a course keeps the rows;
+// the notes-style enrollment gate hides them until re-enrollment.
+// `idempotency_key` is a client-generated per-submit key (UNIQUE) so a
+// double submit or retry returns the original row instead of a duplicate.
+// Daily ask budget (10/learner/day) is enforced by counting rows in the
+// service against the (user_id, created_at) index.
+// ============================================================================
+
+export type LessonQuestionStatus = "open" | "answered" | "closed";
+
+export const lessonQuestions = sqliteTable(
+  "lesson_questions",
+  {
+    id: text("id").primaryKey(),
+    lessonId: text("lesson_id")
+      .notNull()
+      .references(() => lessons.id, { onDelete: "cascade" }),
+    courseId: text("course_id")
+      .notNull()
+      .references(() => courses.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    body: text("body").notNull(),
+    status: text("status").$type<LessonQuestionStatus>().notNull().default("open"),
+    answerBody: text("answer_body"),
+    answeredAt: integer("answered_at", { mode: "timestamp" }),
+    answeredBy: text("answered_by"),
+    isPublic: integer("is_public", { mode: "boolean" }).notNull().default(false),
+    idempotencyKey: text("idempotency_key").notNull().unique(),
+    createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+    updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+  },
+  (table) => [
+    // One learner's questions on one lesson (owner reads).
+    index("lesson_questions_user_lesson_idx").on(table.userId, table.lessonId, table.createdAt),
+    // Daily ask-budget count (user_id + created_at range).
+    index("lesson_questions_user_created_idx").on(table.userId, table.createdAt),
+    // Studio inbox by status, newest first.
+    index("lesson_questions_status_created_idx").on(table.status, table.createdAt),
+    // Public answered Q&A per lesson (no identity projected).
+    index("lesson_questions_public_lesson_idx").on(table.lessonId, table.status, table.isPublic),
+  ],
+);
+
+export type LessonQuestion = typeof lessonQuestions.$inferSelect;
+
+// ============================================================================
 // EDITORIAL AI DOMAIN (Mission 07 — website editorial AI foundation)
 // ----------------------------------------------------------------------------
 // Knowledge library (private, admin-only), editorial memory, structured draft
@@ -1413,7 +1466,8 @@ export type EmailOutboxKind =
   | "lesson_unlocked"
   | "nudge_completed"
   | "nudge_inactive"
-  | "nudge_quiz_failed";
+  | "nudge_quiz_failed"
+  | "question_answered";
 
 export type EmailOutboxStatus = "pending" | "sending" | "sent" | "failed" | "expired";
 
