@@ -144,8 +144,11 @@ function normalizeOfferInput(input: {
 async function assertLinkedEntities(input: ValidatedOfferInput): Promise<void> {
   const db = await getDb();
   if (input.courseId) {
-    const course = await db.select({ id: courses.id }).from(courses).where(eq(courses.id, input.courseId)).get();
+    const course = await db.select({ id: courses.id, trashedAt: courses.trashedAt }).from(courses).where(eq(courses.id, input.courseId)).get();
     if (!course) throw new AppError("not_found", "Linked course not found.");
+    if (course.trashedAt !== null) {
+      throw new AppError("invalid", "This course is in Trash. Restore it before linking an offer.");
+    }
   }
   if (input.bookingTypeId) {
     const bookingType = await db

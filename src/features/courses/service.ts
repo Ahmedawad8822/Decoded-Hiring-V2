@@ -1,21 +1,42 @@
 import { getDb } from "@/lib/db";
 import {
+  certificates,
   courses,
   courseSections,
-  lessons,
-  lessonResources,
   enrollments,
+  lessons,
+  lessonNotes,
   lessonProgress,
+  lessonQuestions,
+  lessonQuizzes,
+  lessonResources,
+  lessonVideoPositions,
+  offers,
+  orders,
+  quizAttempts,
+  slugRedirects,
   type Course,
   type CourseSection,
   type Lesson,
   type LessonResource,
 } from "@/lib/db";
-import { and, asc, desc, eq, inArray, like, ne, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, like, ne, or, sql } from "drizzle-orm";
+import type { BatchItem } from "drizzle-orm/batch";
+import { getR2Bucket } from "@/lib/cloudflare/bindings";
 import {
+  collectContentMediaKeys,
+  deleteMediaIfUnreferenced,
+} from "@/features/trash/media-cleanup";
+import {
+  assertCourseTransition,
+  assertLessonTransition,
+  assertNotTrashed,
   buildArchiveUpdate,
   buildEditTouch,
   buildPublishUpdate,
+  buildRestoreFromArchiveUpdate,
+  buildRestoreFromTrashUpdate,
+  buildTrashUpdate,
   buildUnpublishUpdate,
 } from "@/features/publishing/lifecycle";
 import type { ContentBlock } from "@/features/publishing/types";
@@ -54,15 +75,17 @@ export async function getAllAdminCourses(options?: {
   status?: "draft" | "published" | "archived" | "all";
 }): Promise<Course[]> {
   const db = await getDb();
-  const conditions = [];
+  // Trashed rows live only in the Studio Trash page, never in normal lists.
+  const conditions = [isNull(courses.trashedAt)];
   if (options?.status && options.status !== "all") {
     conditions.push(eq(courses.status, options.status));
   }
   if (options?.search?.trim()) {
     const q = `%${options.search.trim()}%`;
-    conditions.push(or(like(courses.title, q), like(courses.slug, q)));
+    const match = or(like(courses.title, q), like(courses.slug, q));
+    if (match) conditions.push(match);
   }
-  const where = conditions.length > 0 ? and(...conditions) : undefined;
+  const where = and(...conditions);
   return db.select().from(courses).where(where).orderBy(desc(courses.updatedAt));
 }
 
@@ -90,7 +113,7 @@ export async function getCoursesByIds(courseIds: string[]): Promise<Map<string, 
   const rows = await db
     .select()
     .from(courses)
-    .where(inArray(courses.id, courseIds));
+    .where(and(inArray(courses.id, courseIds), isNull(courses.trashedAt)));
   return new Map(rows.map((c) => [c.id, c]));
 }
 
@@ -242,12 +265,8 @@ export async function publishCourse(id: string): Promise<Course> {
   const db = await getDb();
   const current = await getAdminCourseById(id);
   if (!current) throw new AppError("not_found", `Course with id "${id}" not found`);
-  if (current.status === "archived") {
-    throw new AppError("invalid", "Cannot publish an archived course. Archived courses are terminal.");
-  }
-  if (current.status === "published") {
-    throw new AppError("invalid", `Cannot publish a course with status "published".`);
-  }
+  assertNotTrashed(current, "course");
+  assertCourseTransition(current.status, "publish");
   await db.update(courses).set(buildPublishUpdate(current)).where(eq(courses.id, id));
   return (await getAdminCourseById(id))!;
 }
@@ -256,9 +275,8 @@ export async function unpublishCourse(id: string): Promise<Course> {
   const db = await getDb();
   const current = await getAdminCourseById(id);
   if (!current) throw new AppError("not_found", `Course with id "${id}" not found`);
-  if (current.status !== "published") {
-    throw new AppError("invalid", `Cannot unpublish a course with status "${current.status}".`);
-  }
+  assertNotTrashed(current, "course");
+  assertCourseTransition(current.status, "unpublish");
   await db.update(courses).set(buildUnpublishUpdate()).where(eq(courses.id, id));
   return (await getAdminCourseById(id))!;
 }
@@ -267,21 +285,153 @@ export async function archiveCourse(id: string): Promise<Course> {
   const db = await getDb();
   const current = await getAdminCourseById(id);
   if (!current) throw new AppError("not_found", `Course with id "${id}" not found`);
-  if (current.status === "archived") {
-    throw new AppError("invalid", `Cannot archive a course with status "archived".`);
-  }
+  assertNotTrashed(current, "course");
+  assertCourseTransition(current.status, "archive");
   await db.update(courses).set(buildArchiveUpdate()).where(eq(courses.id, id));
   return (await getAdminCourseById(id))!;
 }
 
-// No permanent delete in Mission 06 — guarded by design. If a future caller
-// needs it, it must refuse when enrollments or progress exist.
+/**
+ * Restore from archive (§1 lifecycle): archived -> draft. Never straight
+ * to published.
+ */
+export async function restoreCourseFromArchive(id: string): Promise<Course> {
+  const db = await getDb();
+  const current = await getAdminCourseById(id);
+  if (!current) throw new AppError("not_found", `Course with id "${id}" not found`);
+  assertNotTrashed(current, "course");
+  assertCourseTransition(current.status, "restore");
+  await db.update(courses).set(buildRestoreFromArchiveUpdate()).where(eq(courses.id, id));
+  return (await getAdminCourseById(id))!;
+}
+
+/**
+ * Move to Trash (§1 lifecycle). Allowed only from draft or archived; a
+ * published course must be unpublished/archived first.
+ */
+export async function trashCourse(id: string): Promise<Course> {
+  const db = await getDb();
+  const current = await getAdminCourseById(id);
+  if (!current) throw new AppError("not_found", `Course with id "${id}" not found`);
+  const now = new Date();
+  await db.update(courses).set(buildTrashUpdate(current, now)).where(eq(courses.id, id));
+  return (await getAdminCourseById(id))!;
+}
+
+/** Restore from Trash: clears the flag, status returns to trashedFromStatus. */
+export async function restoreCourseFromTrash(id: string): Promise<Course> {
+  const db = await getDb();
+  const current = await getAdminCourseById(id);
+  if (!current) throw new AppError("not_found", `Course with id "${id}" not found`);
+  const now = new Date();
+  await db.update(courses).set(buildRestoreFromTrashUpdate(current, now)).where(eq(courses.id, id));
+  return (await getAdminCourseById(id))!;
+}
+
+/**
+ * Protection gate (§1 dependency rules): a course with ANY enrollment (any
+ * status), certificate or order can never be permanently deleted — manually
+ * or by purge. Studio explains why and offers Archive instead.
+ */
 export async function assertCourseDeletable(id: string): Promise<void> {
   const db = await getDb();
-  const deps = await db.select().from(enrollments).where(eq(enrollments.courseId, id)).get();
-  if (deps) {
-    throw new AppError("conflict", "Cannot delete a course with active enrollments. Archive it instead.");
+  const [enrollment, certificate, order] = await Promise.all([
+    db.select({ id: enrollments.id }).from(enrollments).where(eq(enrollments.courseId, id)).limit(1),
+    db.select({ id: certificates.id }).from(certificates).where(eq(certificates.courseId, id)).limit(1),
+    db.select({ id: orders.id }).from(orders).where(eq(orders.courseId, id)).limit(1),
+  ]);
+  if (enrollment.length > 0 || certificate.length > 0 || order.length > 0) {
+    throw new AppError(
+      "conflict",
+      "This course cannot be deleted permanently because learners are attached to it (enrollments, certificates or orders). Archive it instead — its data, history and relationships are kept."
+    );
   }
+}
+
+/**
+ * Permanently delete a trashed course with NO learners (§1 lifecycle).
+ * Irreversible: removes sections, lessons, resources (R2 objects too),
+ * quizzes (+ attempts), the linked offer, slug redirects and unreferenced
+ * cover media. Chunked for D1's bound-parameter budget (<=100 per statement).
+ * Returns a snapshot for audit + cache revalidation.
+ */
+export async function deleteCoursePermanently(
+  id: string,
+  confirmTitle: string
+): Promise<{ title: string; slug: string; oldSlugs: string[] }> {
+  const db = await getDb();
+  const current = await getAdminCourseById(id);
+  if (!current) throw new AppError("not_found", `Course with id "${id}" not found`);
+  if (current.trashedAt === null) {
+    throw new AppError("invalid", "Only items in Trash can be deleted permanently. Move this course to Trash first.");
+  }
+  if (confirmTitle.trim() !== current.title.trim()) {
+    throw new AppError("invalid", "The typed title does not match. Type the exact title to confirm permanent deletion.");
+  }
+  // Re-check protection at delete time — the purge path relies on this.
+  await assertCourseDeletable(id);
+
+  // Collect child ids + R2 keys BEFORE deleting (one indexed query each).
+  const [lessonRows, resourceRows, quizRows, redirectRows] = await Promise.all([
+    db.select({ id: lessons.id }).from(lessons).where(eq(lessons.courseId, id)),
+    db.select({ storageKey: lessonResources.storageKey }).from(lessonResources).where(eq(lessonResources.courseId, id)),
+    db.select({ id: lessonQuizzes.id }).from(lessonQuizzes).where(eq(lessonQuizzes.courseId, id)),
+    db
+      .select({ oldSlug: slugRedirects.oldSlug })
+      .from(slugRedirects)
+      .where(and(eq(slugRedirects.entityType, "course"), eq(slugRedirects.entityId, id))),
+  ]);
+  const lessonIds = lessonRows.map((l) => l.id);
+  const quizIds = quizRows.map((q) => q.id);
+  const resourceKeys = resourceRows.map((r) => r.storageKey);
+
+  // D1 batch (one implicit transaction): children first, course row last.
+  // inArray chunks of 90 stay within the 100-parameter statement budget.
+  const statements: [BatchItem<"sqlite">, ...BatchItem<"sqlite">[]] = [
+    db.delete(lessonQuizzes).where(eq(lessonQuizzes.courseId, id)),
+  ];
+  for (let i = 0; i < quizIds.length; i += 90) {
+    statements.push(
+      db.delete(quizAttempts).where(inArray(quizAttempts.quizId, quizIds.slice(i, i + 90)))
+    );
+  }
+  statements.push(db.delete(lessonResources).where(eq(lessonResources.courseId, id)));
+  statements.push(db.delete(lessonNotes).where(eq(lessonNotes.courseId, id)));
+  statements.push(db.delete(lessonQuestions).where(eq(lessonQuestions.courseId, id)));
+  for (let i = 0; i < lessonIds.length; i += 90) {
+    const chunk = lessonIds.slice(i, i + 90);
+    statements.push(db.delete(lessonProgress).where(inArray(lessonProgress.lessonId, chunk)));
+    statements.push(db.delete(lessonVideoPositions).where(inArray(lessonVideoPositions.lessonId, chunk)));
+  }
+  statements.push(db.delete(lessons).where(eq(lessons.courseId, id)));
+  statements.push(db.delete(courseSections).where(eq(courseSections.courseId, id)));
+  statements.push(db.delete(offers).where(eq(offers.courseId, id)));
+  statements.push(
+    db
+      .delete(slugRedirects)
+      .where(and(eq(slugRedirects.entityType, "course"), eq(slugRedirects.entityId, id)))
+  );
+  statements.push(
+    db
+      .delete(slugRedirects)
+      .where(and(eq(slugRedirects.entityType, "lesson"), eq(slugRedirects.scope, id)))
+  );
+  statements.push(db.delete(courses).where(eq(courses.id, id)));
+  await db.batch(statements);
+
+  // R2 second, best-effort: resource PDFs belong to this course alone.
+  const bucket = await getR2Bucket();
+  for (const key of resourceKeys) {
+    if (!key.startsWith("course-resources/") || key.includes("..")) continue;
+    await bucket.delete(key).catch(() => undefined);
+  }
+  await deleteMediaIfUnreferenced(collectContentMediaKeys(current.coverImage, current.description), {
+    table: "courses",
+    id,
+    coverImage: current.coverImage,
+  });
+
+  return { title: current.title, slug: current.slug, oldSlugs: redirectRows.map((r) => r.oldSlug) };
 }
 
 // ---------------------------------------------------------------- Sections
@@ -412,6 +562,9 @@ export async function createLesson(input: CreateLessonInput): Promise<Lesson> {
   const db = await getDb();
   const course = await getAdminCourseById(input.courseId);
   if (!course) throw new AppError("not_found", `Course with id "${input.courseId}" not found`);
+  if (course.trashedAt !== null) {
+    throw new AppError("invalid", "This course is in Trash. Restore it before adding lessons.");
+  }
   const section = await db.select().from(courseSections).where(eq(courseSections.id, input.sectionId)).get();
   if (!section || section.courseId !== input.courseId) {
     throw new AppError("invalid", "Section does not belong to this course.");
@@ -478,6 +631,7 @@ export async function updateLesson(id: string, input: UpdateLessonInput): Promis
   const db = await getDb();
   const current = await getAdminLessonById(id);
   if (!current) throw new AppError("not_found", `Lesson with id "${id}" not found`);
+  assertNotTrashed(current, "lesson");
 
   if (input.slug && input.slug !== current.slug) {
     const clash = await db
@@ -567,11 +721,8 @@ export async function publishLesson(id: string): Promise<Lesson> {
   const db = await getDb();
   const current = await getAdminLessonById(id);
   if (!current) throw new AppError("not_found", `Lesson with id "${id}" not found`);
-  // Archived is terminal (mirrors publishCourse): it cannot be published back.
-  if (current.status === "archived") {
-    throw new AppError("invalid", "Cannot publish an archived lesson. Archived lessons are terminal.");
-  }
-  if (current.status === "published") throw new AppError("invalid", `Cannot publish a lesson with status "published".`);
+  assertNotTrashed(current, "lesson");
+  assertLessonTransition(current.status, "publish");
   await db.update(lessons).set(buildPublishUpdate(current)).where(eq(lessons.id, id));
   // COMPLETION: a newly published required lesson can reopen completed
   // enrollments. The reconcile is idempotent, so optional lessons need no
@@ -584,14 +735,185 @@ export async function unpublishLesson(id: string): Promise<Lesson> {
   const db = await getDb();
   const current = await getAdminLessonById(id);
   if (!current) throw new AppError("not_found", `Lesson with id "${id}" not found`);
-  if (current.status !== "published") {
-    throw new AppError("invalid", `Cannot unpublish a lesson with status "${current.status}".`);
-  }
+  assertNotTrashed(current, "lesson");
+  assertLessonTransition(current.status, "unpublish");
   await db.update(lessons).set(buildUnpublishUpdate()).where(eq(lessons.id, id));
   // COMPLETION: removing the last incomplete required lesson can close
   // enrollments; removing the only required lesson reopens them.
   await reconcileCourseEnrollments(current.courseId);
   return (await getAdminLessonById(id))!;
+}
+
+/**
+ * Archive a lesson (§1 lifecycle). Archived lessons hide from learner
+ * navigation; progress, attempts, notes and questions are kept.
+ */
+export async function archiveLesson(id: string): Promise<Lesson> {
+  const db = await getDb();
+  const current = await getAdminLessonById(id);
+  if (!current) throw new AppError("not_found", `Lesson with id "${id}" not found`);
+  assertNotTrashed(current, "lesson");
+  assertLessonTransition(current.status, "archive");
+  await db.update(lessons).set(buildArchiveUpdate()).where(eq(lessons.id, id));
+  await reconcileCourseEnrollments(current.courseId);
+  return (await getAdminLessonById(id))!;
+}
+
+/**
+ * Restore from archive (§1 lifecycle): archived -> draft. Never straight
+ * to published.
+ */
+export async function restoreLessonFromArchive(id: string): Promise<Lesson> {
+  const db = await getDb();
+  const current = await getAdminLessonById(id);
+  if (!current) throw new AppError("not_found", `Lesson with id "${id}" not found`);
+  assertNotTrashed(current, "lesson");
+  assertLessonTransition(current.status, "restore");
+  await db.update(lessons).set(buildRestoreFromArchiveUpdate()).where(eq(lessons.id, id));
+  return (await getAdminLessonById(id))!;
+}
+
+/**
+ * Move to Trash (§1 lifecycle). Allowed only from draft or archived; a
+ * published lesson must be unpublished/archived first.
+ */
+export async function trashLesson(id: string): Promise<Lesson> {
+  const db = await getDb();
+  const current = await getAdminLessonById(id);
+  if (!current) throw new AppError("not_found", `Lesson with id "${id}" not found`);
+  const now = new Date();
+  await db.update(lessons).set(buildTrashUpdate(current, now)).where(eq(lessons.id, id));
+  await reconcileCourseEnrollments(current.courseId);
+  return (await getAdminLessonById(id))!;
+}
+
+/** Restore from Trash: clears the flag, status returns to trashedFromStatus. */
+export async function restoreLessonFromTrash(id: string): Promise<Lesson> {
+  const db = await getDb();
+  const current = await getAdminLessonById(id);
+  if (!current) throw new AppError("not_found", `Lesson with id "${id}" not found`);
+  const now = new Date();
+  await db.update(lessons).set(buildRestoreFromTrashUpdate(current, now)).where(eq(lessons.id, id));
+  await reconcileCourseEnrollments(current.courseId);
+  return (await getAdminLessonById(id))!;
+}
+
+/**
+ * Protection gate (§1 dependency rules): a lesson with ANY learner progress,
+ * quiz attempt, note or question can never be permanently deleted — manually
+ * or by purge. Studio explains why and offers Archive instead.
+ */
+export async function assertLessonDeletable(id: string): Promise<void> {
+  const db = await getDb();
+  const lesson = await getAdminLessonById(id);
+  if (!lesson) throw new AppError("not_found", `Lesson with id "${id}" not found`);
+  const [progress, note, question] = await Promise.all([
+    db.select({ id: lessonProgress.id }).from(lessonProgress).where(eq(lessonProgress.lessonId, id)).limit(1),
+    db.select({ id: lessonNotes.id }).from(lessonNotes).where(eq(lessonNotes.lessonId, id)).limit(1),
+    db.select({ id: lessonQuestions.id }).from(lessonQuestions).where(eq(lessonQuestions.lessonId, id)).limit(1),
+  ]);
+  const quiz = await db
+    .select({ id: lessonQuizzes.id })
+    .from(lessonQuizzes)
+    .where(eq(lessonQuizzes.lessonId, id))
+    .get();
+  const attempt = quiz
+    ? await db
+        .select({ id: quizAttempts.id })
+        .from(quizAttempts)
+        .where(eq(quizAttempts.quizId, quiz.id))
+        .limit(1)
+    : [];
+  // Attempts also carry a denormalized lessonId (no FK) — check it directly.
+  const attemptByLesson = await db
+    .select({ id: quizAttempts.id })
+    .from(quizAttempts)
+    .where(eq(quizAttempts.lessonId, id))
+    .limit(1);
+  if (progress.length > 0 || note.length > 0 || question.length > 0 || attempt.length > 0 || attemptByLesson.length > 0) {
+    throw new AppError(
+      "conflict",
+      "This lesson cannot be deleted permanently because learners have interacted with it (progress, quiz attempts, notes or questions). Archive it instead — its data and history are kept."
+    );
+  }
+}
+
+/**
+ * Permanently delete a trashed lesson with NO learner data (§1 lifecycle).
+ * Irreversible: removes resources (R2 objects too), its quiz (+ attempts)
+ * and slug redirects. Chunked for D1's bound-parameter budget.
+ * Returns a snapshot for audit + cache revalidation.
+ */
+export async function deleteLessonPermanently(
+  id: string,
+  confirmTitle: string
+): Promise<{ title: string; slug: string; courseId: string; courseSlug: string; oldSlugs: string[] }> {
+  const db = await getDb();
+  const current = await getAdminLessonById(id);
+  if (!current) throw new AppError("not_found", `Lesson with id "${id}" not found`);
+  if (current.trashedAt === null) {
+    throw new AppError("invalid", "Only items in Trash can be deleted permanently. Move this lesson to Trash first.");
+  }
+  if (confirmTitle.trim() !== current.title.trim()) {
+    throw new AppError("invalid", "The typed title does not match. Type the exact title to confirm permanent deletion.");
+  }
+  // Re-check protection at delete time — the purge path relies on this.
+  await assertLessonDeletable(id);
+
+  const [resourceRows, quizRows, redirectRows] = await Promise.all([
+    db.select({ storageKey: lessonResources.storageKey }).from(lessonResources).where(eq(lessonResources.lessonId, id)),
+    db.select({ id: lessonQuizzes.id }).from(lessonQuizzes).where(eq(lessonQuizzes.lessonId, id)),
+    db
+      .select({ oldSlug: slugRedirects.oldSlug })
+      .from(slugRedirects)
+      .where(
+        and(
+          eq(slugRedirects.entityType, "lesson"),
+          eq(slugRedirects.scope, current.courseId),
+          eq(slugRedirects.entityId, id)
+        )
+      ),
+  ]);
+  const resourceKeys = resourceRows.map((r) => r.storageKey);
+  const quizIds = quizRows.map((q) => q.id);
+
+  const statements: [BatchItem<"sqlite">, ...BatchItem<"sqlite">[]] = [
+    db.delete(lessonResources).where(eq(lessonResources.lessonId, id)),
+  ];
+  for (let i = 0; i < quizIds.length; i += 90) {
+    statements.push(
+      db.delete(quizAttempts).where(inArray(quizAttempts.quizId, quizIds.slice(i, i + 90)))
+    );
+  }
+  statements.push(db.delete(lessonQuizzes).where(eq(lessonQuizzes.lessonId, id)));
+  statements.push(
+    db
+      .delete(slugRedirects)
+      .where(
+        and(
+          eq(slugRedirects.entityType, "lesson"),
+          eq(slugRedirects.scope, current.courseId),
+          eq(slugRedirects.entityId, id)
+        )
+      )
+  );
+  statements.push(db.delete(lessons).where(eq(lessons.id, id)));
+  await db.batch(statements);
+
+  const bucket = await getR2Bucket();
+  for (const key of resourceKeys) {
+    if (!key.startsWith("course-resources/") || key.includes("..")) continue;
+    await bucket.delete(key).catch(() => undefined);
+  }
+
+  const course = await getAdminCourseById(current.courseId);
+  return {
+    title: current.title,
+    slug: current.slug,
+    courseId: current.courseId,
+    courseSlug: course?.slug ?? "",
+    oldSlugs: redirectRows.map((r) => r.oldSlug),
+  };
 }
 
 export async function moveLesson(id: string, direction: "up" | "down"): Promise<Lesson[]> {
@@ -625,7 +947,7 @@ export interface CurriculumSection {
 export async function getPublishedCourseBySlug(slug: string): Promise<Course | null> {
   const db = await getDb();
   const course = await db.select().from(courses).where(eq(courses.slug, slug)).get();
-  if (!course || course.status !== "published") return null;
+  if (!course || course.status !== "published" || course.trashedAt !== null) return null;
   return course;
 }
 
@@ -643,7 +965,7 @@ export async function getLearnerCourseBySlug(
 ): Promise<Course | null> {
   const db = await getDb();
   const course = await db.select().from(courses).where(eq(courses.slug, slug)).get();
-  if (!course) return null;
+  if (!course || course.trashedAt !== null) return null;
   if (course.status === "published") return course;
   if (course.status !== "archived" || !userId) return null;
   const enrollment = await db
@@ -660,7 +982,7 @@ export async function getPublishedCourses(): Promise<Course[]> {
   return db
     .select()
     .from(courses)
-    .where(eq(courses.status, "published"))
+    .where(and(eq(courses.status, "published"), isNull(courses.trashedAt)))
     .orderBy(desc(courses.publishedAt), desc(courses.updatedAt));
 }
 
@@ -675,7 +997,9 @@ export async function getCourseCurriculum(courseId: string): Promise<CurriculumS
     db
       .select()
       .from(lessons)
-      .where(eq(lessons.courseId, courseId))
+      // Trashed lessons are hidden from every normal list, including the
+      // Studio curriculum view — they live only in the Trash page.
+      .where(and(eq(lessons.courseId, courseId), isNull(lessons.trashedAt)))
       .orderBy(asc(lessons.position), asc(lessons.createdAt)),
   ]);
   const bySection = new Map<string, Lesson[]>();
@@ -710,7 +1034,7 @@ export async function getPublishedLessonBySlug(
     .from(lessons)
     .where(and(eq(lessons.courseId, courseId), eq(lessons.slug, lessonSlug)))
     .get();
-  if (!lesson || lesson.status !== "published") return null;
+  if (!lesson || lesson.status !== "published" || lesson.trashedAt !== null) return null;
   return lesson;
 }
 
@@ -819,7 +1143,7 @@ export async function getPublishedLessonCounts(courseIds: string[]): Promise<Rec
   const rows = await db
     .select({ courseId: lessons.courseId, count: sql<number>`count(*)` })
     .from(lessons)
-    .where(and(inArray(lessons.courseId, courseIds), eq(lessons.status, "published")))
+    .where(and(inArray(lessons.courseId, courseIds), eq(lessons.status, "published"), isNull(lessons.trashedAt)))
     .groupBy(lessons.courseId);
   for (const id of courseIds) out[id] = 0;
   for (const row of rows) out[row.courseId] = row.count;

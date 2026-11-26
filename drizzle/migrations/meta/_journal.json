@@ -260,6 +260,13 @@
       "when": 1795693135859,
       "tag": "0036_nosy_marvel_apes",
       "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "6",
+      "when": 1795698802445,
+      "tag": "0037_minor_strong_guy",
+      "breakpoints": true
     }
   ]
 }

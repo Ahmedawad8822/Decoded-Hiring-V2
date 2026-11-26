@@ -86,6 +86,9 @@ export async function draftCourseOutline(
 
   const course = await getAdminCourseById(parsed.courseId);
   if (!course) throw new AppError("not_found", `Course with id "${parsed.courseId}" not found`);
+  if (course.trashedAt !== null) {
+    throw new AppError("invalid", "This course is in Trash. Restore it before drafting an outline.");
+  }
 
   // Rate limit BEFORE the retrieval + provider work: 20 drafts/admin/hour.
   const allowed = await consumePublicFixedWindowLimit({
@@ -247,6 +250,9 @@ export async function applyCourseOutline(
 
   const course = await getAdminCourseById(parsed.courseId);
   if (!course) throw new AppError("not_found", `Course with id "${parsed.courseId}" not found`);
+  if (course.trashedAt !== null) {
+    throw new AppError("invalid", "This course is in Trash. Restore it before applying an outline.");
+  }
 
   const db = await getDb();
   const [existingSections, existingLessons] = await Promise.all([

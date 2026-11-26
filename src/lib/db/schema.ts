@@ -106,10 +106,17 @@ export const guides = sqliteTable("guides", {
   metaTitle: text("meta_title"),
   metaDescription: text("meta_description"),
   ogImage: text("og_image"),
+  // Trash (§1 lifecycle): soft-delete flag. trashedFromStatus remembers the
+  // state the row left (restored back on un-trash). NULL = not trashed.
+  trashedAt: integer("trashed_at", { mode: "timestamp" }),
+  trashedFromStatus: text("trashed_from_status").$type<GuideStatus>(),
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
   updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
   publishedAt: integer("published_at", { mode: "timestamp" }),
-});
+},
+  // Trash page + auto-purge scan (Workers Free 10 ms CPU budget).
+  (table) => [index("guides_trashed_at_idx").on(table.trashedAt)]
+);
 
 // ============================================================================
 // CONTENT / PUBLISHING DOMAIN (Field Notes — Mission 05)
@@ -135,10 +142,16 @@ export const fieldNotes = sqliteTable("field_notes", {
   status: text("status").$type<FieldNoteStatus>().notNull().default("draft"),
   metaTitle: text("meta_title"),
   metaDescription: text("meta_description"),
+  // Trash (§1 lifecycle): see guides.trashedAt.
+  trashedAt: integer("trashed_at", { mode: "timestamp" }),
+  trashedFromStatus: text("trashed_from_status").$type<FieldNoteStatus>(),
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
   updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
   publishedAt: integer("published_at", { mode: "timestamp" }),
-});
+},
+  // Trash page + auto-purge scan (Workers Free 10 ms CPU budget).
+  (table) => [index("field_notes_trashed_at_idx").on(table.trashedAt)]
+);
 
 export type FieldNoteRevisionTrigger = "publish" | "update" | "unpublish" | "archive";
 
@@ -314,10 +327,16 @@ export const courses = sqliteTable("courses", {
   status: text("status").$type<CourseStatus>().notNull().default("draft"),
   accessMode: text("access_mode").$type<CourseAccessMode>().notNull().default("FREE"),
   coverImage: text("cover_image"),
+  // Trash (§1 lifecycle): see guides.trashedAt.
+  trashedAt: integer("trashed_at", { mode: "timestamp" }),
+  trashedFromStatus: text("trashed_from_status").$type<CourseStatus>(),
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
   updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
   publishedAt: integer("published_at", { mode: "timestamp" }),
-});
+},
+  // Trash page + auto-purge scan (Workers Free 10 ms CPU budget).
+  (table) => [index("courses_trashed_at_idx").on(table.trashedAt)]
+);
 
 export const courseSections = sqliteTable(
   "course_sections",
@@ -361,6 +380,9 @@ export const lessons = sqliteTable(
     releaseAt: integer("release_at", { mode: "timestamp" }),
     dripDays: integer("drip_days"),
     status: text("status").$type<LessonStatus>().notNull().default("draft"),
+    // Trash (§1 lifecycle): see guides.trashedAt.
+    trashedAt: integer("trashed_at", { mode: "timestamp" }),
+    trashedFromStatus: text("trashed_from_status").$type<LessonStatus>(),
     createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
     updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
     publishedAt: integer("published_at", { mode: "timestamp" }),
@@ -369,6 +391,8 @@ export const lessons = sqliteTable(
     index("lessons_course_idx").on(table.courseId),
     index("lessons_section_idx").on(table.sectionId),
     uniqueIndex("lessons_course_slug_unique").on(table.courseId, table.slug),
+    // Trash page + auto-purge scan per type (Workers Free 10 ms CPU budget).
+    index("lessons_trashed_at_idx").on(table.trashedAt),
   ]
 );
 
