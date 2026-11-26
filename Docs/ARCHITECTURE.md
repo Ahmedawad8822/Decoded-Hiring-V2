@@ -25,8 +25,8 @@ Cloudflare Worker  (.open-next/worker.js, built by @opennextjs/cloudflare 1.20.1
 |---|---|
 | Static (○) | Marketing and legal pages, `/guides` and `/field-notes` indexes (prerendered from D1, refreshed by `revalidatePath()` on publish) |
 | Timed ISR (`revalidate = 300`) | `/mission-01`, `/ai-recruiter-os`; `refreshCommerce()` revalidates them on Studio offer or booking-type changes |
-| ISR on demand (`generateStaticParams` returns `[]`, `revalidate = 3600` as safety net) | `/guides/[slug]`, `/field-notes/[slug]`: published article only, no `searchParams`, cached in the R2 incremental cache, revalidated by Studio actions and editorial-AI publish; slug redirects (308) and 404s resolve inside the render |
-| Dynamic (ƒ) | `/coaching`, `/workshop` (live availability), `/preview/guides/[slug]` and `/preview/field-notes/[slug]`, `/admin/*`, `/learn/*`, `/api/*`, `/sitemap.xml` |
+| ISR on demand (`generateStaticParams` returns `[]`, `revalidate = 3600` as safety net) | `/guides/[slug]`, `/field-notes/[slug]`, `/[slug]` (standard pages; static siblings win): published article only, no `searchParams`, cached in the R2 incremental cache, revalidated by Studio actions and editorial-AI publish; slug redirects (308) and 404s resolve inside the render |
+| Dynamic (ƒ) | `/coaching`, `/workshop` (live availability), `/preview/guides/[slug]`, `/preview/field-notes/[slug]` and `/preview/pages/[slug]`, `/admin/*`, `/learn/*`, `/api/*`, `/sitemap.xml` |
 
 - **Staff preview:** `?preview=true` on an article URL is rewritten in `next.config.ts` (`beforeFiles`) to the `force-dynamic`, `noindex`, admin-only routes under `src/app/(site)/preview/`; the browser URL does not change.
 - **CSP:** static `Content-Security-Policy` header in `next.config.ts` (no nonce, so ISR stays cacheable); directives in `Docs/ENGINEERING-STANDARDS.md` section 9, verified by `e2e/csp.spec.ts`.
@@ -37,7 +37,7 @@ Cloudflare Worker  (.open-next/worker.js, built by @opennextjs/cloudflare 1.20.1
 | Store | Use | Access |
 |---|---|---|
 | D1 `DB` | All application data. Schema in `src/lib/db/schema.ts` (Drizzle, SQLite) | `getDb()` in `src/lib/db/index.ts`; a few modules use the raw D1 binding for atomic batches (`analytics/service.ts`) |
-| R2 `MEDIA_BUCKET` | `guides/`, `field-notes/` (public images), `course-resources/<courseId>/` (private PDFs), knowledge sources (private) | `lib/media/service.ts`, `lib/course-resources/service.ts`, `editorial-ai/knowledge/storage.ts` |
+| R2 `MEDIA_BUCKET` | `guides/`, `field-notes/`, `pages/` (public images), `course-resources/<courseId>/` (private PDFs), knowledge sources (private) | `lib/media/service.ts`, `lib/course-resources/service.ts`, `editorial-ai/knowledge/storage.ts` |
 | R2 `NEXT_INC_CACHE_R2_BUCKET` | OpenNext incremental cache | OpenNext only |
 
 **Migrations:** SQL files in `drizzle/migrations` (0000-0024, generated with `drizzle-kit generate`; some hand-written, e.g. 0012 booking overlap trigger; latest: 0020 `slug_redirects`, 0021 `admin_audit_log`, 0022 `two_factor` plus `user.two_factor_enabled`, 0023 `business_events_occurred_idx` for retention pruning, 0024 course landing metadata and lesson preview/duration columns). Local: `npm run db:migrate:local` (`scripts/migrate-local.ts` -> `src/lib/db/migrate.ts`), which records applied files in wrangler's `d1_migrations` table and fails loudly on non-idempotent errors (`tests/migrations-tracking.test.ts`). Remote: `npm run db:migrate:remote` (`wrangler d1 migrations apply DB --env production --remote`). Schema changes are a high-risk change (see the review policy in `Docs/DEFINITION-OF-DONE.md`).
@@ -60,6 +60,7 @@ Cloudflare Worker  (.open-next/worker.js, built by @opennextjs/cloudflare 1.20.1
 | `publishing` | Content lifecycle (`draft`/`published`/`archived`), preview rules, shared types | `lifecycle.ts`, `preview.ts` |
 | `guides` | Guide CRUD, publish, ISR revalidation | `service.ts`, `actions.ts` (admin) |
 | `field-notes` | Field Note CRUD, revisions, publish | `service.ts`, `actions.ts` (admin) |
+| `pages` | Standard Page CRUD, revisions, §1 lifecycle incl. Trash/restore/permanent delete/purge, reserved-slug validation, footer/sitemap reads | `service.ts`, `actions.ts` (admin), `types.ts`, `reserved-slugs.ts` |
 | `content` | Approved homepage content model | `homepage-model.ts`, `approved-homepage.tsx` |
 | `courses` | Courses, sections, lessons, resources, YouTube embed handling | `service.ts`, `actions.ts` (admin), `youtube.ts` |
 | `enrollments` | Enrolment and access checks | `service.ts`, `access.ts`, `actions.ts` (learner) |
@@ -71,7 +72,7 @@ Cloudflare Worker  (.open-next/worker.js, built by @opennextjs/cloudflare 1.20.1
 | `leads` | Public enquiry capture with idempotency and fallback | `service.ts`, `actions.ts` (public), `lead-form.tsx` |
 | `public-intake` | Shared D1 fixed-window rate-limit primitive, salted per-IP buckets (`PUBLIC_IP_LIMITS`), opportunistic pruning of expired rows (24 h retention, 1% of consumes, 500 rows) | `rate-limit.ts` |
 | `audit` | Admin audit trail: `recordAdminAudit()` / `buildAdminAuditStatement()` write `admin_audit_log` rows (actor, action, entity, small JSON details); read-only viewer at `/admin/audit` | `service.ts` |
-| `slug-redirects` | Records a redirect when an ever-published Guide, Field Note, Course or Lesson slug is renamed, in the same D1 batch; target resolved at request time (A to B to C resolves A to C); a live entity reusing a slug deletes its redirect row | `service.ts` |
+| `slug-redirects` | Records a redirect when an ever-published Guide, Field Note, Course, Lesson or Standard Page slug is renamed, in the same D1 batch; target resolved at request time (A to B to C resolves A to C); a live entity reusing a slug deletes its redirect row | `service.ts` |
 | `analytics` | Business events (best-effort, no PII), public funnel events | `service.ts`, `public-actions.ts`, `types.ts` |
 
 Outside features: `src/lib` (cross-cutting infra: `auth`, `db`, `cloudflare`, `media`, `course-resources`, `uploads/sniff.ts`, `errors.ts`, `action-result.ts`, `safe-redirect.ts`, `upload-limits.ts`, `seo.tsx`, `sitemap-entries.ts`); `src/app` (routes: `(site)` public incl. `preview/`, `admin` Studio incl. `security` (2FA enrolment) and `audit`, `learn` classroom, `api`); `src/components` (`home`, `learner`, `products`, `publishing`, `site`). Note: `src/lib/media` and `src/lib/course-resources` hold domain logic that has not been moved into `features/` (candidate cleanup).
@@ -88,11 +89,11 @@ Outside features: `src/lib` (cross-cutting infra: `auth`, `db`, `cloudflare`, `m
 | Rate limiting | Atomic D1 upsert (`consumePublicFixedWindowLimit`, `consumeFixedWindowMs`); scope keys hash PII. Public intake checks a salted per-IP bucket first (`consumePublicIpLimit`: lead 10, booking 8, analytics 20 per 15 min), then the shared email/kind/global counters; the IP check is skipped when there is no request context (tests, scripts) | `public-intake/rate-limit.ts` |
 | Race safety | Conditional-WHERE updates, unique indexes and a DB trigger, rather than read-then-write | `scheduling`, `commerce`, `enrollments`, migrations |
 | Business events | `recordBusinessEventBestEffort()` with a dedupe key; never blocks the main path; forbids PII-looking metadata keys | `features/analytics/service.ts` |
-| Audit | `recordAdminAudit()` for admin mutations (guide, field note, course, section, lesson, lesson resource, media, offer, booking type, availability window), awaited after the mutation, failures logged not surfaced; `logAudit()` for editorial AI (best-effort); history tables for bookings and orders | `features/audit`, `editorial-ai/audit`, `booking_history`, `order_history` |
+| Audit | `recordAdminAudit()` for admin mutations (guide, field note, page, course, section, lesson, lesson resource, media, offer, booking type, availability window), awaited after the mutation, failures logged not surfaced; `logAudit()` for editorial AI (best-effort); history tables for bookings and orders | `features/audit`, `editorial-ai/audit`, `booking_history`, `order_history` |
 | Test seams | Opt-in env flags (`DH_*_TEST_SEAM`) and `setD1DatabaseForTest`; never set in production code | see threat model T19 |
 | Safe redirects | `safeRedirectPath()` for any `?redirect=` | `src/lib/safe-redirect.ts` |
 | Uploads | Size guard in three layers, server-minted keys; images: MIME allowlist plus magic-byte sniffing, the sniffed type is stored; PDFs: `%PDF-` check | `src/lib/upload-limits.ts`, `src/lib/uploads/sniff.ts`, services |
-| Slug changes | Rename plus redirect row in one `db.batch`; article routes revalidate old and new slug | `features/slug-redirects`, `guides`, `field-notes`, `courses` |
+| Slug changes | Rename plus redirect row in one `db.batch`; article routes revalidate old and new slug | `features/slug-redirects`, `guides`, `field-notes`, `pages`, `courses` |
 
 ## 6. Provider adapters (dormant)
 

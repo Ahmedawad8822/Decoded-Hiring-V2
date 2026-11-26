@@ -557,7 +557,7 @@ test("trash: lesson with any learner data can never be deleted permanently", asy
 // ---------------------------------------------------------------------------
 
 test("trash: Trash page lists every type with days left; registry rejects unknown types", async () => {
-  assert.equal(getTrashableType("page"), null);
+  assert.equal(getTrashableType("unknown_type"), null);
   const guide = await createGuide({ title: "List Guide", slug: `list-guide-${uid()}`, author: "Studio", body: [] });
   await trashGuide(guide.id);
   const note = await createFieldNote({ title: "List Note", slug: `list-note-${uid()}`, author: "Studio", body: [] });
@@ -661,7 +661,7 @@ test("trash: actions reject learners and validate input as admin", async () => {
   // Back to admin for validation checks.
   cookieHeader = await signInCookie(adminEmail, ADMIN_PASSWORD);
 
-  const badType = await trashActions.trashItemAction({ type: "page", id: "x" });
+  const badType = await trashActions.trashItemAction({ type: "unknown_type", id: "x" });
   assert.equal(badType.ok, false);
 
   const missing = await trashActions.restoreTrashedItemAction({ type: "guide", id: "does-not-exist" });

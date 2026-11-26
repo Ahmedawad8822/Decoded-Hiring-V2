@@ -38,7 +38,7 @@ Studio: one **Trash** page listing all trashed items (type, title, trashed date,
 
 - Purpose: governed pages for information content (e.g. future policy, FAQ, press pages) without code changes. Existing hand-built pages (About, legal, contact) stay as they are.
 - Route: `/[slug]` at the site root for published pages. Reserved slugs: every existing top-level route and segment (enforced in validation, kept in one list next to `public-routes.ts`).
-- Fields: title, slug, summary (meta description), body (the existing structured block editor and block types), optional hero image (existing media rules), SEO title/description, noindex flag, show in footer flag.
+- Fields: title, slug, summary (meta description), body (the existing structured block editor and block types), optional hero image (existing media rules), SEO title/description, noindex flag. (No footer flag: most public pages are prerendered at build time, so a database-driven footer would show build-time data; link pages from content instead.)
 - Anatomy: simple hero (title, summary), body blocks, optional CTA block; site header/footer. Desktop/mobile use existing site typography.
 - Lifecycle: §1. Revisions like Field Notes if cheap; otherwise none (state it).
 - SEO: canonical, Open Graph, sitemap unless noindex. Empty/error: 404 for unknown/unpublished.

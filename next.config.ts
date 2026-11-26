@@ -1,4 +1,5 @@
 import type { NextConfig } from "next";
+import { buildPagePreviewRewriteSource } from "./src/features/pages/reserved-slugs";
 
 const isProd = process.env.NODE_ENV === "production";
 
@@ -81,6 +82,15 @@ const nextConfig: NextConfig = {
           source: "/field-notes/:slug",
           has: [{ type: "query" as const, key: "preview", value: "true" }],
           destination: "/preview/field-notes/:slug",
+        },
+        {
+          // Constrained to non-reserved slugs (see reserved-slugs.ts, the
+          // single source of truth): without the regex, this beforeFiles
+          // rewrite would steal /admin, /api, /learn, /login, /signup,
+          // /sitemap.xml, /robots.txt, ... whenever ?preview=true is set.
+          source: buildPagePreviewRewriteSource(),
+          has: [{ type: "query" as const, key: "preview", value: "true" }],
+          destination: "/preview/pages/:slug",
         },
       ],
       afterFiles: [],

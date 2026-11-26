@@ -5,6 +5,7 @@ import {
   getDb,
   guides,
   lessons,
+  pages,
   media,
 } from "@/lib/db";
 import { getR2Bucket } from "@/lib/cloudflare/bindings";
@@ -108,6 +109,13 @@ export async function isMediaKeyReferencedElsewhere(
     )
     .limit(1);
   if (courseRows.length > 0) return true;
+
+  const pageRows = await db
+    .select({ id: pages.id })
+    .from(pages)
+    .where(or(like(pages.body, urlPattern), like(pages.coverImage, keyPattern)))
+    .limit(1);
+  if (pageRows.length > 0) return true;
 
   const lessonRows = await db
     .select({ id: lessons.id })

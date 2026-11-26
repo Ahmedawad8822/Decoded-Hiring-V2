@@ -11,7 +11,7 @@ Implementation inventory. Schema source: `src/lib/db/schema.ts` and `drizzle/mig
 | Slug: `^[a-z0-9]+(?:-[a-z0-9]+)*$`, 3 to 100 chars (`slugSchema`). Empty slug on create falls back to `slugifyTitle(title)` for courses and lessons | `features/publishing/types.ts` |
 | Cover image: `/api/media/...` path or `https://` URL only (`isSafeMediaUrl`) | `coverImageSchema` |
 | In-body links: `isSafeUrl` rejects `javascript:`, `data:`, `vbscript:`, `file:` | `features/publishing/types.ts` |
-| Preview: a non-published Guide or Field Note is visible only with `?preview=true` **and** an admin session; the request is rewritten to dynamic `/preview/guides/[slug]` and `/preview/field-notes/[slug]`. Courses have no preview | `features/publishing/preview.ts` |
+| Preview: a non-published Guide, Field Note or Standard Page is visible only with `?preview=true` **and** an admin session; the request is rewritten to dynamic `/preview/guides/[slug]`, `/preview/field-notes/[slug]` and `/preview/pages/[slug]`. Courses have no preview | `features/publishing/preview.ts` |
 | Publishing sets `publishedAt` once (first publish wins). Unpublish keeps it. Edit touches only `updatedAt` | `features/publishing/lifecycle.ts` |
 | Ids are prefixed random strings (`course_`, `lesson_`, `offer_`, `bev_`, ...), not autoincrement | services |
 
@@ -42,10 +42,12 @@ Public = reachable without a session. "Reval." = `revalidatePath` calls made by 
 | **Guide** (`guides`) | `title`, `slug`, `excerpt`, `body`, `coverImage`, `author` (default "Decoded Editorial"), `category`, `tags`, `metaTitle`, `metaDescription`, `ogImage`, `publishedAt` | shared `ContentStatus` | globally unique; rename of an ever-published guide records a redirect | published via an Editorial Publication | `published` at `/guides`, `/guides/[slug]` (ISR, `revalidate = 3600`), sitemap | `/guides`, `/guides/<slug>`, `/guides/<old slug>` on rename, `/admin/content` |
 | **Field Note** (`field_notes`) | as Guide minus `category`, `tags`, `ogImage` | shared `ContentStatus` | globally unique; redirect on rename | 1:N `field_note_revisions` | `published` at `/field-notes`, `/field-notes/[slug]` (ISR 3600), sitemap | `/field-notes`, `/field-notes/<slug>`, `/field-notes/<old slug>`, `/admin/content` |
 | **Field Note Revision** (`field_note_revisions`) | `title`, `body`, `status`, `trigger` (`publish`/`update`/`unpublish`/`archive`), `createdBy` | snapshot of the note's status | none | cascades from the Field Note | No (admin only) | none |
-| **Media** (`media`) | `key` (unique, `guides/<id>.<ext>` or `field-notes/<id>.<ext>`), `filename`, `contentType`, `size`, `uploadedBy` | none | none | referenced by URL string from `coverImage`, not by FK | Yes: `/api/media/<key>` serves any key in the public namespaces, `Cache-Control: public, immutable` | none |
-| **Slug Redirect** (`slug_redirects`) | `entityType` (`guide`/`field_note`/`course`/`lesson`), `scope` (course id for lessons, else `''`), `oldSlug`, `entityId` | none | unique on (`entityType`, `scope`, `oldSlug`) | stores the entity id, never the target slug, so A to B to C resolves A to C | Indirect: a stale URL answers 308 to the current published path, else 404 | n/a |
+| **Standard Page** (`pages`) | `title`, `slug`, `summary`, `body`, `coverImage`, `status`, `metaTitle`, `metaDescription`, `noindex` (default false), `trashedAt`, `trashedFromStatus`, `publishedAt` | shared `ContentStatus` plus §1 Trash (`trashedAt`/`trashedFromStatus`); archived restores to draft; published must be unpublished/archived before trash; permanent delete is trashed-only with typed title confirmation; auto-purge after 30 days | globally unique; reserved slugs (`features/pages/reserved-slugs.ts` from `staticRoutes` + top-level app segments) rejected on create and rename; rename of an ever-published page records a redirect; trashed slugs stay reserved until permanent delete | 1:N `page_revisions`; slug redirects (`entityType` `page`) die with the page; cover R2 media deleted only when unreferenced | `published` non-trashed at `/[slug]` (ISR 3600; static siblings win); `noindex` pages render but leave the sitemap; `showInFooter` pages link from the footer | `/`, `/sitemap.xml`, `/<slug>`, `/<old slug>` on rename, `/admin/content` |
+| **Page Revision** (`page_revisions`) | `title`, `body`, `status`, `trigger` (`publish`/`update`/`unpublish`/`archive`/`restore`), `createdBy` | snapshot of the page's status | none | cascades from the Page | No (admin only) | none |
+| **Media** (`media`) | `key` (unique, `guides/<id>.<ext>`, `field-notes/<id>.<ext>` or `pages/<id>.<ext>`), `filename`, `contentType`, `size`, `uploadedBy` | none | none | referenced by URL string from `coverImage`, not by FK | Yes: `/api/media/<key>` serves any key in the public namespaces, `Cache-Control: public, immutable` | none |
+| **Slug Redirect** (`slug_redirects`) | `entityType` (`guide`/`field_note`/`course`/`lesson`/`page`), `scope` (course id for lessons, else `''`), `oldSlug`, `entityId` | none | unique on (`entityType`, `scope`, `oldSlug`) | stores the entity id, never the target slug, so A to B to C resolves A to C | Indirect: a stale URL answers 308 to the current published path, else 404 | n/a |
 
-Slug-redirect rules (`features/slug-redirects/service.ts`): a row is written only if the entity was ever published (`publishedAt != null`); the write is in the same D1 batch as the rename; a live entity taking a slug deletes any redirect row for it; the redirect resolves only to a currently `published` Guide or Field Note.
+Slug-redirect rules (`features/slug-redirects/service.ts`): a row is written only if the entity was ever published (`publishedAt != null`); the write is in the same D1 batch as the rename; a live entity taking a slug deletes any redirect row for it; the redirect resolves only to a currently `published` Guide, Field Note or non-trashed Standard Page.
 
 ### Learning
 
@@ -121,8 +123,8 @@ Revalidation for drafts is admin-side only (`/admin/editorial`, `/admin/content`
 
 | Gap | State |
 |---|---|
-| **Trash / restore / permanent delete**  | Built for Guides, Field Notes, Courses and Lessons (`features/trash/` + Trash page). Standard Pages and Landing Pages plug into the same registry when those types land |
-| **Restore from archive** | Built (archived → draft) for Guides, Field Notes, Courses and Lessons. Only Editorial Memory otherwise (`unarchiveMemory`). Knowledge Sources have no unarchive function, though the ingest error text says "Unarchive first" |
+| **Trash / restore / permanent delete**  | Built for Guides, Field Notes, Courses, Lessons and Standard Pages (`features/trash/` + Trash page). Standard Pages and Landing Pages plug into the same registry when those types land |
+| **Restore from archive** | Built (archived → draft) for Guides, Field Notes, Courses, Lessons and Standard Pages. Only Editorial Memory otherwise (`unarchiveMemory`). Knowledge Sources have no unarchive function, though the ingest error text says "Unarchive first" |
 | **Course permanent delete** | Built for learner-free trashed courses (sections, lessons, resources + R2 objects, quizzes, offer, redirects). Blocked with a clear error while any enrollment, certificate or order exists |
 | **Lesson archive** | Built (`archiveLessonAction` in the curriculum editor) |
 | **Lesson permanent delete** | Built for trashed lessons with no progress, attempts, notes or questions. Lesson resource rows delete with their R2 objects |
@@ -132,5 +134,5 @@ Revalidation for drafts is admin-side only (`/admin/editorial`, `/admin/content`
 | **Revisions** | Field Notes only. Guides, Lessons and Courses keep none  |
 | **Lead inbox extras** | Inbox and status workflow exist; no search, notes, assignee, export or deletion/retention policy for lead PII |
 | **Offer / Booking Type retirement** | Only an `active` toggle; no archive state or history |
-| **Page types not built** | Standard Pages, Landing Pages, course sales pages, Product pages as managed content. About, legal, contact, programmes and offer pages are hand-built routes |
+| **Page types not built** | Landing Pages, course sales pages, Product pages as managed content. About, legal, contact, programmes and offer pages are hand-built routes |
 | **Scheduled publishing, autosave, categories/tags taxonomy**  | Not built. Guides have free-text `category` and `tags`; Field Notes have none |

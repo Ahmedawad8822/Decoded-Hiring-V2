@@ -49,9 +49,11 @@ export async function POST(request: Request) {
     const arrayBuffer = await file.arrayBuffer();
 
     // Mission 05: Field Notes reuse the same endpoint/bucket/rules — only
-    // the storage key prefix differs. Defaults to "guides" (unchanged).
+    // the storage key prefix differs. Standard pages add the "pages" prefix.
+    // Defaults to "guides" (unchanged).
     const rawNamespace = formData.get("namespace");
-    const namespace = rawNamespace === "field-notes" ? "field-notes" : "guides";
+    const namespace =
+      rawNamespace === "field-notes" || rawNamespace === "pages" ? rawNamespace : "guides";
 
     const result = await uploadMedia({
       buffer: arrayBuffer,

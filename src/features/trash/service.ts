@@ -1,3 +1,10 @@
+import {
+  deletePagePermanently,
+  listTrashedPages,
+  movePageToTrash,
+  purgeExpiredPages,
+  restorePageFromTrash,
+} from "@/features/pages/service";
 import { asc, eq, isNotNull, lte } from "drizzle-orm";
 import {
   courses,
@@ -47,7 +54,7 @@ import {
 // batched per row only on the small trashed set.
 // ============================================================================
 
-export type TrashTypeName = "guide" | "field_note" | "course" | "lesson";
+export type TrashTypeName = "guide" | "field_note" | "course" | "lesson" | "page";
 
 export interface TrashItem {
   type: TrashTypeName;
@@ -452,7 +459,59 @@ const lessonType: TrashableType = {
 };
 
 /** Registry of trashable content types. Other builders plug new types in here. */
-export const TRASHABLE_TYPES: TrashableType[] = [guideType, fieldNoteType, courseType, lessonType];
+const pageType: TrashableType = {
+  type: "page",
+  label: "Page",
+  async listTrashed(): Promise<TrashItem[]> {
+    const rows = await listTrashedPages();
+    const now = new Date();
+    return rows.map((row) => ({
+      type: "page" as const,
+      typeLabel: "Page",
+      id: row.id,
+      title: row.title,
+      slug: row.slug,
+      status: row.trashedFromStatus ?? row.status,
+      trashedAt: row.trashedAt as Date,
+      daysLeft: daysLeftBeforePurge(row.trashedAt as Date, now),
+      expired: isTrashExpired(row.trashedAt as Date, now),
+      protected: false,
+      protectionReason: null,
+    }));
+  },
+  async trash(id: string): Promise<TrashMutationResult> {
+    const trashed = await movePageToTrash(id);
+    return { type: "page", id, slug: trashed.slug, title: trashed.title, status: trashed.status, courseId: null, courseSlug: null };
+  },
+  async restore(id: string, actorId: string): Promise<TrashMutationResult> {
+    const restored = await restorePageFromTrash(id, actorId);
+    await recordAdminAudit({
+      actorId,
+      action: "page.untrash",
+      entityType: "page",
+      entityId: id,
+      details: { slug: restored.slug, status: restored.status },
+    });
+    return { type: "page", id, slug: restored.slug, title: restored.title, status: restored.status, courseId: null, courseSlug: null };
+  },
+  async deletePermanently(id: string, actorId: string, confirmTitle: string): Promise<TrashMutationResult & { title: string; oldSlugs: string[] }> {
+    const deleted = await deletePagePermanently(id, actorId, confirmTitle);
+    await recordAdminAudit({
+      actorId,
+      action: "page.delete",
+      entityType: "page",
+      entityId: id,
+      details: { title: deleted.title, slug: deleted.slug, permanent: true },
+    });
+    return { type: "page", id, slug: deleted.slug, title: deleted.title, oldSlugs: [], courseId: null, courseSlug: null };
+  },
+  async purgeExpired(now: Date, limit: number): Promise<number> {
+    const { purged } = await purgeExpiredPages(now, limit);
+    return purged.length;
+  },
+};
+
+export const TRASHABLE_TYPES: TrashableType[] = [guideType, fieldNoteType, courseType, lessonType, pageType];
 
 export function getTrashableType(type: string): TrashableType | null {
   return TRASHABLE_TYPES.find((t) => t.type === type) ?? null;

@@ -28,7 +28,7 @@ export const MAX_MEDIA_FILE_SIZE = 5 * 1024 * 1024; // 5 MB
 // 404 for anything getMedia() rejects, so UUID secrecy is never load-bearing.
 // ============================================================================
 
-export const PUBLIC_MEDIA_NAMESPACES = ["guides", "field-notes"] as const;
+export const PUBLIC_MEDIA_NAMESPACES = ["guides", "field-notes", "pages"] as const;
 
 export type PublicMediaNamespace = (typeof PUBLIC_MEDIA_NAMESPACES)[number];
 
@@ -81,10 +81,11 @@ export async function uploadMedia(
     uploadedBy?: string;
     /**
      * Storage namespace prefix (Mission 05: Field Notes reuse the same bucket,
-     * endpoint, MIME rules, and size limits — only the key prefix differs).
+     * endpoint, MIME rules, and size limits — only the key prefix differs;
+     * standard pages add the "pages" prefix the same way).
      * Defaults to "guides" so all existing Guide behavior is unchanged.
      */
-    namespace?: "guides" | "field-notes";
+    namespace?: PublicMediaNamespace;
   },
   deps?: UploadMediaDeps
 ): Promise<UploadMediaResult> {
