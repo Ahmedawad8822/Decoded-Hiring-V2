@@ -1,5 +1,5 @@
 import { desc, eq, sql } from "drizzle-orm";
-import { adminAuditLog, getDb, users, type AdminAuditLogRow } from "@/lib/db";
+import { adminAuditLog, getDb, users, type AdminAuditLogRow, type Database } from "@/lib/db";
 
 // ============================================================================
 // ADMIN AUDIT TRAIL (threat-model G4)
@@ -76,8 +76,7 @@ function buildRow(input: AdminAuditInput) {
 }
 
 /** Un-run insert for inclusion in an existing `db.batch([...])`. */
-export async function buildAdminAuditStatement(input: AdminAuditInput) {
-  const db = await getDb();
+export function buildAdminAuditStatement(db: Database, input: AdminAuditInput) {
   return db.insert(adminAuditLog).values(buildRow(input));
 }
 
