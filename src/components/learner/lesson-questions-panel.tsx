@@ -123,7 +123,7 @@ export function LessonQuestionsPanel({
             Ask the instructor
           </h2>
         </div>
-        <p className="notes-private">Private to you</p>
+        <p className="notes-private">Only you and the instructor see these</p>
       </div>
 
       <div className="notes-field">
