@@ -628,6 +628,47 @@ test("LIMITS: dormant checkout refuses sold out and closed with conflict", async
   );
 });
 
+test("LIMITS: product seats count order quantity, not order rows", async () => {
+  const offer = await createOffer({
+    kind: "PRODUCT",
+    title: "Bulk seats",
+    slug: slug("offer"),
+    accessMode: "PAID_ONE_TIME",
+    currency: "USD",
+    amountMinor: 1000,
+    seatLimit: 5,
+  });
+  await createOrder({
+    offerId: offer.id,
+    requestKey: crypto.randomUUID(),
+    customerEmail: "bulk-one@example.com",
+    quantity: 4,
+    now: NOW,
+  });
+  const mid = await getOfferAvailability(offer.id, NOW);
+  assert.equal(mid.seatsTaken, 4);
+  assert.equal(mid.seatsLeft, 1);
+  await assert.rejects(
+    () =>
+      createOrder({
+        offerId: offer.id,
+        requestKey: crypto.randomUUID(),
+        customerEmail: "bulk-two@example.com",
+        quantity: 2,
+        now: NOW,
+      }),
+    (error: unknown) => isAppError(error) && error.kind === "conflict",
+  );
+  await createOrder({
+    offerId: offer.id,
+    requestKey: crypto.randomUUID(),
+    customerEmail: "bulk-three@example.com",
+    quantity: 1,
+    now: NOW,
+  });
+  assert.equal((await getOfferAvailability(offer.id, NOW)).state, "sold_out");
+});
+
 test("LIMITS: Studio updates are admin-only and write an audit row", async () => {
   const denied = createCommerceAdminOperations(async () => {
     throw new Error("Unauthorized: sign in required.");

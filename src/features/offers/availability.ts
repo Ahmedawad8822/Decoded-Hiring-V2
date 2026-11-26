@@ -1,4 +1,4 @@
-import { and, count, eq, gt, inArray, ne, notExists } from "drizzle-orm";
+import { and, count, eq, gt, inArray, ne, notExists, sql } from "drizzle-orm";
 
 import {
   bookings,
@@ -137,7 +137,7 @@ async function countBookingSeatsTaken(
 async function countProductSeatsTaken(offerId: string): Promise<number> {
   const db = await getDb();
   const row = await db
-    .select({ value: count() })
+    .select({ value: sql<number>`coalesce(sum(${orders.quantity}), 0)` })
     .from(orders)
     .where(
       and(

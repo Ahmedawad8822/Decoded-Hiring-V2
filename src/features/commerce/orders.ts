@@ -331,8 +331,8 @@ export async function createOrder(input: CreateOrderInput): Promise<Order> {
               amount_minor, currency, status, version, transition_key,
               created_at, updated_at)
            SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDING', 1, NULL, ?, ?
-           WHERE (SELECT COUNT(*) FROM orders
-                  WHERE offer_id = ? AND status IN (${ACTIVE_ORDER_STATUSES.map(() => "?").join(", ")})) < ?`,
+           WHERE (SELECT COALESCE(SUM(quantity), 0) FROM orders
+                  WHERE offer_id = ? AND status IN (${ACTIVE_ORDER_STATUSES.map(() => "?").join(", ")})) + ? <= ?`,
         )
         .bind(
           values.id,
@@ -352,6 +352,7 @@ export async function createOrder(input: CreateOrderInput): Promise<Order> {
           nowSec,
           values.offerId,
           ...ACTIVE_ORDER_STATUSES,
+          values.quantity,
           offer.seatLimit,
         ),
       d1

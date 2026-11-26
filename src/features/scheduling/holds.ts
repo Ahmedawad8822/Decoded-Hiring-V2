@@ -505,6 +505,7 @@ async function reclaimSlot(
                 WHERE booking_type_id = ? AND status IN (${ACTIVE_BOOKING_STATUSES.map(() => "?").join(", ")}))
              + (SELECT COUNT(*) FROM slot_holds AS h
                 WHERE h.booking_type_id = ? AND h.status = 'HELD' AND h.expires_at > ?
+                  AND h.slot_key != ?
                   AND NOT EXISTS (SELECT 1 FROM bookings AS b
                                   WHERE b.hold_id = h.id
                                     AND b.hold_acquisition_key = h.acquisition_key)) < ?`,
@@ -522,6 +523,8 @@ async function reclaimSlot(
         ...ACTIVE_BOOKING_STATUSES,
         seatGuard.bookingTypeId,
         Math.floor(seatGuard.now.getTime() / 1000),
+        // Defensive: the row being reclaimed never counts against its own seat.
+        slotKey,
         seatGuard.limit,
       )
       .run();
