@@ -84,7 +84,7 @@ test("People list opens a profile where tags and private notes persist", async (
   await page.context().clearCookies();
   const signup = await page.request.post("/api/auth/sign-up/email", {
     headers: { Origin: `http://localhost:${process.env.E2E_PORT ?? 3000}` },
-    data: { name: learnerName, email: learnerEmail, password: "e2e-password-123" },
+    data: { name: learnerName, email: learnerEmail, password: "e2e-password-123", callbackURL: "/email-verified?next=%2Flearn" },
   });
   expect(signup.ok()).toBe(true);
   // Following the emailed verification link signs the learner in.
@@ -141,7 +141,7 @@ test("Learners tab lists enrollments, filters, and links the CSV export", async 
   await page.context().clearCookies();
   const signup = await page.request.post("/api/auth/sign-up/email", {
     headers: { Origin: `http://localhost:${process.env.E2E_PORT ?? 3000}` },
-    data: { name: "E2E Learner H", email: learnerEmail, password: "e2e-password-123" },
+    data: { name: "E2E Learner H", email: learnerEmail, password: "e2e-password-123", callbackURL: "/email-verified?next=%2Flearn" },
   });
   expect(signup.ok()).toBe(true);
   // Following the emailed verification link signs the learner in.
