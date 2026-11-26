@@ -8,6 +8,7 @@ import {
   getLessonResourcesForLessons,
 } from "@/features/courses/service";
 import { CurriculumClient } from "./curriculum-client";
+import { OutlineDrafter } from "./outline-drafter";
 import { getCourseQuizStats, listCourseQuizzes } from "@/features/quizzes/service";
 
 // Session-gated Studio route: render per request.
@@ -57,10 +58,13 @@ export default async function AdminCurriculumPage(props: {
   }));
 
   return (
-    <CurriculumClient
-      course={course}
-      sections={sectionsWithLessons}
-      enrollmentCount={enrollmentCount}
-    />
+    <>
+      <OutlineDrafter courseId={course.id} />
+      <CurriculumClient
+        course={course}
+        sections={sectionsWithLessons}
+        enrollmentCount={enrollmentCount}
+      />
+    </>
   );
 }
