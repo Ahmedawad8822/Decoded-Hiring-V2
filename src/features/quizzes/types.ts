@@ -25,9 +25,40 @@ const quizIdSchema = z
   .max(40)
   .regex(/^[A-Za-z0-9_-]+$/, "Ids may contain only letters, numbers, _ and -");
 
+// ============================================================================
+// LEARNER TAGS on quiz options (Batch I)
+// ----------------------------------------------------------------------------
+// An option may carry a slug tag ("Tag learners who pick this"). Graded
+// submissions insert the tag for every selected option that has one. The tag
+// is SERVER-ONLY like correctOptionIds/explanations: toLearnerQuiz never
+// projects it and grading results never echo it. Old quizzes without tags
+// keep parsing (the field is optional; a blank input normalizes to absent).
+// ============================================================================
+
+export const LEARNER_TAG_MAX_LENGTH = 40;
+export const LEARNER_TAG_PATTERN = /^[a-z0-9][a-z0-9-]{0,39}$/;
+
+function emptyTagToUndefined(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim().toLowerCase();
+  return trimmed === "" ? undefined : trimmed;
+}
+
+export const quizOptionTagSchema = z.preprocess(
+  emptyTagToUndefined,
+  z
+    .string()
+    .regex(
+      LEARNER_TAG_PATTERN,
+      "Tag must be a lowercase slug: letters, numbers and dashes, up to 40 characters.",
+    )
+    .optional(),
+);
+
 export const quizOptionSchema = z.object({
   id: quizIdSchema,
   text: z.string().trim().min(1, "Option text is required").max(QUIZ_MAX_OPTION_TEXT),
+  tag: quizOptionTagSchema,
 });
 
 export const quizQuestionSchema = z
@@ -102,6 +133,7 @@ const adminOptionalId = z.string().trim().max(40).optional().nullable();
 export const adminQuizOptionSchema = z.object({
   id: adminOptionalId,
   text: z.string().trim().min(1, "Option text is required").max(QUIZ_MAX_OPTION_TEXT),
+  tag: quizOptionTagSchema,
 });
 export const adminQuizQuestionSchema = z.object({
   id: adminOptionalId,

@@ -6,9 +6,13 @@ import {
   parseLearnerFilter,
   parseLearnerQuery,
 } from "@/features/learners/service";
+import { parsePeopleTag } from "@/features/people/service";
 import { recordAdminAudit } from "@/features/audit/service";
 import { buildCsv } from "@/lib/csv";
 import { httpStatusFor, publicErrorMessage } from "@/lib/errors";
+
+// Private admin data: never prerendered or cached.
+export const dynamic = "force-dynamic";
 
 function toIsoUTC(date: Date | null): string {
   return date ? date.toISOString().replace(/\.\d{3}Z$/, "Z") : "";
@@ -20,10 +24,10 @@ function slugForFilename(slug: string): string {
 }
 
 /**
- * Admin CSV export of a course's learners. Same filter/q semantics as the
- * Learners tab, capped at LEARNERS_EXPORT_MAX_ROWS rows in one query.
+ * Admin CSV export of a course's learners. Same filter/q/tag semantics as
+ * the Learners tab, capped at LEARNERS_EXPORT_MAX_ROWS rows in one query.
  * Private data: private + no-store caching, one audit row per export
- * (filter + row count only — never emails).
+ * (filter + row count only — never emails or the search text).
  */
 export async function GET(
   _request: Request,
@@ -35,20 +39,21 @@ export async function GET(
     const url = new URL(_request.url);
     const filter = parseLearnerFilter(url.searchParams.get("filter"));
     const q = parseLearnerQuery(url.searchParams.get("q"));
+    const tag = parsePeopleTag(url.searchParams.get("tag"));
 
     const course = await getAdminCourseById(courseId);
     if (!course) {
       return NextResponse.json({ error: "Course not found" }, { status: 404 });
     }
 
-    const rows = await listAllCourseLearnersForExport(courseId, { filter, q });
+    const rows = await listAllCourseLearnersForExport(courseId, { filter, q, tag });
 
     await recordAdminAudit({
       actorId: session.user.id,
       action: "learners.export",
       entityType: "course",
       entityId: courseId,
-      details: { filter, rows: rows.length },
+      details: { filter, ...(tag ? { tag } : {}), rows: rows.length },
     });
 
     const csv = buildCsv(

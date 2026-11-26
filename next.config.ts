@@ -100,6 +100,11 @@ const nextConfig: NextConfig = {
         source: "/reset-password",
         headers: [{ key: "Cache-Control", value: "private, no-store" }],
       },
+      // Batch I: Studio People pages carry private learner data.
+      {
+        source: "/admin/people/:path*",
+        headers: [{ key: "Cache-Control", value: "private, no-store" }],
+      },
       {
         source: "/api/cron/email-drain",
         headers: [{ key: "Cache-Control", value: "private, no-store" }],

@@ -70,6 +70,63 @@ for (const width of [375, 1024, 1280, 1440]) {
   });
 }
 
+test("People list opens a profile where tags and private notes persist", async ({ page }) => {
+  test.setTimeout(180_000);
+  const run = Date.now().toString(36);
+  const learnerName = `E2E Person ${run}`;
+  const learnerEmail = `e2e-person-${run}@example.com`;
+  const tag = `e2e-tag-${run}`;
+  const note = `Private note ${run}`;
+
+  // A person row must exist: sign up via the auth API, then enroll in the
+  // seeded demo course through the learner UI.
+  await page.context().clearCookies();
+  const signup = await page.request.post("/api/auth/sign-up/email", {
+    headers: { Origin: `http://localhost:${process.env.E2E_PORT ?? 3000}` },
+    data: { name: learnerName, email: learnerEmail, password: "e2e-password-123" },
+  });
+  expect(signup.ok()).toBe(true);
+  await page.goto("/learn/courses/mission-01-demo");
+  await waitForHydration(page, page.getByRole("button", { name: "Start free — enroll now" }));
+  await clickAction(page, page.getByRole("button", { name: "Start free — enroll now" }));
+  await expect(page.getByText("Continue where you left off")).toBeVisible({ timeout: 30_000 });
+
+  // Back to the Studio as admin, open the person from the People list.
+  await page.context().clearCookies();
+  await signIn(page);
+  await page.goto("/admin/people");
+  await expect(page).toHaveURL(/\/admin\/people$/, { timeout: 30_000 });
+
+  const main = page.locator("#main");
+  await expect(main.getByRole("heading", { level: 1, name: "People" })).toBeVisible({ timeout: 30_000 });
+  const profileLink = main.getByRole("link", { name: learnerName }).first();
+  await waitForHydration(page, profileLink);
+  await clickAction(page, profileLink);
+  await expect(page).toHaveURL(/\/admin\/people\/.+$/, { timeout: 30_000 });
+
+  // Add a tag and save a private note, then prove both survive a reload.
+  await expect(main.getByRole("heading", { level: 1, name: learnerName })).toBeVisible({ timeout: 30_000 });
+  const tagInput = main.getByLabel("Add a tag");
+  await waitForHydration(page, tagInput);
+  await tagInput.fill(tag);
+  await clickAction(page, main.getByRole("button", { name: "Add tag", exact: true }));
+  await expect(main.getByText(tag).first()).toBeVisible();
+
+  const noteInput = main.getByLabel("Private admin note");
+  await waitForHydration(page, noteInput);
+  await noteInput.fill(note);
+  await clickAction(page, main.getByRole("button", { name: "Save note", exact: true }));
+  await expect(main.getByText("Saved").first()).toBeVisible();
+
+  await page.reload();
+  await expect(main.getByText(tag).first()).toBeVisible({ timeout: 30_000 });
+  await expect(main.getByLabel("Private admin note")).toHaveValue(note, { timeout: 30_000 });
+
+  // No horizontal scroll at phone width (sections stack, tables contain).
+  await page.setViewportSize({ width: 375, height: 812 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(1);
+});
+
 test("Learners tab lists enrollments, filters, and links the CSV export", async ({ page }) => {
   test.setTimeout(180_000);
   const run = Date.now().toString(36);

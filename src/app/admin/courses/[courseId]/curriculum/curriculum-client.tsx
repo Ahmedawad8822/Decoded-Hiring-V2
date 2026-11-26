@@ -38,6 +38,7 @@ interface SectionEntry {
 interface QuizDraftOption {
   id: string;
   text: string;
+  tag: string;
 }
 
 interface QuizDraftQuestion {
@@ -72,8 +73,8 @@ function emptyDraftQuestion(): QuizDraftQuestion {
     prompt: "",
     kind: "single",
     options: [
-      { id: first, text: "" },
-      { id: second, text: "" },
+      { id: first, text: "", tag: "" },
+      { id: second, text: "", tag: "" },
     ],
     correctOptionIds: [first],
     explanation: "",
@@ -86,10 +87,21 @@ function quizToDraft(quiz: QuizDefinition | null): QuizDraftQuestion[] {
     id: question.id,
     prompt: question.prompt,
     kind: question.kind,
-    options: question.options.map((option) => ({ id: option.id, text: option.text })),
+    options: question.options.map((option) => ({ id: option.id, text: option.text, tag: option.tag ?? "" })),
     correctOptionIds: [...question.correctOptionIds],
     explanation: question.explanation ?? "",
   }));
+}
+
+// Mirrors LEARNER_TAG_PATTERN in src/features/quizzes/types.ts (kept local so
+// the client bundle does not pull in zod; the server schema stays authoritative).
+const TAG_PATTERN = /^[a-z0-9][a-z0-9-]{0,39}$/;
+function tagError(tag: string): string | null {
+  const trimmed = tag.trim().toLowerCase();
+  if (trimmed === "") return null;
+  return TAG_PATTERN.test(trimmed)
+    ? null
+    : "Use lowercase letters, numbers and dashes (up to 40 characters).";
 }
 
 function draftToInput(questions: QuizDraftQuestion[]) {
@@ -97,7 +109,7 @@ function draftToInput(questions: QuizDraftQuestion[]) {
     id: question.id,
     prompt: question.prompt.trim(),
     kind: question.kind,
-    options: question.options.map((option) => ({ id: option.id, text: option.text.trim() })),
+    options: question.options.map((option) => ({ id: option.id, text: option.text.trim(), tag: option.tag })),
     correctOptionIds: [...question.correctOptionIds],
     explanation: question.explanation.trim() || undefined,
   }));
@@ -263,7 +275,7 @@ export function CurriculumClient({
     setQuizDraft((questions) =>
       questions.map((question) =>
         question.id === questionId && question.options.length < 8
-          ? { ...question, options: [...question.options, { id: draftId("o"), text: "" }] }
+          ? { ...question, options: [...question.options, { id: draftId("o"), text: "", tag: "" }] }
           : question,
       ),
     );
@@ -290,6 +302,21 @@ export function CurriculumClient({
               ...question,
               options: question.options.map((option) =>
                 option.id === optionId ? { ...option, text } : option,
+              ),
+            }
+          : question,
+      ),
+    );
+  };
+
+  const setOptionTag = (questionId: string, optionId: string, tag: string) => {
+    setQuizDraft((questions) =>
+      questions.map((question) =>
+        question.id === questionId
+          ? {
+              ...question,
+              options: question.options.map((option) =>
+                option.id === optionId ? { ...option, tag } : option,
               ),
             }
           : question,
@@ -624,16 +651,26 @@ export function CurriculumClient({
                     <Input className="s-padding-8px-10px s-text-sm" aria-label={`Question ${questionIndex + 1} prompt`} placeholder="Question prompt" maxLength={500} value={question.prompt} onChange={(e) => patchQuestion(question.id, { prompt: e.target.value })} />
                     <div className="s-stack s-gap-6">
                       {question.options.map((option, optionIndex) => (
-                        <div key={option.id} className="s-row s-gap-8 s-align-items-center">
-                          <Input
-                            type={question.kind === "single" ? "radio" : "checkbox"}
-                            name={`correct-${question.id}`}
-                            checked={question.correctOptionIds.includes(option.id)}
-                            aria-label={`Question ${questionIndex + 1} option ${optionIndex + 1} correct`}
-                            onChange={() => toggleCorrect(question.id, option.id)}
-                          />
-                          <Input className="s-flex-1 s-padding-6px-10px s-text-sm" aria-label={`Question ${questionIndex + 1} option ${optionIndex + 1} text`} placeholder={`Option ${optionIndex + 1}`} maxLength={200} value={option.text} onChange={(e) => setOptionText(question.id, option.id, e.target.value)} />
-                          <Button className="btn ghost small" type="button" aria-label={`Remove option ${optionIndex + 1}`} disabled={question.options.length <= 2} onClick={() => removeOption(question.id, option.id)}>×</Button>
+                        <div key={option.id} className="s-stack s-gap-4">
+                          <div className="s-row s-gap-8 s-align-items-center">
+                            <Input
+                              type={question.kind === "single" ? "radio" : "checkbox"}
+                              name={`correct-${question.id}`}
+                              checked={question.correctOptionIds.includes(option.id)}
+                              aria-label={`Question ${questionIndex + 1} option ${optionIndex + 1} correct`}
+                              onChange={() => toggleCorrect(question.id, option.id)}
+                            />
+                            <Input className="s-flex-1 s-padding-6px-10px s-text-sm" aria-label={`Question ${questionIndex + 1} option ${optionIndex + 1} text`} placeholder={`Option ${optionIndex + 1}`} maxLength={200} value={option.text} onChange={(e) => setOptionText(question.id, option.id, e.target.value)} />
+                            <Button className="btn ghost small" type="button" aria-label={`Remove option ${optionIndex + 1}`} disabled={question.options.length <= 2} onClick={() => removeOption(question.id, option.id)}>×</Button>
+                          </div>
+                          <Input className="s-padding-6px-10px s-text-sm" aria-label={`Question ${questionIndex + 1} option ${optionIndex + 1} tag`} placeholder="Tag learners who pick this (optional)" maxLength={40} value={option.tag} onChange={(e) => setOptionTag(question.id, option.id, e.target.value)} />
+                          {tagError(option.tag) ? (
+                            <span className="s-text-xs s-danger" role="alert">{tagError(option.tag)}</span>
+                          ) : (
+                            option.tag.trim() === "" && (
+                              <span className="help s-text-xs">Lowercase letters, numbers and dashes · up to 40 characters</span>
+                            )
+                          )}
                         </div>
                       ))}
                       <div>
