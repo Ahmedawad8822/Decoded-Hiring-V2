@@ -24,11 +24,20 @@ const SESSION_COOKIE_NAMES = [
 ];
 
 export default function proxy(req: NextRequest) {
+  // Only page navigations get the friendly redirect. Server actions, POSTs
+  // and other non-GET requests fall through so the server gate answers them
+  // with its normal (unauthorized) result.
+  if ((req.method !== "GET" && req.method !== "HEAD") || req.headers.has("next-action")) {
+    return NextResponse.next();
+  }
   const hasSession = SESSION_COOKIE_NAMES.some((name) => req.cookies.has(name));
   if (hasSession) return NextResponse.next();
-  return NextResponse.redirect(
+  const response = NextResponse.redirect(
     new URL(loginRedirectHref(req.nextUrl.pathname, req.nextUrl.search), req.url),
   );
+  // Classroom responses are private; never let a cache keep this redirect.
+  response.headers.set("Cache-Control", "private, no-store");
+  return response;
 }
 
 export const config = {
