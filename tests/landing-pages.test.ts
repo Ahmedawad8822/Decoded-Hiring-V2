@@ -405,6 +405,42 @@ test("LP-9: view and CTA events are recorded with the landing page id", async ()
   assert.equal(await m.events.countBusinessEvents("landing_page_viewed"), beforeViews + 1);
 });
 
+// --- Live-page gate parity: scheduled leads refused, trashed CTAs silent ---
+
+test("LP-11: scheduled campaigns refuse lead submissions", async () => {
+  const guide = await createPublishedGuide(`t11-${uid()}`);
+  const slug = `lp-sched-${uid()}`;
+  const created = await m.landing.createLandingPageAction({
+    ...basePayload(guide.id, slug),
+    startsAt: new Date(Date.now() + 3600_000),
+  });
+  assert.equal(created.ok, true);
+  if (!created.ok) return;
+  await m.landing.publishLandingPageAction(created.data.id);
+  const refused = await m.leads.submitLandingLead(slug, undefined, leadForm());
+  assert.ok(refused);
+  assert.equal(refused.ok, false);
+});
+
+test("LP-12: CTA events for trashed pages emit nothing", async () => {
+  const guide = await createPublishedGuide(`t12-${uid()}`);
+  const slug = `lp-trashevt-${uid()}`;
+  const created = await m.landing.createLandingPageAction(basePayload(guide.id, slug));
+  assert.equal(created.ok, true);
+  if (!created.ok) return;
+  await m.landing.publishLandingPageAction(created.data.id);
+  await m.landing.archiveLandingPageAction(created.data.id);
+  await m.landing.moveLandingPageToTrashAction(created.data.id);
+  const before = await m.events.countBusinessEvents("landing_page_cta_clicked");
+  await m.analytics.recordLandingPageCta({
+    eventKey: crypto.randomUUID(),
+    landingPageId: created.data.id,
+    slug,
+    surface: "hero",
+  });
+  assert.equal(await m.events.countBusinessEvents("landing_page_cta_clicked"), before);
+});
+
 // --- Sitemap honours noindex and schedule ---
 
 test("LP-10: sitemap includes only live, indexable landing pages", async () => {

@@ -86,11 +86,11 @@ function toInputValue(value: Date | string | null): string {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
 
-function toDateOrUndefined(value: string): Date | undefined {
+function toDateOrNull(value: string): Date | null {
   const trimmed = value.trim();
-  if (!trimmed) return undefined;
+  if (!trimmed) return null;
   const date = new Date(trimmed);
-  return Number.isNaN(date.getTime()) ? undefined : date;
+  return Number.isNaN(date.getTime()) ? null : date;
 }
 
 export function LandingPagesManagerClient({ startNew = false, initialPages, targetOptions }: Props) {
@@ -215,8 +215,8 @@ export function LandingPagesManagerClient({ startNew = false, initialPages, targ
       seoTitle: seoTitle.trim() || null,
       seoDescription: seoDescription.trim() || null,
       noindex,
-      startsAt: toDateOrUndefined(startsAt),
-      endsAt: toDateOrUndefined(endsAt),
+      startsAt: toDateOrNull(startsAt),
+      endsAt: toDateOrNull(endsAt),
     };
     const result = editingId
       ? await updateLandingPageAction({ ...payload, id: editingId })
@@ -383,10 +383,7 @@ export function LandingPagesManagerClient({ startNew = false, initialPages, targ
                 </>
               )}
               {currentStatus === "archived" && (
-                <>
-                  <Button type="button" variant="secondary" onClick={() => runLifecycle(restoreArchivedLandingPageAction, editingId, "restored to draft")}>Restore to draft</Button>
-                  <Button type="button" variant="secondary" onClick={() => runLifecycle(archiveLandingPageAction, editingId, "archived")}>Archive</Button>
-                </>
+                <Button type="button" variant="secondary" onClick={() => runLifecycle(restoreArchivedLandingPageAction, editingId, "restored to draft")}>Restore to draft</Button>
               )}
               {(currentStatus === "draft" || currentStatus === "archived") && !confirmTrash && (
                 <Button type="button" variant="danger" onClick={() => setConfirmTrash(true)}>Move to Trash</Button>

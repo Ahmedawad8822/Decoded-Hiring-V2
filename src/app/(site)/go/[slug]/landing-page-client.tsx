@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState, useEffect, useRef, useState, type ReactNode } from "react";
+import { useActionState, useEffect, useRef, useState, Suspense, type ReactNode } from "react";
 import { useSearchParams } from "next/navigation";
 
 import { submitLandingLead } from "@/features/leads/actions";
@@ -41,6 +41,28 @@ export function LandingPageTracker({ pageId, slug }: { pageId: string; slug: str
 }
 
 export function TrackedLandingCta({
+  pageId,
+  slug,
+  href,
+  surface,
+  children,
+}: {
+  pageId: string;
+  slug: string;
+  href: string;
+  surface: "hero" | "cta_band" | "target_summary" | "sticky";
+  children: ReactNode;
+}) {
+  return (
+    <Suspense fallback={<a className="hg-primary" href={href}>{children}</a>}>
+      <TrackedLandingCtaInner pageId={pageId} slug={slug} href={href} surface={surface}>
+        {children}
+      </TrackedLandingCtaInner>
+    </Suspense>
+  );
+}
+
+function TrackedLandingCtaInner({
   pageId,
   slug,
   href,

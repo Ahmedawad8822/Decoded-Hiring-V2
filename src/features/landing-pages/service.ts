@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, isNull, lte, ne } from "drizzle-orm";
+import { and, asc, desc, eq, isNotNull, isNull, lte, ne } from "drizzle-orm";
 
 import {
   courses,
@@ -67,8 +67,11 @@ export async function getAdminLandingPageBySlug(slug: string): Promise<LandingPa
 /** Trash registry: type, title, trashed date (the shared Trash page renders days left). */
 export async function listTrashedLandingPages(): Promise<LandingPage[]> {
   const db = await getDb();
-  const rows = await db.select().from(landingPages).orderBy(desc(landingPages.trashedAt));
-  return rows.filter((row) => row.trashedAt !== null);
+  return db
+    .select()
+    .from(landingPages)
+    .where(isNotNull(landingPages.trashedAt))
+    .orderBy(desc(landingPages.trashedAt));
 }
 
 // --------------------------------------------------------------- Public reads
@@ -165,8 +168,8 @@ async function assertTargetUsable(input: {
       .where(eq(courses.id, input.targetCourseId ?? ""))
       .get();
     if (!course) throw new AppError("not_found", "Linked course not found.");
-    if (course.status === "draft") {
-      throw new AppError("invalid", "Linked course is still a draft, so the CTA would be dead.");
+    if (course.status !== "published") {
+      throw new AppError("invalid", "Linked course is not published, so the CTA would be dead.");
     }
     return;
   }
@@ -192,12 +195,14 @@ export async function resolveTargetSummary(page: LandingPage): Promise<LandingTa
   if (page.targetKind === "offer" && page.targetOfferId) {
     const offer = await db.select().from(offers).where(eq(offers.id, page.targetOfferId)).get();
     if (!offer) return null;
+    if (!offer.active) return null;
     let href = "/contact";
     if (offer.kind === "COACHING") href = "/coaching";
     else if (offer.kind === "WORKSHOP") href = "/workshop";
     else if (offer.kind === "COURSE" && offer.courseId) {
       const course = await db.select().from(courses).where(eq(courses.id, offer.courseId)).get();
-      href = course ? `/courses/${course.slug}` : "/contact";
+      if (!course || course.status !== "published") return null;
+      href = `/courses/${course.slug}`;
     } else {
       href = offer.alternativeCtaUrl ?? "/contact";
     }
@@ -216,6 +221,7 @@ export async function resolveTargetSummary(page: LandingPage): Promise<LandingTa
   if (page.targetKind === "course" && page.targetCourseId) {
     const course = await db.select().from(courses).where(eq(courses.id, page.targetCourseId)).get();
     if (!course) return null;
+    if (course.status !== "published") return null;
     return {
       kind: "course",
       id: course.id,
@@ -230,6 +236,7 @@ export async function resolveTargetSummary(page: LandingPage): Promise<LandingTa
   if (page.targetKind === "guide" && page.targetGuideId) {
     const guide = await db.select().from(guides).where(eq(guides.id, page.targetGuideId)).get();
     if (!guide) return null;
+    if (guide.status !== "published") return null;
     return {
       kind: "guide",
       id: guide.id,
