@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { authClient } from "@/lib/auth/client";
 import { safeRedirectPath } from "@/lib/safe-redirect";
+import { CheckInbox } from "@/components/auth/check-inbox";
 
 function LoginForm() {
   const router = useRouter();
@@ -15,6 +16,7 @@ function LoginForm() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
+  const [unverified, setUnverified] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(
     forbidden ? "That account does not have access here. Please sign in with a learner account." : null
   );
@@ -27,9 +29,12 @@ function LoginForm() {
     }
     setLoading(true);
     setError(null);
+    setUnverified(null);
     try {
       const res = await authClient.signIn.email({ email, password });
-      if (res.error) {
+      if (res.error?.code === "EMAIL_NOT_VERIFIED") {
+        setUnverified(email);
+      } else if (res.error) {
         setError(res.error.message || "Invalid credentials. Please try again.");
       } else {
         router.push(safeRedirectPath(redirect));
@@ -67,6 +72,15 @@ function LoginForm() {
           <p className="muted-strong" style={{ marginTop: "10px", fontSize: "14px", lineHeight: 1.6 }}>
             Sign in with your email and password — the classroom remembers your place.
           </p>
+
+          {unverified && (
+            <CheckInbox
+              email={unverified}
+              next={safeRedirectPath(redirect)}
+              intro="Please verify your email before signing in."
+              sendOnMount
+            />
+          )}
 
           {error && (
             <div

@@ -1,3 +1,4 @@
+import { verificationPath } from "./helpers/verification";
 import { test, expect, type Page } from "@playwright/test";
 import { clickAction, waitForHydration } from "./helpers/actions";
 
@@ -83,9 +84,12 @@ test("People list opens a profile where tags and private notes persist", async (
   await page.context().clearCookies();
   const signup = await page.request.post("/api/auth/sign-up/email", {
     headers: { Origin: `http://localhost:${process.env.E2E_PORT ?? 3000}` },
-    data: { name: learnerName, email: learnerEmail, password: "e2e-password-123" },
+    data: { name: learnerName, email: learnerEmail, password: "e2e-password-123", callbackURL: "/email-verified?next=%2Flearn" },
   });
   expect(signup.ok()).toBe(true);
+  // Following the emailed verification link signs the learner in.
+  await page.goto(await verificationPath(learnerEmail));
+  await expect(page.getByRole("heading", { name: "Your email is verified." })).toBeVisible({ timeout: 60_000 });
   await page.goto("/learn/courses/mission-01-demo");
   await waitForHydration(page, page.getByRole("button", { name: "Start free — enroll now" }));
   await clickAction(page, page.getByRole("button", { name: "Start free — enroll now" }));
@@ -137,9 +141,12 @@ test("Learners tab lists enrollments, filters, and links the CSV export", async 
   await page.context().clearCookies();
   const signup = await page.request.post("/api/auth/sign-up/email", {
     headers: { Origin: `http://localhost:${process.env.E2E_PORT ?? 3000}` },
-    data: { name: "E2E Learner H", email: learnerEmail, password: "e2e-password-123" },
+    data: { name: "E2E Learner H", email: learnerEmail, password: "e2e-password-123", callbackURL: "/email-verified?next=%2Flearn" },
   });
   expect(signup.ok()).toBe(true);
+  // Following the emailed verification link signs the learner in.
+  await page.goto(await verificationPath(learnerEmail));
+  await expect(page.getByRole("heading", { name: "Your email is verified." })).toBeVisible({ timeout: 60_000 });
   await page.goto("/learn/courses/mission-01-demo");
   await waitForHydration(page, page.getByRole("button", { name: "Start free — enroll now" }));
   await clickAction(page, page.getByRole("button", { name: "Start free — enroll now" }));

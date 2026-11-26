@@ -73,9 +73,13 @@ test("legacy DB (schema present, tracking empty) is baselined without errors", a
 
 test("a recorded-empty DB with a missing tail migration applies only that one strictly", async () => {
   const d1 = await getD1Database();
-  const last = files[files.length - 1];
+  // The newest migration that creates a table (data-only migrations such as
+  // 0033 are idempotent, so re-applying them cannot prove strictness).
+  const last = [...files].reverse().find((file) =>
+    /CREATE TABLE/i.test(fs.readFileSync(path.join(process.cwd(), "drizzle/migrations", file), "utf8")),
+  )!;
   await d1.prepare(`DELETE FROM d1_migrations WHERE name = ?`).bind(last).run();
-  // Strict path (tracking non-empty): the tail file's CREATE TABLE already
+  // Strict path (tracking non-empty): that file's CREATE TABLE already
   // exists, so this must fail loudly rather than be tolerated.
   await assert.rejects(() => migrateLocalDb(), /D1 Migration Failure/);
   await d1.prepare(`INSERT INTO d1_migrations (name) VALUES (?)`).bind(last).run();

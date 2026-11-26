@@ -1,6 +1,7 @@
 import { test, expect, type Page } from "@playwright/test";
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { completeSignupVerification } from "./helpers/verification";
 import { clickAction, waitForHydration } from "./helpers/actions";
 import { generateCertificateId } from "../src/features/certificates/types";
 
@@ -244,7 +245,7 @@ test.describe("mission 06 learning platform lifecycle", () => {
       await page.getByLabel(/Email/).fill(learnerEmail);
       await page.getByLabel(/^Password/).fill("e2e-password-123");
       await clickAction(page, page.getByRole("button", { name: "Create account" }));
-      await expect(page).toHaveURL(/\/learn/, { timeout: 90_000 });
+      await completeSignupVerification(page, learnerEmail);
       await expect(page.getByText("No enrollments yet")).toBeVisible();
       const explore = page.getByRole("region", { name: "Explore more courses" });
       await expect(explore).toBeVisible();
@@ -572,7 +573,7 @@ test.describe("mission 06 learning platform lifecycle", () => {
       await page.getByLabel(/Email/).fill(learner2Email);
       await page.getByLabel(/^Password/).fill("e2e-password-123");
       await clickAction(page, page.getByRole("button", { name: "Create account" }));
-      await expect(page).toHaveURL(/\/learn/, { timeout: 90_000 });
+      await completeSignupVerification(page, learner2Email);
       await page.goto(`/learn/courses/${courseSlug}/lessons/${lesson2Slug}`);
       await expect(page.getByText("Enrollment required")).toBeVisible();
       await expect(page.getByRole("button", { name: "Complete & continue" })).toHaveCount(0);
@@ -626,10 +627,11 @@ test.describe("mission 06 learning platform lifecycle", () => {
     await page.goto("/signup");
     await waitForHydration(page, page.getByRole("button", { name: "Create account" }));
     await page.getByLabel(/Name/).fill("E2E Responsive");
-    await page.getByLabel(/Email/).fill(`e2e-responsive-${run}@example.com`);
+    const responsiveEmail = `e2e-responsive-${run}@example.com`;
+    await page.getByLabel(/Email/).fill(responsiveEmail);
     await page.getByLabel(/^Password/).fill("e2e-password-123");
     await clickAction(page, page.getByRole("button", { name: "Create account" }));
-    await expect(page).toHaveURL(/\/learn/, { timeout: 90_000 });
+    await completeSignupVerification(page, responsiveEmail);
 
     const urls = [
       "/login",

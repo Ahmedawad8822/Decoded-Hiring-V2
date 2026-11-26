@@ -65,7 +65,10 @@ function createAuth(db: Parameters<typeof drizzleAdapter>[0]) {
     }),
     emailAndPassword: {
       enabled: true,
-      requireEmailVerification: false,
+      // New accounts must verify their email before they can sign in. Accounts
+      // that existed before this was switched on were marked verified by
+      // migration 0033, and create-admin inserts admins as verified.
+      requireEmailVerification: true,
       // Password resets revoke all sessions (the reset link is single-use and
       // short-lived; sessions minted before the reset must not survive it).
       revokeSessionsOnPasswordReset: true,
@@ -82,9 +85,13 @@ function createAuth(db: Parameters<typeof drizzleAdapter>[0]) {
     emailVerification: {
       // Verify link valid 1 hour (matches the email_outbox expiry).
       expiresIn: 3600,
-      // Send on signup, but never gate access: existing users and admins are
-      // not locked out when they have not verified.
+      // Send on signup. An unverified sign-in gets EMAIL_NOT_VERIFIED and the
+      // login page requests a fresh link via /send-verification-email (not
+      // sendOnSignIn: that needs a sign-in callbackURL, which Better Auth's
+      // client would also follow after every successful sign-in).
       sendOnSignUp: true,
+      // Clicking the link signs the learner in.
+      autoSignInAfterVerification: true,
       sendVerificationEmail: async ({ user, url }) => {
         await notifyEmailVerification(user, url);
       },

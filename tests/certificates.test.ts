@@ -1,4 +1,5 @@
 import "./helpers/env";
+import { markEmailVerified } from "./helpers/verified";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
@@ -36,6 +37,7 @@ async function account(admin: boolean) {
   const password = `Fixture-${crypto.randomUUID()}`;
   const created = await auth.api.signUpEmail({ body: { email, password, name: "Certificate Learner" } });
   if (admin) await (await getDb()).update(users).set({ role: "admin" }).where(eq(users.id, created.user.id));
+  await markEmailVerified(created.user.id);
   const signIn = await auth.api.signInEmail({ body: { email, password }, returnHeaders: true });
   return { id: created.user.id, cookie: signIn.headers.getSetCookie().map((value) => value.split(";")[0]).join("; ") };
 }

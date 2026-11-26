@@ -5,6 +5,7 @@ import { randomUUID } from "node:crypto";
 import { expect, test } from "@playwright/test";
 import { prepareSession, readState } from "../scripts/remote-sessions";
 import { WORKER_ADMIN, WORKER_CERTIFICATE_ID } from "../scripts/worker-e2e-setup";
+import { WORKER_CONTROL_PATH } from "../scripts/worker-e2e-control";
 
 test.use({ trace: "off" });
 
@@ -12,6 +13,15 @@ test.use({ trace: "off" });
 // they never consume the shared 127.0.0.1 auth rate-limit budget (5/min/path)
 // that the browser sign-ins in other specs depend on.
 const ISOLATED_CLIENT = { "cf-connecting-ip": "198.51.100.23" };
+
+/** Path + query of the newest queued verification link for a fixture address. */
+async function verificationPath(request: { post: (url: string, options: { data: unknown }) => Promise<{ ok(): boolean; json(): Promise<unknown> }> }, email: string) {
+  const response = await request.post(WORKER_CONTROL_PATH, { data: { path: "/", operation: "verification-link", email } });
+  expect(response.ok()).toBe(true);
+  const { url } = await response.json() as { url: string };
+  const parsed = new URL(url);
+  return `${parsed.pathname}${parsed.search}`;
+}
 
 test("HTTP auth responses and admin gates stay private and uncached", async ({ playwright, baseURL }) => {
   const anonymous = await playwright.request.newContext({ baseURL, extraHTTPHeaders: ISOLATED_CLIENT });
@@ -25,10 +35,16 @@ test("HTTP auth responses and admin gates stay private and uncached", async ({ p
     // Mutation responses must never advertise a shared cache lifetime.
     expect(signIn.headers()["cache-control"]).toContain("no-store");
     expect(/(?:public|s-maxage)/i.test(signIn.headers()["cache-control"] ?? "")).toBe(false);
+    const learnerEmail = `${randomUUID()}@example.test`;
     const created = await learner.post("/api/auth/sign-up/email", {
-      data: { email: `${randomUUID()}@example.test`, password: randomUUID() + randomUUID(), name: "Local fixture" }, headers: { origin: baseURL! },
+      data: { email: learnerEmail, password: randomUUID() + randomUUID(), name: "Local fixture" }, headers: { origin: baseURL! },
     });
     expect(created.status()).toBe(200);
+    // Sign-up returns no session until the emailed link is followed.
+    expect(Boolean(created.headers()["set-cookie"])).toBe(false);
+    const verified = await learner.get(await verificationPath(anonymous, learnerEmail), { maxRedirects: 0 });
+    expect(verified.status()).toBe(302);
+    expect(Boolean(verified.headers()["set-cookie"])).toBe(true);
     // Repeated anonymous reads of a real certificate must bypass interception.
     for (let read = 0; read < 2; read++) {
       const certificate = await anonymous.get(`/certificates/${WORKER_CERTIFICATE_ID}`);
@@ -113,7 +129,7 @@ test("HTTP auth responses and admin gates stay private and uncached", async ({ p
   } finally { await Promise.all([anonymous.dispose(), admin.dispose(), learner.dispose()]); }
 });
 
-test("HTTP session tool uses deployed free enrollment action and supports later learner sign-in", async ({ baseURL }) => {
+test("HTTP session tool uses deployed free enrollment action and supports later learner sign-in", async ({ baseURL, request }) => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "dh-session-worker-"));
   const statePath = path.join(dir, "sessions");
   const origin = "http://localhost:3000";
@@ -131,6 +147,10 @@ test("HTTP session tool uses deployed free enrollment action and supports later 
   try {
     const env = { CPU_LEARNER_EMAIL: `${randomUUID()}@example.test`, CPU_LEARNER_PASSWORD: randomUUID() + randomUUID(), CPU_LEARNER_NAME: "Local fixture" };
     const options = { mode: "learner" as const, url: origin, statePath };
+    // First run creates the learner, then stops until the email is verified.
+    await expect(prepareSession(options, env, transport)).rejects.toThrow(/verification email/);
+    const verified = await transport(new URL(await verificationPath(request, env.CPU_LEARNER_EMAIL), origin), { redirect: "manual" });
+    expect(verified.status).toBe(302);
     await prepareSession(options, env, transport);
     expect(Boolean(readState(statePath).CPU_LEARNER_COOKIE)).toBe(true);
     await prepareSession(options, env, transport);

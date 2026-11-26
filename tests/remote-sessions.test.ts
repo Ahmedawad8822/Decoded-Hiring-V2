@@ -132,7 +132,7 @@ test("real D1/Better Auth: bootstrap recovery is persisted before verify, resume
     const email = `${randomUUID()}@example.test`, password = randomUUID() + randomUUID();
     const created = await auth.api.signUpEmail({ body: { email, password, name: "Local fixture" } });
     const db = await getDb();
-    await db.update(users).set({ role: "admin" }).where(eq(users.id, created.user.id));
+    await db.update(users).set({ role: "admin", emailVerified: true }).where(eq(users.id, created.user.id));
     let enables = 0, verifies = 0, interrupt = true;
     const transport = (async (url, init) => {
       const route = new URL(String(url)).pathname;

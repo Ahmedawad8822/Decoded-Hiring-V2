@@ -16,7 +16,8 @@
 //   --reset-password            also overwrite the password of an existing user
 //
 // The rows mirror what Better Auth's email/password sign-up writes: a `user`
-// row (role 'admin', email_verified 0 = requireEmailVerification is off) and an
+// row (role 'admin', email_verified 1: sign-in requires a verified email and
+// the owner provisions this account directly) and an
 // `account` row (provider 'credential', account_id = user id, password = the
 // hash from Better Auth's own `hashPassword`). The password and its hash are
 // never printed. Idempotent: an existing email is promoted and its password is
@@ -132,10 +133,10 @@ export function buildAdminSql(p: BuildSqlParams): string {
   if (!p.userExists) {
     lines.push(
       `INSERT OR IGNORE INTO "user" ("id", "name", "email", "email_verified", "image", "created_at", "updated_at", "role", "banned") ` +
-        `VALUES (${sqlString(p.userId)}, ${sqlString(p.name)}, ${email}, 0, NULL, ${now}, ${now}, 'admin', 0);`
+        `VALUES (${sqlString(p.userId)}, ${sqlString(p.name)}, ${email}, 1, NULL, ${now}, ${now}, 'admin', 0);`
     );
   }
-  lines.push(`UPDATE "user" SET "role" = 'admin', "updated_at" = ${now} WHERE "email" = ${email};`);
+  lines.push(`UPDATE "user" SET "role" = 'admin', "email_verified" = 1, "updated_at" = ${now} WHERE "email" = ${email};`);
 
   if (!p.userExists) {
     lines.push(insertCredential);

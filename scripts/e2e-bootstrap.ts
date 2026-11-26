@@ -59,14 +59,14 @@ async function main() {
       body: { email: adminEmail, password: adminPassword, name: process.env.ADMIN_INITIAL_NAME || "Decoded Editorial" },
     });
     if (newUser?.user?.id) {
-      await db.update(users).set({ role: "admin" }).where(eq(users.id, newUser.user.id));
+      await db.update(users).set({ role: "admin", emailVerified: true }).where(eq(users.id, newUser.user.id));
       console.log("🧪 e2e-bootstrap: admin role granted.");
     } else {
       throw new Error("e2e-bootstrap: admin sign-up returned no user id.");
     }
   } else {
-    if (existingUser.role !== "admin") {
-      await db.update(users).set({ role: "admin" }).where(eq(users.id, existingUser.id));
+    if (existingUser.role !== "admin" || !existingUser.emailVerified) {
+      await db.update(users).set({ role: "admin", emailVerified: true }).where(eq(users.id, existingUser.id));
     }
     console.log("🧪 e2e-bootstrap: admin account already present.");
   }

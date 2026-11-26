@@ -23,7 +23,21 @@ export async function fixtureControl(request: Request, env: FixtureEnv): Promise
   if (env.WORKER_E2E_CONTROL !== "local-fixture" || request.method !== "POST") {
     return new Response(null, { status: 404 });
   }
-  const input = await request.json() as { path: string; operation: "inspect" | "expire-soon" | "offer"; active?: boolean };
+  const input = await request.json() as {
+    path: string; operation: "inspect" | "expire-soon" | "offer" | "verification-link"; active?: boolean; email?: string;
+  };
+  if (input.operation === "verification-link") {
+    // The newest queued verification email for this address: tests follow the
+    // real link instead of bypassing email verification.
+    if (typeof input.email !== "string" || !input.email.endsWith("@example.test")) {
+      return new Response("Invalid fixture email", { status: 400 });
+    }
+    const row = await env.DB.prepare(`SELECT text_body AS textBody FROM email_outbox
+      WHERE kind = 'email_verification' AND to_address = ? ORDER BY created_at DESC LIMIT 1`)
+      .bind(input.email.toLowerCase()).first<{ textBody: string }>();
+    const url = row?.textBody.match(/https?:\/\/\S+\/verify-email\?\S+/)?.[0];
+    return url ? Response.json({ url }) : new Response("No verification email", { status: 404 });
+  }
   if (input.operation === "offer") {
     // Deliberately bypass revalidatePath: this test proves the time-based safety
     // net, independently of the Server Action freshness suite.

@@ -19,6 +19,7 @@ import assert from "node:assert/strict";
 import { createRequire } from "node:module";
 import { eq } from "drizzle-orm";
 import "./helpers/env"; // MUST be first: fake TEST-ONLY secret before any app module.
+import { markEmailVerified } from "./helpers/verified";
 
 import {
   getDb,
@@ -82,6 +83,7 @@ async function account(): Promise<{ id: string; cookie: string }> {
   const email = `leave-${uid()}@example.test`;
   const password = `Fixture-${crypto.randomUUID()}`;
   const created = await auth.api.signUpEmail({ body: { email, password, name: "Leave Learner" } });
+  await markEmailVerified(created.user.id);
   const signIn = await auth.api.signInEmail({
     body: { email, password },
     returnHeaders: true,

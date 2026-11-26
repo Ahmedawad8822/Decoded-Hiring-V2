@@ -6,6 +6,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import "./helpers/env"; // MUST be first: fake TEST-ONLY secret before any app module.
+import { markEmailVerified } from "./helpers/verified";
 process.env.ADMIN_REQUIRE_2FA = "false";
 import { createRequire } from "node:module";
 import { and, eq } from "drizzle-orm";
@@ -81,6 +82,7 @@ test.before(async () => {
   adminId = created.user.id;
   const db = await getDb();
   await db.update(users).set({ role: "admin" }).where(eq(users.id, adminId));
+  await markEmailVerified(created.user.id);
   const signIn = await auth.api.signInEmail({ body: { email, password }, returnHeaders: true });
   cookieHeader = signIn.headers
     .getSetCookie()

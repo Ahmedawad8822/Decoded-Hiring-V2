@@ -10,6 +10,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import "./helpers/env"; // MUST be first: fake TEST-ONLY secret before any app module.
+import { markEmailVerified } from "./helpers/verified";
 // These admins have no 2FA enrolled; the 2FA gate itself is covered by
 // tests/admin-two-factor.test.ts.
 process.env.ADMIN_REQUIRE_2FA = "false";
@@ -67,6 +68,7 @@ test.before(async () => {
   adminId = created.user.id;
   const db = await getDb();
   await db.update(users).set({ role: "admin" }).where(eq(users.id, adminId));
+  await markEmailVerified(created.user.id);
   const signIn = await auth.api.signInEmail({
     body: { email, password },
     returnHeaders: true,
