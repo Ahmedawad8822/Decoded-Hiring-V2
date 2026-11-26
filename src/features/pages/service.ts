@@ -2,6 +2,7 @@ import {
   fieldNotes,
   getDb,
   guides,
+  lessons,
   media,
   pageRevisions,
   pages,
@@ -10,7 +11,7 @@ import {
   type PageRevision,
   type PageRevisionTrigger,
 } from "@/lib/db";
-import { and, asc, desc, eq, isNotNull, isNull, lt, ne } from "drizzle-orm";
+import { and, asc, desc, eq, isNotNull, isNull, like, lt, ne } from "drizzle-orm";
 import type { CreatePageInput, UpdatePageInput } from "./types";
 import { resolvePreviewAccess } from "@/features/publishing/preview";
 import {
@@ -478,31 +479,110 @@ function mediaKeyFromUrl(url: string | null): string | null {
   return key.length > 0 ? key : null;
 }
 
-/// Delete the page's cover media only when no other content references the
-/// same object (§1 dependency rule for guides/field notes/pages). R2 and D1
-/// media cleanup is best-effort: it never fails the permanent delete.
-async function deleteUnreferencedPageMedia(page: Page): Promise<void> {
-  const key = mediaKeyFromUrl(page.coverImage);
-  if (!key) return;
-  const url = page.coverImage as string;
+/// Delete the page's media only when no other content references the same
+/// object (§1 dependency rule for guides/field notes/pages). Both the cover
+/// image and any `/api/media/...` URL embedded in the page's own body JSON
+/// are collected; each key survives when another page, guide, field note
+/// (cover or body) or lesson body still mentions it. Keys used only by the
+/// deleted page are cleaned up, so body-only images do not accumulate as
+/// orphaned R2 objects. Bounded: at most a handful of keys per delete, one
+/// LIKE scan per key per table, each limited to a single row — trash-volume
+/// only, never the hot path. R2 and D1 media cleanup is best-effort: it
+/// never fails the permanent delete.
+const MAX_MEDIA_KEYS_PER_DELETE = 8;
+
+const BODY_MEDIA_KEY_PATTERN = /\/api\/media\/([A-Za-z0-9_\-/]+\.[A-Za-z0-9]+)/g;
+
+/// Every `/api/media/...` key mentioned in a body JSON string (markdown links
+/// in block text, e.g. `[label](/api/media/pages/<uuid>.webp)`).
+function mediaKeysFromBody(body: string | null): string[] {
+  if (!body) return [];
+  const found = new Set<string>();
+  BODY_MEDIA_KEY_PATTERN.lastIndex = 0;
+  let match: RegExpExecArray | null;
+  while ((match = BODY_MEDIA_KEY_PATTERN.exec(body)) !== null) {
+    found.add(match[1]);
+  }
+  return [...found];
+}
+
+function collectPageMediaKeys(page: Page): string[] {
+  const keys: string[] = [];
+  const coverKey = mediaKeyFromUrl(page.coverImage);
+  if (coverKey) keys.push(coverKey);
+  for (const key of mediaKeysFromBody(page.body)) {
+    if (!keys.includes(key)) keys.push(key);
+  }
+  return keys.slice(0, MAX_MEDIA_KEYS_PER_DELETE);
+}
+
+/// True when any content other than the page being deleted still references
+/// the R2 object: a cover image (other pages, guides, field notes) or a body
+/// JSON mention (other pages, guides, field notes, lessons). Generated keys
+/// (`<namespace>/<uuid>.<ext>`) contain no LIKE wildcards, so the match is
+/// exact in practice; a stray wildcard can only over-match, i.e. keep an
+/// object — never delete a referenced one.
+async function isMediaKeyReferencedElsewhere(key: string, excludePageId: string): Promise<boolean> {
+  const db = await getDb();
+  const url = `${MEDIA_URL_PREFIX}${key}`;
+  const pattern = `%${key}%`;
+  const [
+    guideCover,
+    guideOg,
+    guideBody,
+    noteCover,
+    noteBody,
+    otherPageCover,
+    otherPageBody,
+    lessonBody,
+  ] = await Promise.all([
+    db.select({ id: guides.id }).from(guides).where(eq(guides.coverImage, url)).get(),
+    db.select({ id: guides.id }).from(guides).where(eq(guides.ogImage, url)).get(),
+    db.select({ id: guides.id }).from(guides).where(like(guides.body, pattern)).get(),
+    db.select({ id: fieldNotes.id }).from(fieldNotes).where(eq(fieldNotes.coverImage, url)).get(),
+    db.select({ id: fieldNotes.id }).from(fieldNotes).where(like(fieldNotes.body, pattern)).get(),
+    db
+      .select({ id: pages.id })
+      .from(pages)
+      .where(and(eq(pages.coverImage, url), ne(pages.id, excludePageId)))
+      .get(),
+    db
+      .select({ id: pages.id })
+      .from(pages)
+      .where(and(like(pages.body, pattern), ne(pages.id, excludePageId)))
+      .get(),
+    db.select({ id: lessons.id }).from(lessons).where(like(lessons.body, pattern)).get(),
+  ]);
+  return Boolean(
+    guideCover ||
+      guideOg ||
+      guideBody ||
+      noteCover ||
+      noteBody ||
+      otherPageCover ||
+      otherPageBody ||
+      lessonBody
+  );
+}
+
+async function deleteMediaKey(key: string): Promise<void> {
+  const db = await getDb();
+  await db.delete(media).where(eq(media.key, key));
   try {
-    const db = await getDb();
-    const [otherGuide, otherNote, otherPage] = await Promise.all([
-      db.select({ id: guides.id }).from(guides).where(eq(guides.coverImage, url)).get(),
-      db.select({ id: fieldNotes.id }).from(fieldNotes).where(eq(fieldNotes.coverImage, url)).get(),
-      db
-        .select({ id: pages.id })
-        .from(pages)
-        .where(and(eq(pages.coverImage, url), ne(pages.id, page.id)))
-        .get(),
-    ]);
-    if (otherGuide || otherNote || otherPage) return;
-    await db.delete(media).where(eq(media.key, key));
-    try {
-      const bucket = await getR2Bucket();
-      await bucket.delete(key);
-    } catch {
-      // Best-effort: the D1 row is gone, a stray R2 object is harmless.
+    const bucket = await getR2Bucket();
+    await bucket.delete(key);
+  } catch {
+    // Best-effort: the D1 row is gone, a stray R2 object is harmless.
+  }
+}
+
+async function deleteUnreferencedPageMedia(page: Page): Promise<void> {
+  try {
+    for (const key of collectPageMediaKeys(page)) {
+      const referenced = await isMediaKeyReferencedElsewhere(key, page.id);
+      if (!referenced) {
+        await deleteMediaKey(key);
+      }
     }
   } catch {
     // Best-effort: media cleanup never fails the permanent delete.

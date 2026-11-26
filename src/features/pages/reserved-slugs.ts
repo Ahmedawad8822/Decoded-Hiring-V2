@@ -1,4 +1,4 @@
-import { staticRoutes } from "@/lib/public-routes";
+import { staticRoutes } from "../../lib/public-routes";
 
 // ============================================================================
 // RESERVED PAGE SLUGS (standard pages §3)
@@ -49,6 +49,46 @@ export const RESERVED_PAGE_SLUGS: readonly string[] = Array.from(
   new Set([...STATIC_ROUTE_SLUGS, ...TOP_LEVEL_SEGMENTS])
 ).sort();
 
+// NOTE: this module uses a relative import (not `@/`) on purpose —
+// `next.config.ts` imports the rewrite source below at config-load time,
+// where the `@/` tsconfig alias is not guaranteed to resolve.
+
 export function isReservedPageSlug(slug: string): boolean {
   return (RESERVED_PAGE_SLUGS as readonly string[]).includes(slug.toLowerCase());
+}
+
+// ============================================================================
+// PREVIEW-REWRITE EXCLUSIONS (standard pages §3)
+// ----------------------------------------------------------------------------
+// The `?preview=true` rewrite for `/:slug` (see `next.config.ts`) must never
+// steal reserved top-level routes. The slug format already rejects dots, so
+// `sitemap.xml` / `robots.txt` can never be page slugs — but the rewrite
+// matches raw path segments, so they are excluded here explicitly. This list
+// (reserved slugs + file routes) is the single source of truth; both the
+// Studio validation above and the rewrite source below derive from it.
+// ============================================================================
+
+const REWRITE_ONLY_EXCLUSIONS = ["robots.txt", "sitemap.xml"] as const;
+
+export const PAGE_PREVIEW_REWRITE_EXCLUSIONS: readonly string[] = Array.from(
+  new Set([...RESERVED_PAGE_SLUGS, ...REWRITE_ONLY_EXCLUSIONS])
+).sort();
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/// Inner regex for the rewrite's `:slug(...)` param: matches any single path
+/// segment EXCEPT an excluded top-level route. The anchored lookahead keeps
+/// prefixed names (e.g. `/administrator`) rewritable — only exact excluded
+/// segments are skipped.
+export function buildReservedSlugExclusionPattern(): string {
+  const alternatives = PAGE_PREVIEW_REWRITE_EXCLUSIONS.map(escapeRegExp).join("|");
+  return `(?!(?:${alternatives})$)[^/]+`;
+}
+
+/// Full rewrite `source` for the `?preview=true` page preview. Imported by
+/// `next.config.ts` so the exclusion list has a single source of truth.
+export function buildPagePreviewRewriteSource(): string {
+  return `/:slug(${buildReservedSlugExclusionPattern()})`;
 }

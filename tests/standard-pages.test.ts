@@ -17,7 +17,7 @@ import "./helpers/env"; // MUST be first: fake TEST-ONLY secret before any app m
 process.env.ADMIN_REQUIRE_2FA = "false";
 import { createRequire } from "node:module";
 import { eq } from "drizzle-orm";
-import { adminAuditLog, getDb, pageRevisions, pages, users } from "../src/lib/db";
+import { adminAuditLog, getDb, guides, media, pageRevisions, pages, users } from "../src/lib/db";
 import { migrateLocalDb } from "../src/lib/db/migrate";
 import { disposeCloudflareBindings } from "../src/lib/cloudflare/bindings";
 import { getAuth } from "../src/lib/auth";
@@ -40,7 +40,7 @@ import {
   updatePage,
 } from "../src/features/pages/service";
 import { createPageSchema } from "../src/features/pages/types";
-import { isReservedPageSlug, RESERVED_PAGE_SLUGS } from "../src/features/pages/reserved-slugs";
+import { isReservedPageSlug, RESERVED_PAGE_SLUGS, buildPagePreviewRewriteSource, buildReservedSlugExclusionPattern, PAGE_PREVIEW_REWRITE_EXCLUSIONS } from "../src/features/pages/reserved-slugs";
 import { resolvePageRedirect } from "../src/features/slug-redirects/service";
 import { buildSitemapEntries } from "../src/lib/sitemap-entries";
 
@@ -392,4 +392,103 @@ test("SP-11: anonymous action calls fail; admin actions succeed and audit", asyn
     (auditAfter.find((row) => row.action === "page.delete_permanent")?.details ?? "").includes("Action Page"),
     "permanent-delete audit keeps a title snapshot"
   );
+});
+
+test("SP-12: permanent delete keeps media referenced by other bodies, cleans up orphans", async () => {
+  const db = await getDb();
+  const tag = uid();
+  const keyShared = `pages/sp12-${tag}-shared.webp`;
+  const keyBodyOnly = `pages/sp12-${tag}-bodyonly.webp`;
+  const keyCoverOnly = `pages/sp12-${tag}-coveronly.webp`;
+  const urlShared = `/api/media/${keyShared}`;
+  const urlBodyOnly = `/api/media/${keyBodyOnly}`;
+  const urlCoverOnly = `/api/media/${keyCoverOnly}`;
+
+  for (const key of [keyShared, keyBodyOnly, keyCoverOnly]) {
+    await db.insert(media).values({
+      id: crypto.randomUUID(),
+      key,
+      filename: "test.webp",
+      contentType: "image/webp",
+      size: 10,
+      uploadedBy: adminId,
+      createdAt: new Date(),
+    });
+  }
+  const mediaExists = async (key: string) =>
+    (await db.select().from(media).where(eq(media.key, key)).get()) !== undefined;
+
+  // Page A carries the shared key as its cover; page B reuses it in body text.
+  const pageA = await createPage({ title: `Shared Cover ${tag}`, slug: `sp-share-a-${tag}`, coverImage: urlShared, body: [] });
+  const pageB = await createPage({
+    title: `Sharing Body ${tag}`,
+    slug: `sp-share-b-${tag}`,
+    body: [{ id: "b1", type: "paragraph", text: `See [photo](${urlShared}) here` }],
+  });
+  // A guide body references the same object too.
+  const guideId = `guide_sp12_${tag}`;
+  await db.insert(guides).values({
+    id: guideId,
+    title: `Sharing Guide ${tag}`,
+    slug: `sp12-guide-${tag}`,
+    body: JSON.stringify([{ id: "g1", type: "paragraph", text: `Guide [photo](${urlShared}) here` }]),
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  });
+  // Page C holds a body-only key nobody else references; page D a cover-only key.
+  const pageC = await createPage({
+    title: `Body Only ${tag}`,
+    slug: `sp-bodyonly-${tag}`,
+    body: [{ id: "c1", type: "paragraph", text: `Only [here](${urlBodyOnly})` }],
+  });
+  const pageD = await createPage({ title: `Cover Only ${tag}`, slug: `sp-coveronly-${tag}`, coverImage: urlCoverOnly, body: [] });
+
+  await movePageToTrash(pageA.id);
+  await deletePagePermanently(pageA.id, adminId, `Shared Cover ${tag}`);
+  assert.equal(await mediaExists(keyShared), true, "shared object survives: page B body + guide body still reference it");
+
+  await movePageToTrash(pageC.id);
+  await deletePagePermanently(pageC.id, adminId, `Body Only ${tag}`);
+  assert.equal(await mediaExists(keyBodyOnly), false, "body-only orphan is cleaned up");
+
+  await movePageToTrash(pageD.id);
+  await deletePagePermanently(pageD.id, adminId, `Cover Only ${tag}`);
+  assert.equal(await mediaExists(keyCoverOnly), false, "unreferenced cover is cleaned up");
+
+  // Cleanup: drop the guide reference, then page B deletes cleanly (and takes
+  // the now-unreferenced shared object with it).
+  await db.delete(guides).where(eq(guides.id, guideId));
+  await movePageToTrash(pageB.id);
+  await deletePagePermanently(pageB.id, adminId, `Sharing Body ${tag}`);
+  assert.equal(await mediaExists(keyShared), false, "last reference gone, object cleaned up");
+});
+
+test("SP-13: the ?preview=true page rewrite excludes every reserved top-level route", async () => {
+  const nextConfig = (await import("../next.config")).default as {
+    rewrites: () => Promise<{ beforeFiles: { source: string; destination: string }[] }>;
+  };
+  const rewrites = await nextConfig.rewrites();
+  const entry = rewrites.beforeFiles.find((r) => r.destination === "/preview/pages/:slug");
+  assert.ok(entry, "page preview rewrite is wired in next.config.ts");
+  assert.equal(entry.source, buildPagePreviewRewriteSource(), "rewrite source comes from reserved-slugs (single source of truth)");
+
+  // Simulate Next's single-segment match against the wired source.
+  const match = entry.source.match(/^\/:slug\((.*)\)$/);
+  assert.ok(match?.[1], "source carries a :slug(...) regex");
+  const segment = new RegExp(`^(?:${match[1]})$`);
+
+  for (const slug of PAGE_PREVIEW_REWRITE_EXCLUSIONS) {
+    assert.equal(segment.test(slug), false, `reserved segment "${slug}" must not rewrite`);
+  }
+  for (const slug of RESERVED_PAGE_SLUGS) {
+    assert.equal(segment.test(slug), false, `reserved slug "${slug}" must not rewrite`);
+  }
+  for (const slug of ["admin", "api", "learn", "login", "signup", "sitemap.xml", "robots.txt"]) {
+    assert.equal(segment.test(slug), false, `"${slug}" must not rewrite to the page preview`);
+  }
+  for (const slug of ["pricing-faq", "about-us", "administrator", "learning", "press"]) {
+    assert.equal(segment.test(slug), true, `"${slug}" is a genuine page slug and must still rewrite`);
+  }
+  // The exclusion pattern itself derives from the reserved list.
+  assert.ok(buildReservedSlugExclusionPattern().length > 0);
 });
