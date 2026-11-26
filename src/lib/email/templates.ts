@@ -318,8 +318,7 @@ export function nudgeInactiveTemplate(input: {
   return { subject, text, html };
 }
 
-export function nudgeQuizFailedTemplate(input: {
-  userName?: string;
+export function nudgeQuizFailedTemplate(input: {  userName?: string;
   courseTitle: string;
   lessonTitle: string;
   quizUrl: string;
@@ -348,6 +347,37 @@ export function nudgeQuizFailedTemplate(input: {
         "You got this email because a quiz in your course needs another try.",
         input.unsubscribeUrl,
       ),
+    ),
+  );
+  return { subject, text, html };
+}
+
+// ---------------------------------------------------------------- question answered
+// Transactional reply to a learner's own lesson question (not a nudge, so no
+// unsubscribe link and no course-reminder opt-out applies).
+
+export function questionAnsweredTemplate(input: {
+  userName?: string;
+  courseTitle: string;
+  lessonTitle: string;
+  lessonUrl: string;
+}): EmailTemplate {
+  const greeting = input.userName ? `Hi ${input.userName},` : "Hi,";
+  const subject = `Your question on ${input.lessonTitle} was answered`;
+  const text =
+    `${greeting}\n\n` +
+    `Your question on "${input.lessonTitle}" (${input.courseTitle}) has an answer. Read it here:\n\n` +
+    `${input.lessonUrl}\n\n` +
+    `— ${siteName}`;
+  const html = shell(
+    escapeHtml(subject),
+    escapeHtml(greeting),
+    [
+      `Your question on &ldquo;${escapeHtml(input.lessonTitle)}&rdquo; (&ldquo;${escapeHtml(input.courseTitle)}&rdquo;) has an answer. Read it here:`,
+      link(input.lessonUrl, input.lessonTitle),
+    ],
+    escapeHtml(
+      footerFor("You got this email because you asked a question on this lesson."),
     ),
   );
   return { subject, text, html };

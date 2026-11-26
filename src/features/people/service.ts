@@ -7,11 +7,13 @@
 // calls requireAdmin(). Query budget is deliberately tiny (Workers Free):
 //   - listPeople:                ONE SQL statement (aggregates + tags inline)
 //   - listAllPeopleForExport:    ONE SQL statement
-//   - getPersonProfile:          user lookup, then Promise.all of 9 bounded
+//   - getPersonProfile:          user lookup, then Promise.all of 10 bounded
 //     section queries (Batch J adds the nudge-preference lookup); no per-row
 //     loops; the timeline is merged in memory.
 // lesson_notes are NEVER read here (learner-private by design) and email
-// bodies are never selected (kind/subject/status/dates only).
+// bodies are never selected (kind/subject/status/dates only). Lesson
+// questions contribute metadata only (lesson/course titles, status, date) —
+// question and answer bodies stay in the Q&A inbox.
 // ============================================================================
 
 import { requireAdmin } from "@/lib/auth";
@@ -20,6 +22,7 @@ import { getDb, adminPersonNotes, learnerTags, users } from "@/lib/db";
 import { and, eq } from "drizzle-orm";
 import { AppError } from "@/lib/errors";
 import { LEARNER_TAG_PATTERN } from "@/features/quizzes/types";
+import { listPersonQuestions, type PersonQuestion } from "@/features/lesson-questions/service";
 
 export const PEOPLE_PAGE_SIZE = 25;
 export const PEOPLE_EXPORT_MAX_ROWS = 5000;
@@ -142,6 +145,7 @@ export type TimelineKind =
   | "certificate"
   | "quiz-passed"
   | "quiz-failed"
+  | "question"
   | "booking"
   | "order"
   | "lead"
@@ -168,6 +172,7 @@ export interface PersonProfile {
   courseNudges: boolean;
   courses: PersonCourseRow[];
   quizAttempts: PersonQuizAttempt[];
+  questions: PersonQuestion[];
   certificates: PersonCertificate[];
   bookings: PersonBooking[];
   orders: PersonOrder[];
@@ -187,6 +192,7 @@ export const EMAIL_KIND_LABELS: Record<string, string> = {
   nudge_completed: "Nudge: completed",
   nudge_inactive: "Nudge: inactive",
   nudge_quiz_failed: "Nudge: quiz help",
+  question_answered: "Question answered",
 };
 
 export function emailKindLabel(kind: string): string {
@@ -316,6 +322,7 @@ function buildTimeline(input: {
   email: string;
   courses: PersonCourseRow[];
   quizAttempts: PersonQuizAttempt[];
+  questions: PersonQuestion[];
   certificates: PersonCertificate[];
   bookings: PersonBooking[];
   orders: PersonOrder[];
@@ -346,6 +353,14 @@ function buildTimeline(input: {
       date: attempt.createdAt,
       kind: attempt.passed ? "quiz-passed" : "quiz-failed",
       label: `Quiz ${attempt.passed ? "passed" : "failed"} — ${attempt.lessonTitle} (${attempt.scorePercent}%)`,
+    });
+  }
+  for (const question of input.questions) {
+    items.push({
+      date: question.createdAt,
+      kind: "question",
+      label: `Question on ${question.lessonTitle} — ${question.status}`,
+      href: `/admin/questions/${question.id}`,
     });
   }
   for (const booking of input.bookings) {
@@ -400,6 +415,7 @@ export async function getPersonProfile(userId: string): Promise<PersonProfile | 
     preferenceRow,
     courseRows,
     attemptRows,
+    questionRows,
     certificateRows,
     bookingRows,
     orderRows,
@@ -448,11 +464,13 @@ export async function getPersonProfile(userId: string): Promise<PersonProfile | 
            LEFT JOIN lessons l ON l.id = qa.lesson_id
            LEFT JOIN courses c ON c.id = l.course_id
           WHERE qa.user_id = ?
-          ORDER BY qa.created_at DESC, qa.id ASC
-          LIMIT ${PROFILE_ATTEMPT_LIMIT}`,
+           ORDER BY qa.created_at DESC, qa.id ASC
+           LIMIT ${PROFILE_ATTEMPT_LIMIT}`,
       )
       .bind(userId)
       .all<Record<string, unknown>>(),
+    // The person's lesson questions (timeline; bodies stay in the Q&A inbox).
+    listPersonQuestions(userId),
     d1
       .prepare(
         `SELECT id, course_id AS courseId, course_title AS courseTitle, recipient_name AS recipientName,
@@ -603,6 +621,7 @@ export async function getPersonProfile(userId: string): Promise<PersonProfile | 
       : null,
     courses,
     quizAttempts,
+    questions: questionRows,
     certificates,
     bookings,
     orders,
@@ -610,7 +629,7 @@ export async function getPersonProfile(userId: string): Promise<PersonProfile | 
     emails,
     // Absent row = default opted in; stored 0 = opted out.
     courseNudges: preferenceRow ? Number(preferenceRow.courseNudges) === 1 : true,
-    timeline: buildTimeline({ email, courses, quizAttempts, certificates, bookings, orders, leads, emails }),
+    timeline: buildTimeline({ email, courses, quizAttempts, questions: questionRows, certificates, bookings, orders, leads, emails }),
   };
 }
 
