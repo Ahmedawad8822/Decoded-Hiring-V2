@@ -129,9 +129,17 @@
           "bucket_name": "decoded-hiring-v2-next-cache"
         }
       ],
+      // Custom domains: Wrangler creates the DNS records and certificates on
+      // deploy. The zone must be active on Cloudflare and must not already hold
+      // records for these hostnames. www and workers.dev 308 to the apex in
+      // worker.ts (src/lib/cloudflare/canonical-host.ts).
+      "routes": [
+        { "pattern": "decodedhiring.com", "custom_domain": true },
+        { "pattern": "www.decodedhiring.com", "custom_domain": true }
+      ],
       "vars": {
-        "BETTER_AUTH_URL": "https://decoded-hiring-v2.hdv2.workers.dev",
-        "NEXT_PUBLIC_SITE_URL": "https://decoded-hiring-v2.hdv2.workers.dev"
+        "BETTER_AUTH_URL": "https://decodedhiring.com",
+        "NEXT_PUBLIC_SITE_URL": "https://decodedhiring.com"
       }
     }
   }
