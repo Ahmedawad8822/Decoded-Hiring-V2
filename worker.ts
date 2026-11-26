@@ -26,34 +26,38 @@ const worker = {
   // Batch J: roughly hourly (scheduled minute < 5) the learner automations
   // (drip unlocks + nudges) run first via their own internal route, then the
   // existing drain sends whatever they queued.
+  // Trash auto-purge (§1 lifecycle): items trashed longer than the retention
+  // window are permanently deleted a few per run, with the same dependency
+  // checks as the manual flow — protected items stay in Trash and stay
+  // flagged. Failures are logged, never thrown.
   async scheduled(event: unknown, env: unknown, ctx: unknown) {
+    async function runInternal(path: string, label: string) {
+      try {
+        const request = new Request(`https://internal.local${path}`, {
+          method: "POST",
+          headers: { "x-email-drain-token": getDrainToken() },
+        });
+        await handler.fetch(request, env, ctx);
+      } catch (error) {
+        console.error(
+          `[${label}] scheduled run failed:`,
+          error instanceof Error ? error.message : String(error),
+        );
+      }
+    }
     try {
       const scheduledTime =
         event && typeof event === "object" && "scheduledTime" in event
           ? new Date((event as { scheduledTime: number }).scheduledTime)
           : new Date();
       if (shouldRunLearnerAutomations(scheduledTime)) {
-        try {
-          const automations = new Request("https://internal.local/api/cron/learner-automations", {
-            method: "POST",
-            headers: { "x-email-drain-token": getDrainToken() },
-          });
-          await handler.fetch(automations, env, ctx);
-        } catch (error) {
-          console.error(
-            "[automations] scheduled run failed:",
-            error instanceof Error ? error.message : String(error),
-          );
-        }
+        await runInternal("/api/cron/learner-automations", "automations");
       }
-      const request = new Request("https://internal.local/api/cron/email-drain", {
-        method: "POST",
-        headers: { "x-email-drain-token": getDrainToken() },
-      });
-      await handler.fetch(request, env, ctx);
+      await runInternal("/api/cron/email-drain", "email");
+      await runInternal("/api/cron/trash-purge", "trash-purge");
     } catch (error) {
       console.error(
-        "[email] scheduled drain failed:",
+        "[scheduled] dispatch failed:",
         error instanceof Error ? error.message : String(error),
       );
     }

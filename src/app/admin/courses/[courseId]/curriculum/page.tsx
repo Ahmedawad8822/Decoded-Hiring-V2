@@ -25,7 +25,7 @@ export default async function AdminCurriculumPage(props: {
   await requireAdminPage();
   const { courseId } = await props.params;
   const course = await getAdminCourseById(courseId);
-  if (!course) notFound();
+  if (!course || course.trashedAt !== null) notFound();
 
   const curriculum = await getCourseCurriculum(courseId);
   const enrollmentCount = await getCourseEnrollmentCount(courseId);

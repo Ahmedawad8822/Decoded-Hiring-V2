@@ -53,7 +53,7 @@ The full intended workflow works, including dependencies, persistence and recove
 | Lint, types and build pass | **CI** |
 | Domain rules covered by a suite on an isolated D1 (state transitions, idempotency, concurrency) | **CI** (`npm test`); **Review** that a new suite was added and listed in `package.json` |
 | Happy path works end to end in a browser | **CI** for the seven specs above; **Review** for areas none of them cover (add a spec) |
-| Lifecycle is defined: Draft/Publish/Archive behave as in `CONTENT-MODEL.md`; permanent delete and Trash are not built, so do not imply them | **Review** |
+| Lifecycle is defined: Draft/Publish/Archive/Restore/Trash/permanent-delete behave as in `CONTENT-MODEL.md` and `PAGE-TYPE-SPECS.md` §1 (Standard Pages and Landing Pages join the Trash registry when those types land) | **Review** |
 | Failure paths recover: retries are idempotent, a second submit does not duplicate, provider outage does not strand an Order or Booking | **Review**, backed by orchestration/idempotency tests |
 | Docs updated: the relevant public implementation references | **Review** |
 

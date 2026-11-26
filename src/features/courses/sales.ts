@@ -1,4 +1,4 @@
-import { desc, eq } from "drizzle-orm";
+import { and, desc, eq, isNull } from "drizzle-orm";
 
 import { courses, getDb, type Course } from "@/lib/db";
 import { getCourseCurriculum } from "./service";
@@ -15,44 +15,37 @@ import { getQuizLessonIds } from "@/features/quizzes/service";
 //
 // Only `published`, non-trashed courses are visible. Drafts and archived
 // courses return null (-> 404, with slug redirects honoured by the page).
-// The Trash lifecycle (`trashed_at`) is being added by a parallel change: it
-// is detected at runtime (`isTrashedCourse`) so a trashed course is treated
-// as missing whether or not the column has landed yet. This file adds no
-// migration itself.
+// Trashed courses (`trashed_at` set) are filtered in SQL and treated as
+// missing.
 // ============================================================================
 
-/** Runtime Trash check. True when a trash timestamp is present, whatever the
- *  column's serialised key (`trashedAt` Drizzle model vs `trashed_at` raw). */
-export function isTrashedCourse(
-  course: Pick<Course, "status"> & Record<string, unknown>,
-): boolean {
-  const marker =
-    (course as Record<string, unknown>).trashedAt ??
-    (course as Record<string, unknown>).trashed_at;
-  return marker !== undefined && marker !== null;
+/** True when the course is in Trash. */
+export function isTrashedCourse(course: Pick<Course, "trashedAt">): boolean {
+  return course.trashedAt !== null && course.trashedAt !== undefined;
 }
 
 /** Published, non-trashed course by slug — null otherwise (-> 404). */
 export async function getPublicCourseBySlug(slug: string): Promise<Course | null> {
   const db = await getDb();
-  const course = await db.select().from(courses).where(eq(courses.slug, slug)).get();
+  const course = await db
+    .select()
+    .from(courses)
+    .where(and(eq(courses.slug, slug), isNull(courses.trashedAt)))
+    .get();
   if (!course || course.status !== "published" || isTrashedCourse(course)) return null;
   return course;
 }
 
-/** All published, non-trashed courses for the `/courses` list and sitemap.
- *  Trashed rows are filtered in memory so the list stays correct before and
- *  after the Trash column lands; the source query filters on status (there
- *  is no status index — the courses table is small, so this stays a single
- *  cheap read). */
+/** All published, non-trashed courses for the `/courses` list and sitemap
+ *  (the courses table is small; one read). */
 export async function getPublicCourses(): Promise<Course[]> {
   const db = await getDb();
   const rows = await db
     .select()
     .from(courses)
-    .where(eq(courses.status, "published"))
+    .where(and(eq(courses.status, "published"), isNull(courses.trashedAt)))
     .orderBy(desc(courses.publishedAt), desc(courses.updatedAt));
-  return rows.filter((course) => !isTrashedCourse(course));
+  return rows;
 }
 
 export type PublicSalesLesson = {

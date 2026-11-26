@@ -14,7 +14,7 @@ const groups: { label: string; items: { label: string; href: string; icon: IconN
   { label: "Publish", items: [{ label: "Content", href: "/admin/content", icon: "content", section: "content" }, { label: "Courses", href: "/admin/courses", icon: "courses", section: "courses" }, { label: "Questions", href: "/admin/questions", icon: "inbox", section: "courses", badge: "questions" }, { label: "People", href: "/admin/people", icon: "leads", section: "courses" }] },
   { label: "Business", items: [{ label: "Bookings & offers", href: "/admin/commerce", icon: "calendar", section: "commerce", badge: "bookings" }, { label: "Leads", href: "/admin/leads", icon: "leads", section: "leads", badge: "leads" }] },
   { label: "Editorial AI", items: [{ label: "Drafts", href: "/admin/editorial", icon: "sparkles", section: "editorial", badge: "drafts" }, { label: "Knowledge", href: "/admin/knowledge", icon: "knowledge", section: "editorial" }, { label: "Memory", href: "/admin/editorial/memory", icon: "memory", section: "editorial" }] },
-  { label: "Admin", items: [{ label: "Audit log", href: "/admin/audit", icon: "audit", section: "admin" }, { label: "Security", href: "/admin/security", icon: "security", section: "admin" }] },
+  { label: "Admin", items: [{ label: "Audit log", href: "/admin/audit", icon: "audit", section: "admin" }, { label: "Trash", href: "/admin/trash", icon: "trash", section: "admin" }, { label: "Security", href: "/admin/security", icon: "security", section: "admin" }] },
 ];
 // Keep these three editorial destinations explicit for the existing navigation
 // discoverability contract, while sharing their active-state and badge chrome.

@@ -40,7 +40,7 @@ Must: hidden buttons are never authorization. Check on the server, in the action
 
 ## 4. Cloudflare bindings
 
-Always go through `src/lib/cloudflare/bindings.ts` (`getCloudflareBindings`, `getD1Database`, `getR2Bucket`, `getDb`). Resolution order: test-only D1 override, then `getCloudflareContext()` (Worker), then wrangler `getPlatformProxy` (local Miniflare; state dir from `DH_LOCAL_STATE_DIR`, default `.wrangler/state/v3`). Must not import `wrangler` or read `process.env` for bindings directly; wrangler is imported through a computed specifier so it is never bundled. Public R2 keys are limited to the `guides/` and `field-notes/` namespaces (`isPublicMediaKey`); course PDFs and knowledge sources are private.
+Always go through `src/lib/cloudflare/bindings.ts` (`getCloudflareBindings`, `getD1Database`, `getR2Bucket`, `getDb`). Resolution order: test-only D1 override, then `getCloudflareContext()` (Worker), then wrangler `getPlatformProxy` (local Miniflare; state dir from `DH_LOCAL_STATE_DIR`, default `.wrangler/state/v3`). Must not import `wrangler` or read `process.env` for bindings directly; wrangler is imported through a computed specifier so it is never bundled. Public R2 keys are limited to the `guides/`, `field-notes/` and `pages/` namespaces (`isPublicMediaKey`); course PDFs and knowledge sources are private.
 
 ## 5. Migrations
 

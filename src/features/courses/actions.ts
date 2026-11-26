@@ -271,6 +271,18 @@ export async function unpublishLessonAction(id: string): Promise<ActionState<{ s
   }
 }
 
+export async function archiveLessonAction(id: string): Promise<ActionState<{ slug: string }>> {
+  try {
+    const session = await requireAdmin();
+    const lesson = await courseService.archiveLesson(id);
+    await recordAdminAudit({ actorId: session.user.id, action: "lesson.archive", entityType: "lesson", entityId: id, details: { courseId: lesson.courseId, slug: lesson.slug, status: "archived" } });
+    revalidatePath(`/admin/courses/${lesson.courseId}/curriculum`);
+    return { ok: true, data: { slug: lesson.slug } };
+  } catch (err: unknown) {
+    return fail(err, "Failed to archive lesson");
+  }
+}
+
 export async function moveLessonAction(
   id: string,
   direction: "up" | "down"

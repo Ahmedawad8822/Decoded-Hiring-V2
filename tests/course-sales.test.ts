@@ -181,10 +181,8 @@ test("published courses are publicly visible; drafts and archived are not", asyn
 test("trashed courses are treated as missing (runtime Trash gate)", async () => {
   // The Trash lifecycle (trashed_at) lands in a parallel change; the public
   // reads gate on the property at runtime either way.
-  assert.equal(isTrashedCourse({ status: "published" }), false);
-  assert.equal(isTrashedCourse({ status: "published", trashedAt: null } as never), false);
-  assert.equal(isTrashedCourse({ status: "published", trashedAt: new Date() } as never), true);
-  assert.equal(isTrashedCourse({ status: "published", trashed_at: new Date() } as never), true);
+  assert.equal(isTrashedCourse({ trashedAt: null }), false);
+  assert.equal(isTrashedCourse({ trashedAt: new Date() }), true);
 
   // A published row with no trash marker stays visible.
   const { slug } = await makePublishedCourse();

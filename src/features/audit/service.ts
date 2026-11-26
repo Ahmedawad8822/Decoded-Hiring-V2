@@ -22,6 +22,7 @@ import { adminAuditLog, getDb, users, type AdminAuditLogRow, type Database } fro
 export const AUDIT_ENTITY_TYPES = [
   "guide",
   "field_note",
+  "page",
   "course",
   "certificate",
   "course_section",
@@ -29,6 +30,7 @@ export const AUDIT_ENTITY_TYPES = [
   "lesson_quiz",
   "lesson_resource",
   "media",
+  "landing_page",
   "offer",
   "booking_type",
   "availability_window",

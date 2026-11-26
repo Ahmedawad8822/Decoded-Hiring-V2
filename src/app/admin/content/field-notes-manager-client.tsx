@@ -19,6 +19,10 @@ import {
   archiveFieldNoteAction,
   getFieldNoteRevisionsAction,
 } from "@/features/field-notes/actions";
+import {
+  restoreArchivedItemAction,
+  trashItemAction,
+} from "@/features/trash/actions";
 
 interface FieldNotesManagerClientProps {
   startNew?: boolean;
@@ -71,7 +75,7 @@ export function FieldNotesManagerClient({ startNew = false, initialNotes }: Fiel
 
   const [toast, showToast] = useToast();
   const [confirmModal, setConfirmModal] = useState<{
-    action: "publish" | "unpublish" | "archive";
+    action: "publish" | "unpublish" | "archive" | "restore" | "trash";
     noteId: string;
     noteTitle: string;
   } | null>(null);
@@ -237,6 +241,21 @@ export function FieldNotesManagerClient({ startNew = false, initialNotes }: Fiel
       } else {
         showToast("Action Failed", res.error || "Archive failed", "error");
       }
+    } else if (action === "restore") {
+      const res = await restoreArchivedItemAction({ type: "field_note", id: noteId });
+      if (res.ok) {
+        setCurrentStatus("draft");
+        showToast("Restored", "Field note restored to draft.");
+      } else {
+        showToast("Action Failed", res.error || "Restore failed", "error");
+      }
+    } else if (action === "trash") {
+      const res = await trashItemAction({ type: "field_note", id: noteId });
+      if (res.ok) {
+        showToast("Moved to Trash", "Field note moved to Trash. Recover it from Admin → Trash within 30 days.");
+      } else {
+        showToast("Action Failed", res.error || "Move to Trash failed", "error");
+      }
     }
     if (editingNoteId) loadRevisions(editingNoteId);
     router.refresh();
@@ -291,6 +310,24 @@ export function FieldNotesManagerClient({ startNew = false, initialNotes }: Fiel
         Archive
       </Button>
     )}
+    {n.status === "archived" && (
+      <Button
+        className="btn ghost small"
+        type="button"
+        onClick={() => setConfirmModal({ action: "restore", noteId: n.id, noteTitle: n.title })}
+      >
+        Restore to draft
+      </Button>
+    )}
+    {(n.status === "draft" || n.status === "archived") && (
+      <Button
+        className="btn ghost small"
+        type="button"
+        onClick={() => setConfirmModal({ action: "trash", noteId: n.id, noteTitle: n.title })}
+      >
+        Move to Trash
+      </Button>
+    )}
   </div>);
 
   return (
@@ -324,6 +361,22 @@ export function FieldNotesManagerClient({ startNew = false, initialNotes }: Fiel
                   <strong>Consequences:</strong>
                   <ul>
                     <li>The note will return to Draft state and be removed from public discovery.</li>
+                  </ul>
+                </div>
+              )}
+              {confirmModal.action === "restore" && (
+                <div className="dg-consequences">
+                  <strong>Consequences:</strong>
+                  <ul>
+                    <li>The note will return to Draft state for editing. It will not be published automatically.</li>
+                  </ul>
+                </div>
+              )}
+              {confirmModal.action === "trash" && (
+                <div className="dg-consequences">
+                  <strong>Consequences:</strong>
+                  <ul>
+                    <li>The note will be hidden from every Studio list and public view, and recoverable from Admin → Trash for 30 days.</li>
                   </ul>
                 </div>
               )}

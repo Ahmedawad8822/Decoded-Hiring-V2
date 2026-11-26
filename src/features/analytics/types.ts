@@ -1,4 +1,6 @@
 export const BUSINESS_EVENT_NAMES = [
+  "landing_page_viewed",
+  "landing_page_cta_clicked",
   "offer_cta_clicked",
   "booking_started",
   "slot_held",

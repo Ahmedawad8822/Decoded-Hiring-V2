@@ -1,4 +1,5 @@
 import type { NextConfig } from "next";
+import { buildPagePreviewRewriteSource } from "./src/features/pages/reserved-slugs";
 
 const isProd = process.env.NODE_ENV === "production";
 
@@ -67,8 +68,8 @@ const nextConfig: NextConfig = {
   serverExternalPackages: ["wrangler", "miniflare", "esbuild"],
   // Staff preview (?preview=true) must read the session, which would make the
   // public article routes dynamic. Rewrite it to dedicated dynamic routes so
-  // /guides/[slug] and /field-notes/[slug] stay static/ISR. The browser URL
-  // is unchanged. beforeFiles so it wins over the dynamic segment.
+  // /guides/[slug], /field-notes/[slug] and /go/[slug] stay static/ISR. The
+  // browser URL is unchanged. beforeFiles so it wins over the dynamic segment.
   async rewrites() {
     return {
       beforeFiles: [
@@ -81,6 +82,20 @@ const nextConfig: NextConfig = {
           source: "/field-notes/:slug",
           has: [{ type: "query" as const, key: "preview", value: "true" }],
           destination: "/preview/field-notes/:slug",
+        },
+        {
+          source: "/go/:slug",
+          has: [{ type: "query" as const, key: "preview", value: "true" }],
+          destination: "/preview/landing-pages/:slug",
+        },
+        {
+          // Constrained to non-reserved slugs (see reserved-slugs.ts, the
+          // single source of truth): without the regex, this beforeFiles
+          // rewrite would steal /admin, /api, /learn, /login, /signup,
+          // /sitemap.xml, /robots.txt, ... whenever ?preview=true is set.
+          source: buildPagePreviewRewriteSource(),
+          has: [{ type: "query" as const, key: "preview", value: "true" }],
+          destination: "/preview/pages/:slug",
         },
       ],
       afterFiles: [],

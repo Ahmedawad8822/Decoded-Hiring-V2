@@ -30,6 +30,10 @@ export type CreateLeadSubmissionInput = {
   workflowToImprove: string | null;
   sourceRoute: string;
   audiencePath: string | null;
+  /** /go/[slug] attribution: landing_pages.id (plain text, survives delete). */
+  landingPageId?: string | null;
+  /** Small JSON object of incoming utm_* values (keys + values bounded). */
+  utmParams?: string | null;
   privacyAcknowledged: boolean;
   researchAccepted: boolean;
   emailMarketing: boolean;
@@ -88,6 +92,8 @@ function assertSameIntent(
     (existing.workflowToImprove ?? null) === input.workflowToImprove &&
     existing.sourceRoute === input.sourceRoute &&
     (existing.audiencePath ?? null) === input.audiencePath &&
+    (existing.landingPageId ?? null) === (input.landingPageId ?? null) &&
+    (existing.utmParams ?? null) === (input.utmParams ?? null) &&
     existing.privacyAcknowledged === input.privacyAcknowledged &&
     existing.researchAccepted === input.researchAccepted &&
     existing.emailMarketing === input.emailMarketing &&
@@ -180,6 +186,8 @@ export async function createLeadSubmission(
     workflowToImprove: input.workflowToImprove,
     sourceRoute: input.sourceRoute,
     audiencePath: input.audiencePath,
+    landingPageId: input.landingPageId ?? null,
+    utmParams: input.utmParams ?? null,
     privacyAcknowledged: input.privacyAcknowledged,
     researchAccepted: input.researchAccepted,
     emailMarketing: input.emailMarketing,

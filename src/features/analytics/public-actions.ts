@@ -72,6 +72,84 @@ export async function recordPublicOfferCta(input: unknown): Promise<void> {
 }
 
 
+const landingPageSchema = z.object({
+  eventKey: z.string().uuid(),
+  landingPageId: z.string().trim().min(1).max(80),
+  slug: z.string().trim().min(1).max(160),
+});
+
+/**
+ * View event for /go/[slug], tagged with the landing page id. Best-effort
+ * and rate-limited like every other public event: an over-limit view is
+ * dropped silently. The page must be live; anything else is ignored so
+ * previews and ended campaigns never pollute the funnel.
+ */
+export async function recordLandingPageView(input: unknown): Promise<void> {
+  const parsed = landingPageSchema.parse(input);
+  const { getAdminLandingPageBySlug } = await import("../landing-pages/service");
+  const { getLandingScheduleState } = await import("../landing-pages/types");
+  const page = await getAdminLandingPageBySlug(parsed.slug);
+  if (
+    !page ||
+    page.id !== parsed.landingPageId ||
+    page.trashedAt !== null ||
+    page.status !== "published" ||
+    getLandingScheduleState(page) !== "live"
+  ) {
+    return;
+  }
+
+  const now = new Date();
+  if (!(await admitPublicAnalytics(now))) return;
+
+  await recordBusinessEventBestEffort({
+    dedupeKey: `landing-view:${parsed.eventKey}`,
+    eventName: "landing_page_viewed",
+    subjectType: "PUBLIC",
+    subjectId: page.id,
+    route: `/go/${page.slug}`,
+    surface: "landing-page",
+    metadata: { target_kind: page.targetKind },
+    occurredAt: now,
+  });
+}
+
+const landingCtaSchema = landingPageSchema.extend({
+  surface: z.enum(["hero", "cta_band", "target_summary", "sticky"]),
+});
+
+/** CTA click on a landing page, tagged with the landing page id. */
+export async function recordLandingPageCta(input: unknown): Promise<void> {
+  const parsed = landingCtaSchema.parse(input);
+  const { getAdminLandingPageBySlug } = await import("../landing-pages/service");
+  const { getLandingScheduleState } = await import("../landing-pages/types");
+  const page = await getAdminLandingPageBySlug(parsed.slug);
+  if (
+    !page ||
+    page.id !== parsed.landingPageId ||
+    page.trashedAt !== null ||
+    page.status !== "published" ||
+    getLandingScheduleState(page) !== "live"
+  ) {
+    return;
+  }
+
+  const now = new Date();
+  if (!(await admitPublicAnalytics(now))) return;
+
+  await recordBusinessEventBestEffort({
+    dedupeKey: `landing-cta:${parsed.eventKey}`,
+    eventName: "landing_page_cta_clicked",
+    subjectType: "PUBLIC",
+    subjectId: page.id,
+    offerId: page.targetKind === "offer" ? page.targetOfferId : null,
+    route: `/go/${page.slug}`,
+    surface: parsed.surface,
+    metadata: { target_kind: page.targetKind, cta_surface: parsed.surface },
+    occurredAt: now,
+  });
+}
+
 const publicBookingStartedSchema = z.object({
   eventKey: z.string().uuid(),
   offerSlug: z.string().trim().min(1).max(160),

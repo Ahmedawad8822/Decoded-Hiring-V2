@@ -128,6 +128,165 @@ function toBoolean(value: FormDataEntryValue | null) {
   return value === "on" || value === "true";
 }
 
+const landingUtmField = z.preprocess(
+  (value) => (typeof value === "string" && value.trim() === "" ? null : value),
+  z.string().trim().max(80).nullable(),
+);
+
+const landingLeadExtraSchema = z.object({
+  landingSlug: z.string().trim().min(3).max(100),
+  utm_source: landingUtmField,
+  utm_medium: landingUtmField,
+  utm_campaign: landingUtmField,
+  utm_term: landingUtmField,
+  utm_content: landingUtmField,
+});
+
+/**
+ * Lead-capture for the /go/[slug] "lead form" block. Same intake, same
+ * per-IP limits as every other form: kind is always "contact", sourceRoute is
+ * the landing page path, and the row carries the landing page id plus the
+ * incoming UTMs. The slug is bound server-side by the page, never trusted
+ * from the browser.
+ */
+export async function submitLandingLead(
+  landingSlug: string,
+  _previous: LeadActionState,
+  formData: FormData,
+): Promise<LeadActionState> {
+  const requestId = randomUUID();
+
+  const { getAdminLandingPageBySlug } = await import("../landing-pages/service");
+  const { getLandingScheduleState } = await import("../landing-pages/types");
+  const page = await getAdminLandingPageBySlug(landingSlug);
+  if (
+    !page ||
+    page.trashedAt !== null ||
+    page.status !== "published" ||
+    getLandingScheduleState(page) !== "live"
+  ) {
+    return {
+      ok: false,
+      message: "This campaign is no longer accepting responses.",
+      requestId,
+    };
+  }
+
+  const extra = landingLeadExtraSchema.safeParse({
+    landingSlug,
+    utm_source: formData.get("utm_source"),
+    utm_medium: formData.get("utm_medium"),
+    utm_campaign: formData.get("utm_campaign"),
+    utm_term: formData.get("utm_term"),
+    utm_content: formData.get("utm_content"),
+  });
+  if (!extra.success) {
+    return {
+      ok: false,
+      message: "Some details need attention before sending.",
+      requestId,
+    };
+  }
+
+  const parsed = leadSchema.safeParse({
+    kind: "contact",
+    idempotencyKey: formData.get("idempotencyKey"),
+    fullName: formData.get("fullName"),
+    email: formData.get("email"),
+    positionTitle: formData.get("positionTitle"),
+    companyName: formData.get("companyName"),
+    countryCode: formData.get("countryCode"),
+    phoneE164: formData.get("phoneE164"),
+    problemSummary: formData.get("problemSummary"),
+    desiredOutcome: formData.get("desiredOutcome"),
+    timing: formData.get("timing"),
+    teamSize: formData.get("teamSize") ?? null,
+    deliveryPreference: formData.get("deliveryPreference") ?? null,
+    aiUseLevel: formData.get("aiUseLevel") ?? null,
+    workflowToImprove: formData.get("workflowToImprove"),
+    sourceRoute: `/go/${page.slug}`,
+    audiencePath: "",
+    privacyAcknowledged: toBoolean(formData.get("privacyAcknowledged")),
+    researchAccepted: toBoolean(formData.get("researchAccepted")),
+    emailMarketing: toBoolean(formData.get("emailMarketing")),
+    whatsapp: toBoolean(formData.get("whatsapp")),
+    calls: toBoolean(formData.get("calls")),
+    website: formData.get("website") ?? "",
+  });
+
+  if (!parsed.success) {
+    return {
+      ok: false,
+      message: "Some details need attention before sending.",
+      requestId,
+      fieldErrors: parsed.error.flatten().fieldErrors,
+    };
+  }
+
+  const utmEntries = [
+    ["utm_source", extra.data.utm_source],
+    ["utm_medium", extra.data.utm_medium],
+    ["utm_campaign", extra.data.utm_campaign],
+    ["utm_term", extra.data.utm_term],
+    ["utm_content", extra.data.utm_content],
+  ].filter(([, value]) => Boolean(value)) as [string, string][];
+
+  try {
+    await createLeadSubmission({
+      clientIpHash: await getRequestClientIpHash(),
+      idempotencyKey: parsed.data.idempotencyKey,
+      kind: parsed.data.kind,
+      fullName: parsed.data.fullName,
+      email: parsed.data.email,
+      positionTitle: parsed.data.positionTitle,
+      companyName: parsed.data.companyName,
+      countryCode: parsed.data.countryCode,
+      phoneE164: parsed.data.phoneE164,
+      problemSummary: parsed.data.problemSummary,
+      desiredOutcome: parsed.data.desiredOutcome,
+      timing: parsed.data.timing,
+      teamSize: parsed.data.teamSize,
+      deliveryPreference: parsed.data.deliveryPreference,
+      aiUseLevel: parsed.data.aiUseLevel,
+      workflowToImprove: parsed.data.workflowToImprove,
+      sourceRoute: parsed.data.sourceRoute,
+      audiencePath: parsed.data.audiencePath,
+      landingPageId: page.id,
+      utmParams: utmEntries.length > 0 ? JSON.stringify(Object.fromEntries(utmEntries)) : null,
+      privacyAcknowledged: parsed.data.privacyAcknowledged,
+      researchAccepted: parsed.data.researchAccepted,
+      emailMarketing: parsed.data.emailMarketing,
+      whatsapp: parsed.data.whatsapp,
+      calls: parsed.data.calls,
+      now: new Date(),
+    });
+
+    return {
+      ok: true,
+      message:
+        "Your request has been saved securely. Ahmed can review the context from the Decoded Hiring business inbox as that admin surface comes online.",
+    };
+  } catch (error: unknown) {
+    if (error instanceof LeadDomainError) {
+      return {
+        ok: false,
+        message:
+          error.code === "RATE_LIMITED"
+            ? "Too many enquiry submissions were created in a short window. Please try again later."
+            : "This submission identity is already bound to different enquiry details. Refresh the page before trying again.",
+        requestId,
+      };
+    }
+
+    return {
+      ok: false,
+      message:
+        "Your request could not be saved safely. Please try again later.",
+      requestId,
+    };
+  }
+}
+
 export async function submitLead(
   kind: LeadSubmissionKind,
   sourceRoute: string,
