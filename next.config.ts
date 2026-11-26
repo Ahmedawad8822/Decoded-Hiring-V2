@@ -82,6 +82,11 @@ const nextConfig: NextConfig = {
           has: [{ type: "query" as const, key: "preview", value: "true" }],
           destination: "/preview/field-notes/:slug",
         },
+        {
+          source: "/:slug",
+          has: [{ type: "query" as const, key: "preview", value: "true" }],
+          destination: "/preview/pages/:slug",
+        },
       ],
       afterFiles: [],
       fallback: [],

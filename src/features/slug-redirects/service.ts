@@ -5,6 +5,7 @@ import {
   getDb,
   guides,
   lessons,
+  pages,
   slugRedirects,
   type Database,
   type SlugRedirectEntityType,
@@ -123,6 +124,16 @@ export async function resolveFieldNoteRedirect(oldSlug: string): Promise<string 
   const row = await db.select().from(fieldNotes).where(eq(fieldNotes.id, entityId)).get();
   if (!row || row.status !== "published" || row.slug === oldSlug) return null;
   return `/field-notes/${row.slug}`;
+}
+
+/** Current public path for a once-renamed standard page slug, or null (-> 404). */
+export async function resolvePageRedirect(oldSlug: string): Promise<string | null> {
+  const entityId = await findRedirectEntityId({ entityType: "page", scope: "", slug: oldSlug });
+  if (!entityId) return null;
+  const db = await getDb();
+  const row = await db.select().from(pages).where(eq(pages.id, entityId)).get();
+  if (!row || row.status !== "published" || row.trashedAt !== null || row.slug === oldSlug) return null;
+  return `/${row.slug}`;
 }
 
 /** Courses stay reachable when archived (entitled learners), so only drafts are excluded. */

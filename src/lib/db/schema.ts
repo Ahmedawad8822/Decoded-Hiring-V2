@@ -162,6 +162,72 @@ export const fieldNoteRevisions = sqliteTable(
 );
 
 // ============================================================================
+// STANDARD PAGES (website content batch §3)
+// ----------------------------------------------------------------------------
+// Governed information pages (policy, FAQ, press...) served from /[slug]
+// without code changes. Hand-built pages (About, legal, contact) stay as
+// they are. Shares the ContentStatus lifecycle, ContentBlock storage model,
+// media boundary, preview rule and cache strategy with Field Notes.
+// Trash is built in from the start: `trashedAt` + `trashedFromStatus`
+// (§1 lifecycle). Slugs of trashed rows stay reserved until permanent
+// delete. `noindex` keeps a page public but out of the sitemap and search
+// indexes.
+// Revision history mirrors Field Notes: a snapshot is recorded on publish
+// and on every update applied while published, plus unpublish/archive —
+// so the history shows what actually went live and what changed it.
+// ============================================================================
+
+export type PageStatus = ContentStatus;
+
+export const pages = sqliteTable(
+  "pages",
+  {
+    id: text("id").primaryKey(),
+    title: text("title").notNull(),
+    slug: text("slug").notNull().unique(),
+    summary: text("summary"),
+    body: text("body").notNull(), // JSON-stringified ContentBlock[]
+    coverImage: text("cover_image"),
+    status: text("status").$type<PageStatus>().notNull().default("draft"),
+    metaTitle: text("meta_title"),
+    metaDescription: text("meta_description"),
+    noindex: integer("noindex", { mode: "boolean" }).notNull().default(false),
+    trashedAt: integer("trashed_at", { mode: "timestamp" }),
+    trashedFromStatus: text("trashed_from_status").$type<PageStatus>(),
+    createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+    updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+    publishedAt: integer("published_at", { mode: "timestamp" }),
+  },
+  (table) => [
+    // Studio list filters by status; the Trash registry and purge scan by
+    // trashed_at. Each is an indexed access path, never a whole-table scan per request.
+    index("pages_status_idx").on(table.status),
+    index("pages_trashed_at_idx").on(table.trashedAt),
+  ]
+);
+
+export type PageRevisionTrigger = "publish" | "update" | "unpublish" | "archive" | "restore";
+
+export const pageRevisions = sqliteTable(
+  "page_revisions",
+  {
+    id: text("id").primaryKey(),
+    pageId: text("page_id")
+      .notNull()
+      .references(() => pages.id, { onDelete: "cascade" }),
+    title: text("title").notNull(),
+    body: text("body").notNull(), // JSON-stringified ContentBlock[] snapshot
+    status: text("status").$type<PageStatus>().notNull(),
+    trigger: text("trigger").$type<PageRevisionTrigger>().notNull(),
+    createdBy: text("created_by"),
+    createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+  },
+  (table) => [
+    index("page_revisions_page_idx").on(table.pageId),
+  ]
+);
+
+// ============================================================================
 // MEDIA DOMAIN (Cloudflare R2 Metadata)
 // ============================================================================
 
@@ -180,6 +246,8 @@ export type Session = typeof sessions.$inferSelect;
 export type Guide = typeof guides.$inferSelect;
 export type FieldNote = typeof fieldNotes.$inferSelect;
 export type FieldNoteRevision = typeof fieldNoteRevisions.$inferSelect;
+export type Page = typeof pages.$inferSelect;
+export type PageRevision = typeof pageRevisions.$inferSelect;
 export type Media = typeof media.$inferSelect;
 
 // ============================================================================
@@ -1363,7 +1431,7 @@ export type OrchestrationHistory = typeof orchestrationHistory.$inferSelect;
 // deletes the redirect row for it (live entity wins).
 // ============================================================================
 
-export type SlugRedirectEntityType = "guide" | "field_note" | "course" | "lesson";
+export type SlugRedirectEntityType = "guide" | "field_note" | "course" | "lesson" | "page";
 
 export const slugRedirects = sqliteTable(
   "slug_redirects",
