@@ -78,6 +78,70 @@ export class FakeProvider implements LLMProvider {
     // Validate before returning — catches schema drift in tests.
     return validateDraftOutput(output);
   }
+
+  /**
+   * Deterministic course-outline draft for the Studio curriculum editor
+   * (src/features/course-outline). Groups the retrieved knowledge chunks into
+   * up to 3 sections of 2 lessons, deriving titles from chunk headings and
+   * summaries from chunk content. No network calls; output is fully
+   * determined by the input chunks so tests and local dev work without a key.
+   *
+   * The result is plain structured data — the course-outline service validates
+   * it against its own zod schema exactly like real provider output, so this
+   * path exercises the same sanitize-and-ground pipeline.
+   */
+  async generateOutline(input: {
+    topic: string;
+    chunks: FakeOutlineChunk[];
+  }): Promise<FakeOutlineJson> {
+    const chunks = input.chunks.slice(0, 6);
+    const sections: FakeOutlineJson["sections"] = [];
+    for (let i = 0; i < chunks.length; i += 2) {
+      const pair = chunks.slice(i, i + 2);
+      const first = pair[0]!;
+      const sectionTitle = first.heading?.trim() || `${first.sourceTitle} — part ${sections.length + 1}`;
+      sections.push({
+        title: sectionTitle.slice(0, 160),
+        lessons: pair.map((chunk) => ({
+          title: (chunk.heading?.trim() || firstSentence(chunk.content)).slice(0, 160),
+          summary: firstSentence(chunk.content).slice(0, 500),
+          // Deterministic 10–50 minute estimate derived from chunk length.
+          durationMinutes: 10 + (chunk.content.length % 41),
+          sourceIds: [chunk.sourceId],
+        })),
+      });
+    }
+    return { sections };
+  }
+}
+
+/** Minimal chunk view the fake outline needs (structural — no imports). */
+export interface FakeOutlineChunk {
+  chunkId: string;
+  sourceId: string;
+  sourceTitle: string;
+  heading: string | null;
+  ordinal: number;
+  content: string;
+}
+
+/** Raw outline JSON shape (mirrors the course-outline raw schema). */
+export interface FakeOutlineJson {
+  sections: Array<{
+    title: string;
+    lessons: Array<{
+      title: string;
+      summary: string;
+      durationMinutes: number;
+      sourceIds: string[];
+    }>;
+  }>;
+}
+
+function firstSentence(text: string): string {
+  const cleaned = text.replace(/\s+/g, " ").trim();
+  const match = cleaned.match(/^(.+?[.!?])(\s|$)/);
+  return (match?.[1] ?? cleaned).slice(0, 200) || "Key concept from the knowledge base.";
 }
 
 function slugify(text: string): string {
