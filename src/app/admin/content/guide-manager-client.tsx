@@ -17,6 +17,10 @@ import {
   unpublishGuideAction,
   archiveGuideAction,
 } from "@/features/guides/actions";
+import {
+  restoreArchivedItemAction,
+  trashItemAction,
+} from "@/features/trash/actions";
 
 interface GuideManagerClientProps {
   startNew?: boolean;
@@ -51,7 +55,7 @@ export function GuideManagerClient({ startNew = false, initialGuides }: GuideMan
   // UI state
   const [toast, showToast] = useToast();
   const [confirmModal, setConfirmModal] = useState<{
-    action: "publish" | "unpublish" | "archive";
+    action: "publish" | "unpublish" | "archive" | "restore" | "trash";
     guideId: string;
     guideTitle: string;
   } | null>(null);
@@ -269,6 +273,21 @@ export function GuideManagerClient({ startNew = false, initialGuides }: GuideMan
       } else {
         showToast("Action Failed", res.error || "Archive failed", "error");
       }
+    } else if (action === "restore") {
+      const res = await restoreArchivedItemAction({ type: "guide", id: guideId });
+      if (res.ok) {
+        setCurrentStatus("draft");
+        showToast("Restored", "Guide restored to draft.");
+      } else {
+        showToast("Action Failed", res.error || "Restore failed", "error");
+      }
+    } else if (action === "trash") {
+      const res = await trashItemAction({ type: "guide", id: guideId });
+      if (res.ok) {
+        showToast("Moved to Trash", "Guide moved to Trash. Recover it from Admin → Trash within 30 days.");
+      } else {
+        showToast("Action Failed", res.error || "Move to Trash failed", "error");
+      }
     }
 
     router.refresh();
@@ -349,6 +368,36 @@ export function GuideManagerClient({ startNew = false, initialGuides }: GuideMan
         Archive
       </Button>
     )}
+    {g.status === "archived" && (
+      <Button
+        className="btn ghost small"
+        type="button"
+        onClick={() =>
+          setConfirmModal({
+            action: "restore",
+            guideId: g.id,
+            guideTitle: g.title,
+          })
+        }
+      >
+        Restore to draft
+      </Button>
+    )}
+    {(g.status === "draft" || g.status === "archived") && (
+      <Button
+        className="btn ghost small"
+        type="button"
+        onClick={() =>
+          setConfirmModal({
+            action: "trash",
+            guideId: g.id,
+            guideTitle: g.title,
+          })
+        }
+      >
+        Move to Trash
+      </Button>
+    )}
   </div>);
 
   return (
@@ -384,6 +433,22 @@ export function GuideManagerClient({ startNew = false, initialGuides }: GuideMan
                   <strong>Consequences:</strong>
                   <ul>
                     <li>The guide will return to Draft state and be removed from public discovery.</li>
+                  </ul>
+                </div>
+              )}
+              {confirmModal.action === "restore" && (
+                <div className="dg-consequences">
+                  <strong>Consequences:</strong>
+                  <ul>
+                    <li>The guide will return to Draft state for editing. It will not be published automatically.</li>
+                  </ul>
+                </div>
+              )}
+              {confirmModal.action === "trash" && (
+                <div className="dg-consequences">
+                  <strong>Consequences:</strong>
+                  <ul>
+                    <li>The guide will be hidden from every Studio list and public view, and recoverable from Admin → Trash for 30 days.</li>
                   </ul>
                 </div>
               )}

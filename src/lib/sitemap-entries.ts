@@ -5,15 +5,16 @@ import { getSiteUrl } from "@/lib/seo";
 import { getPublishedGuides } from "@/features/guides/service";
 import { getPublishedFieldNotes } from "@/features/field-notes/service";
 import { getSitemapLandingPages } from "@/features/landing-pages/service";
+import { getSitemapPages } from "@/features/pages/service";
 
 // ============================================================================
 // SITEMAP ENTRIES — remediation B.2/B.4
 // ----------------------------------------------------------------------------
 // Single source of truth for sitemap content, shared by src/app/sitemap.ts
 // and the regression suite. Static public marketing routes plus the canonical
-// URLs of PUBLISHED guides, field notes and indexable live landing pages
-// only. Drafts, archived content, trashed rows, noindex pages and campaigns
-// outside their schedule can never appear: the source queries filter at the
+// URLs of PUBLISHED guides, field notes, indexable standard pages and
+// indexable live landing pages only. Drafts, archived, trashed, noindex and
+// out-of-schedule content can never appear: the source queries filter at the
 // service layer, and tests assert excluded slugs stay out.
 // Static routes omit lastModified (stable timestamp unknown); dynamic content
 // uses updatedAt. Adds max-image-preview: large via robots (not sitemap).
@@ -22,9 +23,10 @@ import { getSitemapLandingPages } from "@/features/landing-pages/service";
 export async function buildSitemapEntries(): Promise<MetadataRoute.Sitemap> {
   const base = getSiteUrl().toString().replace(/\/$/, "");
 
-  const [guides, fieldNotes, landingPages] = await Promise.all([
+  const [guides, fieldNotes, stdPages, landingPages] = await Promise.all([
     getPublishedGuides(),
     getPublishedFieldNotes(),
+    getSitemapPages(),
     getSitemapLandingPages(),
   ]);
 
@@ -44,6 +46,12 @@ export async function buildSitemapEntries(): Promise<MetadataRoute.Sitemap> {
     lastModified: note.updatedAt ?? undefined,
   }));
 
+  const pageEntries: MetadataRoute.Sitemap = stdPages.map((page) => ({
+    url: `${base}/${page.slug}`,
+    lastModified: page.updatedAt ?? undefined,
+  }));
+
+
   // Campaign pages: only live, published rows that opted into indexing
   // (noindex is the default, so most campaigns stay out).
   const landingPageEntries: MetadataRoute.Sitemap = landingPages.map((page) => ({
@@ -51,5 +59,6 @@ export async function buildSitemapEntries(): Promise<MetadataRoute.Sitemap> {
     lastModified: page.updatedAt ?? undefined,
   }));
 
-  return [...staticEntries, ...guideEntries, ...fieldNoteEntries, ...landingPageEntries];
+
+  return [...staticEntries, ...guideEntries, ...fieldNoteEntries, ...pageEntries, ...landingPageEntries];
 }

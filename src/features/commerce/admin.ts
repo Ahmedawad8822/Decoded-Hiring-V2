@@ -6,6 +6,7 @@ import {
   eq,
   gte,
   inArray,
+  isNull,
 } from "drizzle-orm";
 
 import { requireAdmin } from "@/lib/auth";
@@ -376,6 +377,8 @@ export async function getCommerceAdminDashboardWithGuard(
         status: courses.status,
       })
       .from(courses)
+      // Trashed courses are managed from the Trash page, not commerce.
+      .where(isNull(courses.trashedAt))
       .orderBy(asc(courses.title))
       .limit(COURSE_LIMIT)
       .offset((pages.courses - 1) * COURSE_LIMIT),

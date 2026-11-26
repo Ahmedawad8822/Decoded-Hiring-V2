@@ -264,8 +264,22 @@
     {
       "idx": 37,
       "version": "6",
-      "when": 1795698813544,
-      "tag": "0037_same_hitman",
+      "when": 1795698802445,
+      "tag": "0037_minor_strong_guy",
+      "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "6",
+      "when": 1795702362587,
+      "tag": "0038_brown_rage",
+      "breakpoints": true
+    },
+    {
+      "idx": 39,
+      "version": "6",
+      "when": 1795702531003,
+      "tag": "0039_bent_roland_deschain",
       "breakpoints": true
     }
   ]

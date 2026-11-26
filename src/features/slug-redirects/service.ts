@@ -5,6 +5,7 @@ import {
   getDb,
   guides,
   lessons,
+  pages,
   slugRedirects,
   type Database,
   type SlugRedirectEntityType,
@@ -112,7 +113,7 @@ export async function resolveGuideRedirect(oldSlug: string): Promise<string | nu
   if (!entityId) return null;
   const db = await getDb();
   const row = await db.select().from(guides).where(eq(guides.id, entityId)).get();
-  if (!row || row.status !== "published" || row.slug === oldSlug) return null;
+  if (!row || row.status !== "published" || row.trashedAt !== null || row.slug === oldSlug) return null;
   return `/guides/${row.slug}`;
 }
 
@@ -121,8 +122,18 @@ export async function resolveFieldNoteRedirect(oldSlug: string): Promise<string 
   if (!entityId) return null;
   const db = await getDb();
   const row = await db.select().from(fieldNotes).where(eq(fieldNotes.id, entityId)).get();
-  if (!row || row.status !== "published" || row.slug === oldSlug) return null;
+  if (!row || row.status !== "published" || row.trashedAt !== null || row.slug === oldSlug) return null;
   return `/field-notes/${row.slug}`;
+}
+
+/** Current public path for a once-renamed standard page slug, or null (-> 404). */
+export async function resolvePageRedirect(oldSlug: string): Promise<string | null> {
+  const entityId = await findRedirectEntityId({ entityType: "page", scope: "", slug: oldSlug });
+  if (!entityId) return null;
+  const db = await getDb();
+  const row = await db.select().from(pages).where(eq(pages.id, entityId)).get();
+  if (!row || row.status !== "published" || row.trashedAt !== null || row.slug === oldSlug) return null;
+  return `/${row.slug}`;
 }
 
 /** Courses stay reachable when archived (entitled learners), so only drafts are excluded. */
@@ -131,7 +142,7 @@ export async function resolveCourseRedirect(oldSlug: string): Promise<string | n
   if (!entityId) return null;
   const db = await getDb();
   const row = await db.select().from(courses).where(eq(courses.id, entityId)).get();
-  if (!row || row.status === "draft" || row.slug === oldSlug) return null;
+  if (!row || row.status === "draft" || row.trashedAt !== null || row.slug === oldSlug) return null;
   return `/learn/courses/${row.slug}`;
 }
 
@@ -152,7 +163,7 @@ export async function resolveLessonRedirect(
     if (!courseId) return null;
     course = await db.select().from(courses).where(eq(courses.id, courseId)).get();
   }
-  if (!course || course.status === "draft") return null;
+  if (!course || course.status === "draft" || course.trashedAt !== null) return null;
 
   let lesson = await db
     .select()
@@ -168,7 +179,7 @@ export async function resolveLessonRedirect(
     if (!lessonId) return null;
     lesson = await db.select().from(lessons).where(eq(lessons.id, lessonId)).get();
   }
-  if (!lesson || lesson.courseId !== course.id || lesson.status !== "published") return null;
+  if (!lesson || lesson.courseId !== course.id || lesson.status !== "published" || lesson.trashedAt !== null) return null;
   if (course.slug === courseSlug && lesson.slug === lessonSlug) return null;
   return `/learn/courses/${course.slug}/lessons/${lesson.slug}`;
 }

@@ -517,7 +517,7 @@ export async function deleteLandingPagePermanently(
   if (current.trashedAt === null) {
     throw new AppError("invalid", "Only pages in Trash can be permanently deleted. Move it to Trash first.");
   }
-  if (confirmTitle.trim() !== current.title) {
+  if (confirmTitle.trim() !== current.title.trim()) {
     throw new AppError("invalid", "Type the exact page title to confirm permanent deletion.");
   }
   const db = await getDb();

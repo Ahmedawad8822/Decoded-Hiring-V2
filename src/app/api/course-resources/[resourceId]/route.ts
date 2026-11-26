@@ -5,7 +5,7 @@ import { resolveLessonResourceAccess } from "@/lib/course-resources/access";
 import { findSequentialBlocker, lessonReleaseAt } from "@/features/courses/release";
 import { getEnrollment } from "@/features/enrollments/service";
 import { hasLearnerAccess } from "@/features/enrollments/access";
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, eq, isNull } from "drizzle-orm";
 import { NextResponse } from "next/server";
 
 /**
@@ -14,6 +14,8 @@ import { NextResponse } from "next/server";
  * with the lesson PUBLISHED). Admin bypasses the published gate so drafts can
  * be retrieved for authoring/review. Private caching semantics — never
  * public/immutable. 404 for unpublished resources to avoid existence leakage.
+ * Trashed lessons and trashed courses answer 404 for everyone (restore from
+ * the Studio Trash page first) — Trash hides content from every learner view.
  * Authorization verdict lives in lib/course-resources/access.ts (shared with
  * the regression suite; route modules must not export non-HTTP members).
  */
@@ -44,6 +46,16 @@ export async function GET(
     .from(lessons)
     .where(eq(lessons.id, resource.lessonId))
     .get();
+  // Trash hides content from every learner view: trashed lessons (and
+  // resources whose course is trashed) 404 for everyone, admins included.
+  const courseRow = await db
+    .select({ trashedAt: courses.trashedAt })
+    .from(courses)
+    .where(eq(courses.id, resource.courseId))
+    .get();
+  if (!lesson || lesson.trashedAt !== null || !courseRow || courseRow.trashedAt !== null) {
+    return NextResponse.json({ error: "Resource not found" }, { status: 404 });
+  }
 
   const role = (session.user as { role?: string }).role;
   // The enrollment lookup ONLY happens for non-admins — admins retrieve
@@ -78,7 +90,7 @@ export async function GET(
           .select()
           .from(lessons)
           .innerJoin(courseSections, eq(lessons.sectionId, courseSections.id))
-          .where(and(eq(lessons.courseId, resource.courseId), eq(lessons.status, "published")))
+          .where(and(eq(lessons.courseId, resource.courseId), eq(lessons.status, "published"), isNull(lessons.trashedAt)))
           .orderBy(asc(courseSections.position), asc(lessons.position), asc(lessons.createdAt));
         const ordered = published.map((row) => row.lessons);
         const doneRows = await db

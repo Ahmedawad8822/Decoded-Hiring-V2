@@ -12,6 +12,10 @@ import {
   unpublishCourseAction,
   updateCourseAction,
 } from "@/features/courses/actions";
+import {
+  restoreArchivedItemAction,
+  trashItemAction,
+} from "@/features/trash/actions";
 
 import { parseCourseLanding } from "@/features/courses/metadata";
 
@@ -63,7 +67,7 @@ export function CoursesClient({
   const [coachingPath, setCoachingPath] = useState("");
 
   const [confirmModal, setConfirmModal] = useState<{
-    action: "archive";
+    action: "archive" | "restore" | "trash";
     courseId: string;
     courseTitle: string;
   } | null>(null);
@@ -225,18 +229,28 @@ export function CoursesClient({
       {confirmModal && (
         <div className="dialog s-stack s-place-items-center" >
           <div className="dg-panel">
-            <h3>Confirm Archive</h3>
+            <h3>Confirm {confirmModal.action === "trash" ? "Move to Trash" : confirmModal.action === "restore" ? "Restore" : "Archive"}</h3>
             <div className="dg-body">
               <p>
-                Are you sure you want to <strong>archive</strong> &ldquo;
+                Are you sure you want to <strong>{confirmModal.action === "trash" ? "move to Trash" : confirmModal.action === "restore" ? "restore to draft" : "archive"}</strong> &ldquo;
                 {confirmModal.courseTitle}&rdquo;?
               </p>
               <div className="dg-consequences">
                 <strong>Consequences:</strong>
                 <ul>
-                  <li>The course will no longer accept new enrollments.</li>
-                  <li>Existing enrolled learners retain access.</li>
-                  <li>Archived courses are terminal — cannot be republished or unpublished.</li>
+                  {confirmModal.action === "archive" && (
+                    <>
+                      <li>The course will no longer accept new enrollments.</li>
+                      <li>Existing enrolled learners retain access.</li>
+                      <li>Restore returns it to draft for editing — never straight to published.</li>
+                    </>
+                  )}
+                  {confirmModal.action === "restore" && (
+                    <li>The course will return to Draft state for editing. It will not be published automatically.</li>
+                  )}
+                  {confirmModal.action === "trash" && (
+                    <li>The course will be hidden from every Studio list and learner view, and recoverable from Admin → Trash for 30 days.</li>
+                  )}
                 </ul>
               </div>
             </div>
@@ -246,15 +260,18 @@ export function CoursesClient({
               </Button>
               <Button
                 type="button"
-                className="btn danger small"
+                className={`btn ${confirmModal.action === "restore" ? "primary" : "danger"} small`}
                 onClick={() => {
                   if (confirmModal) {
-                    runAction(`arch-${confirmModal.courseId}`, () => archiveCourseAction(confirmModal.courseId));
+                    const { action, courseId } = confirmModal;
+                    if (action === "archive") runAction(`arch-${courseId}`, () => archiveCourseAction(courseId));
+                    else if (action === "restore") runAction(`restore-${courseId}`, () => restoreArchivedItemAction({ type: "course", id: courseId }));
+                    else runAction(`trash-${courseId}`, () => trashItemAction({ type: "course", id: courseId }));
                   }
                   setConfirmModal(null);
                 }}
               >
-                Confirm Archive
+                Confirm {confirmModal.action === "trash" ? "Move to Trash" : confirmModal.action === "restore" ? "Restore" : "Archive"}
               </Button>
             </div>
           </div>
@@ -413,6 +430,16 @@ export function CoursesClient({
               {course.status !== "archived" && (
                 <Button className="btn ghost small" type="button" disabled={busy === `arch-${course.id}`} onClick={() => setConfirmModal({ action: "archive", courseId: course.id, courseTitle: course.title })}>
                   Archive
+                </Button>
+              )}
+              {course.status === "archived" && (
+                <Button className="btn ghost small" type="button" disabled={busy === `restore-${course.id}`} onClick={() => setConfirmModal({ action: "restore", courseId: course.id, courseTitle: course.title })}>
+                  Restore to draft
+                </Button>
+              )}
+              {(course.status === "draft" || course.status === "archived") && (
+                <Button className="btn ghost small" type="button" disabled={busy === `trash-${course.id}`} onClick={() => setConfirmModal({ action: "trash", courseId: course.id, courseTitle: course.title })}>
+                  Move to Trash
                 </Button>
               )}
             </div>

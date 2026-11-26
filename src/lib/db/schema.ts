@@ -106,10 +106,17 @@ export const guides = sqliteTable("guides", {
   metaTitle: text("meta_title"),
   metaDescription: text("meta_description"),
   ogImage: text("og_image"),
+  // Trash (§1 lifecycle): soft-delete flag. trashedFromStatus remembers the
+  // state the row left (restored back on un-trash). NULL = not trashed.
+  trashedAt: integer("trashed_at", { mode: "timestamp" }),
+  trashedFromStatus: text("trashed_from_status").$type<GuideStatus>(),
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
   updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
   publishedAt: integer("published_at", { mode: "timestamp" }),
-});
+},
+  // Trash page + auto-purge scan (Workers Free 10 ms CPU budget).
+  (table) => [index("guides_trashed_at_idx").on(table.trashedAt)]
+);
 
 // ============================================================================
 // CONTENT / PUBLISHING DOMAIN (Field Notes — Mission 05)
@@ -135,10 +142,16 @@ export const fieldNotes = sqliteTable("field_notes", {
   status: text("status").$type<FieldNoteStatus>().notNull().default("draft"),
   metaTitle: text("meta_title"),
   metaDescription: text("meta_description"),
+  // Trash (§1 lifecycle): see guides.trashedAt.
+  trashedAt: integer("trashed_at", { mode: "timestamp" }),
+  trashedFromStatus: text("trashed_from_status").$type<FieldNoteStatus>(),
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
   updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
   publishedAt: integer("published_at", { mode: "timestamp" }),
-});
+},
+  // Trash page + auto-purge scan (Workers Free 10 ms CPU budget).
+  (table) => [index("field_notes_trashed_at_idx").on(table.trashedAt)]
+);
 
 export type FieldNoteRevisionTrigger = "publish" | "update" | "unpublish" | "archive";
 
@@ -162,6 +175,72 @@ export const fieldNoteRevisions = sqliteTable(
 );
 
 // ============================================================================
+// STANDARD PAGES (website content batch §3)
+// ----------------------------------------------------------------------------
+// Governed information pages (policy, FAQ, press...) served from /[slug]
+// without code changes. Hand-built pages (About, legal, contact) stay as
+// they are. Shares the ContentStatus lifecycle, ContentBlock storage model,
+// media boundary, preview rule and cache strategy with Field Notes.
+// Trash is built in from the start: `trashedAt` + `trashedFromStatus`
+// (§1 lifecycle). Slugs of trashed rows stay reserved until permanent
+// delete. `noindex` keeps a page public but out of the sitemap and search
+// indexes.
+// Revision history mirrors Field Notes: a snapshot is recorded on publish
+// and on every update applied while published, plus unpublish/archive —
+// so the history shows what actually went live and what changed it.
+// ============================================================================
+
+export type PageStatus = ContentStatus;
+
+export const pages = sqliteTable(
+  "pages",
+  {
+    id: text("id").primaryKey(),
+    title: text("title").notNull(),
+    slug: text("slug").notNull().unique(),
+    summary: text("summary"),
+    body: text("body").notNull(), // JSON-stringified ContentBlock[]
+    coverImage: text("cover_image"),
+    status: text("status").$type<PageStatus>().notNull().default("draft"),
+    metaTitle: text("meta_title"),
+    metaDescription: text("meta_description"),
+    noindex: integer("noindex", { mode: "boolean" }).notNull().default(false),
+    trashedAt: integer("trashed_at", { mode: "timestamp" }),
+    trashedFromStatus: text("trashed_from_status").$type<PageStatus>(),
+    createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+    updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+    publishedAt: integer("published_at", { mode: "timestamp" }),
+  },
+  (table) => [
+    // Studio list filters by status; the Trash registry and purge scan by
+    // trashed_at. Each is an indexed access path, never a whole-table scan per request.
+    index("pages_status_idx").on(table.status),
+    index("pages_trashed_at_idx").on(table.trashedAt),
+  ]
+);
+
+export type PageRevisionTrigger = "publish" | "update" | "unpublish" | "archive" | "restore";
+
+export const pageRevisions = sqliteTable(
+  "page_revisions",
+  {
+    id: text("id").primaryKey(),
+    pageId: text("page_id")
+      .notNull()
+      .references(() => pages.id, { onDelete: "cascade" }),
+    title: text("title").notNull(),
+    body: text("body").notNull(), // JSON-stringified ContentBlock[] snapshot
+    status: text("status").$type<PageStatus>().notNull(),
+    trigger: text("trigger").$type<PageRevisionTrigger>().notNull(),
+    createdBy: text("created_by"),
+    createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+  },
+  (table) => [
+    index("page_revisions_page_idx").on(table.pageId),
+  ]
+);
+
+// ============================================================================
 // MEDIA DOMAIN (Cloudflare R2 Metadata)
 // ============================================================================
 
@@ -180,6 +259,8 @@ export type Session = typeof sessions.$inferSelect;
 export type Guide = typeof guides.$inferSelect;
 export type FieldNote = typeof fieldNotes.$inferSelect;
 export type FieldNoteRevision = typeof fieldNoteRevisions.$inferSelect;
+export type Page = typeof pages.$inferSelect;
+export type PageRevision = typeof pageRevisions.$inferSelect;
 export type Media = typeof media.$inferSelect;
 
 // ============================================================================
@@ -374,10 +455,16 @@ export const courses = sqliteTable("courses", {
   status: text("status").$type<CourseStatus>().notNull().default("draft"),
   accessMode: text("access_mode").$type<CourseAccessMode>().notNull().default("FREE"),
   coverImage: text("cover_image"),
+  // Trash (§1 lifecycle): see guides.trashedAt.
+  trashedAt: integer("trashed_at", { mode: "timestamp" }),
+  trashedFromStatus: text("trashed_from_status").$type<CourseStatus>(),
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
   updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
   publishedAt: integer("published_at", { mode: "timestamp" }),
-});
+},
+  // Trash page + auto-purge scan (Workers Free 10 ms CPU budget).
+  (table) => [index("courses_trashed_at_idx").on(table.trashedAt)]
+);
 
 export const courseSections = sqliteTable(
   "course_sections",
@@ -421,6 +508,9 @@ export const lessons = sqliteTable(
     releaseAt: integer("release_at", { mode: "timestamp" }),
     dripDays: integer("drip_days"),
     status: text("status").$type<LessonStatus>().notNull().default("draft"),
+    // Trash (§1 lifecycle): see guides.trashedAt.
+    trashedAt: integer("trashed_at", { mode: "timestamp" }),
+    trashedFromStatus: text("trashed_from_status").$type<LessonStatus>(),
     createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
     updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
     publishedAt: integer("published_at", { mode: "timestamp" }),
@@ -429,6 +519,8 @@ export const lessons = sqliteTable(
     index("lessons_course_idx").on(table.courseId),
     index("lessons_section_idx").on(table.sectionId),
     uniqueIndex("lessons_course_slug_unique").on(table.courseId, table.slug),
+    // Trash page + auto-purge scan per type (Workers Free 10 ms CPU budget).
+    index("lessons_trashed_at_idx").on(table.trashedAt),
   ]
 );
 
@@ -1423,7 +1515,7 @@ export type OrchestrationHistory = typeof orchestrationHistory.$inferSelect;
 // deletes the redirect row for it (live entity wins).
 // ============================================================================
 
-export type SlugRedirectEntityType = "guide" | "field_note" | "course" | "lesson";
+export type SlugRedirectEntityType = "guide" | "field_note" | "course" | "lesson" | "page";
 
 export const slugRedirects = sqliteTable(
   "slug_redirects",

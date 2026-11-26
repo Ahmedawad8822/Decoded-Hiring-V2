@@ -1,4 +1,4 @@
-import { and, eq, gte, inArray, lte } from "drizzle-orm";
+import { and, eq, gte, inArray, isNull, lte } from "drizzle-orm";
 import {
   getDb,
   courses,
@@ -130,8 +130,8 @@ async function runUnlockRule(
 ): Promise<{ unlocked: number; enqueued: number }> {
   const db = await getDb();
   const counts = { unlocked: 0, enqueued: 0 };
-  // 1. Courses with the toggle on.
-  const enabledCourses = await db.select().from(courses).where(eq(courses.notifyUnlocks, true));
+  // 1. Courses with the toggle on (trashed courses never send automations).
+  const enabledCourses = await db.select().from(courses).where(and(eq(courses.notifyUnlocks, true), isNull(courses.trashedAt)));
   if (enabledCourses.length === 0) return counts;
   const courseMap = new Map(enabledCourses.map((c) => [c.id, c]));
   const courseIds = [...courseMap.keys()];
@@ -149,9 +149,10 @@ async function runUnlockRule(
   if (activeEnrollments.length === 0) return counts;
 
   // 3. Release-bearing curriculum (sections feed the effective time; published
-  // lessons with a non-immediate rule are the emailed items).
+  // lessons with a non-immediate rule are the emailed items). Trashed lessons
+  // never trigger automations.
   const sectionRows = await db.select().from(courseSections).where(inArray(courseSections.courseId, courseIds));
-  const allLessons = await db.select().from(lessons).where(inArray(lessons.courseId, courseIds));
+  const allLessons = await db.select().from(lessons).where(and(inArray(lessons.courseId, courseIds), isNull(lessons.trashedAt)));
   const sectionById = new Map(sectionRows.map((s) => [s.id, s]));
   const ruleLessons = allLessons.filter((l) => l.releaseMode !== "immediate" && l.status === "published");
   if (ruleLessons.length === 0) return counts;
@@ -221,7 +222,7 @@ async function runCompletedRule(
 ): Promise<{ completed: number; enqueued: number }> {
   const db = await getDb();
   const counts = { completed: 0, enqueued: 0 };
-  const enabledCourses = await db.select().from(courses).where(eq(courses.nudgeCompleted, true));
+  const enabledCourses = await db.select().from(courses).where(and(eq(courses.nudgeCompleted, true), isNull(courses.trashedAt)));
   if (enabledCourses.length === 0 || budget.remaining() <= 0) return counts;
   const courseMap = new Map(enabledCourses.map((c) => [c.id, c]));
   const courseIds = [...courseMap.keys()];
@@ -316,7 +317,7 @@ async function runInactiveRule(
                   COALESCE((SELECT MAX(created_at) FROM quiz_attempts WHERE enrollment_id = e.id), e.enrolled_at)
               ) AS lastActivitySec
          FROM enrollments e JOIN courses c ON c.id = e.course_id
-        WHERE c.nudge_inactive = 1 AND e.status = 'active'
+        WHERE c.nudge_inactive = 1 AND c.trashed_at IS NULL AND e.status = 'active'
           AND NOT EXISTS (SELECT 1 FROM email_preferences p WHERE p.user_id = e.user_id AND p.course_nudges = 0)
         ) WHERE lastActivitySec <= ? AND lastActivitySec > ?
         LIMIT 200`,
@@ -397,7 +398,7 @@ async function runQuizFailedRule(
          JOIN lesson_quizzes lq ON lq.id = qa.quiz_id
          JOIN courses c ON c.id = lq.course_id
          JOIN lessons l ON l.id = qa.lesson_id
-        WHERE c.nudge_quiz_failed = 1 AND qa.passed = 0
+         WHERE c.nudge_quiz_failed = 1 AND c.trashed_at IS NULL AND l.trashed_at IS NULL AND qa.passed = 0
           AND NOT EXISTS (SELECT 1 FROM quiz_attempts p
                            WHERE p.quiz_id = qa.quiz_id AND p.user_id = qa.user_id AND p.passed = 1)
           AND EXISTS (SELECT 1 FROM enrollments e

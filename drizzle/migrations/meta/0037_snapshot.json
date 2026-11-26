@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "b26ada3e-c51a-48fa-8cfa-b103a67de866",
+  "id": "2eb62ff2-5d82-4308-9418-e2a9ac3b631f",
   "prevId": "416185c5-150d-4c51-9e96-2f13f0eddda3",
   "tables": {
     "account": {
@@ -1373,6 +1373,20 @@
           "notNull": false,
           "autoincrement": false
         },
+        "trashed_at": {
+          "name": "trashed_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "trashed_from_status": {
+          "name": "trashed_from_status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
         "created_at": {
           "name": "created_at",
           "type": "integer",
@@ -1402,6 +1416,13 @@
             "slug"
           ],
           "isUnique": true
+        },
+        "courses_trashed_at_idx": {
+          "name": "courses_trashed_at_idx",
+          "columns": [
+            "trashed_at"
+          ],
+          "isUnique": false
         }
       },
       "foreignKeys": {},
@@ -2401,6 +2422,20 @@
           "notNull": false,
           "autoincrement": false
         },
+        "trashed_at": {
+          "name": "trashed_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "trashed_from_status": {
+          "name": "trashed_from_status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
         "created_at": {
           "name": "created_at",
           "type": "integer",
@@ -2430,6 +2465,13 @@
             "slug"
           ],
           "isUnique": true
+        },
+        "field_notes_trashed_at_idx": {
+          "name": "field_notes_trashed_at_idx",
+          "columns": [
+            "trashed_at"
+          ],
+          "isUnique": false
         }
       },
       "foreignKeys": {},
@@ -2533,6 +2575,20 @@
           "notNull": false,
           "autoincrement": false
         },
+        "trashed_at": {
+          "name": "trashed_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "trashed_from_status": {
+          "name": "trashed_from_status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
         "created_at": {
           "name": "created_at",
           "type": "integer",
@@ -2562,6 +2618,13 @@
             "slug"
           ],
           "isUnique": true
+        },
+        "guides_trashed_at_idx": {
+          "name": "guides_trashed_at_idx",
+          "columns": [
+            "trashed_at"
+          ],
+          "isUnique": false
         }
       },
       "foreignKeys": {},
@@ -2832,255 +2895,6 @@
       "uniqueConstraints": {},
       "checkConstraints": {}
     },
-    "landing_pages": {
-      "name": "landing_pages",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "title": {
-          "name": "title",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "slug": {
-          "name": "slug",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "campaign_name": {
-          "name": "campaign_name",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "target_kind": {
-          "name": "target_kind",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "target_offer_id": {
-          "name": "target_offer_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "target_course_id": {
-          "name": "target_course_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "target_guide_id": {
-          "name": "target_guide_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "cta_label": {
-          "name": "cta_label",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "sections": {
-          "name": "sections",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "seo_title": {
-          "name": "seo_title",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "seo_description": {
-          "name": "seo_description",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "noindex": {
-          "name": "noindex",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": true
-        },
-        "status": {
-          "name": "status",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "'draft'"
-        },
-        "starts_at": {
-          "name": "starts_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "ends_at": {
-          "name": "ends_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "trashed_at": {
-          "name": "trashed_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "trashed_from_status": {
-          "name": "trashed_from_status",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "published_at": {
-          "name": "published_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        }
-      },
-      "indexes": {
-        "landing_pages_slug_unique": {
-          "name": "landing_pages_slug_unique",
-          "columns": [
-            "slug"
-          ],
-          "isUnique": true
-        },
-        "landing_pages_status_idx": {
-          "name": "landing_pages_status_idx",
-          "columns": [
-            "status"
-          ],
-          "isUnique": false
-        },
-        "landing_pages_trashed_at_idx": {
-          "name": "landing_pages_trashed_at_idx",
-          "columns": [
-            "trashed_at"
-          ],
-          "isUnique": false
-        },
-        "landing_pages_ends_at_idx": {
-          "name": "landing_pages_ends_at_idx",
-          "columns": [
-            "ends_at"
-          ],
-          "isUnique": false
-        },
-        "landing_pages_target_offer_idx": {
-          "name": "landing_pages_target_offer_idx",
-          "columns": [
-            "target_offer_id"
-          ],
-          "isUnique": false
-        },
-        "landing_pages_target_course_idx": {
-          "name": "landing_pages_target_course_idx",
-          "columns": [
-            "target_course_id"
-          ],
-          "isUnique": false
-        },
-        "landing_pages_target_guide_idx": {
-          "name": "landing_pages_target_guide_idx",
-          "columns": [
-            "target_guide_id"
-          ],
-          "isUnique": false
-        }
-      },
-      "foreignKeys": {
-        "landing_pages_target_offer_id_offers_id_fk": {
-          "name": "landing_pages_target_offer_id_offers_id_fk",
-          "tableFrom": "landing_pages",
-          "tableTo": "offers",
-          "columnsFrom": [
-            "target_offer_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
-        "landing_pages_target_course_id_courses_id_fk": {
-          "name": "landing_pages_target_course_id_courses_id_fk",
-          "tableFrom": "landing_pages",
-          "tableTo": "courses",
-          "columnsFrom": [
-            "target_course_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
-        "landing_pages_target_guide_id_guides_id_fk": {
-          "name": "landing_pages_target_guide_id_guides_id_fk",
-          "tableFrom": "landing_pages",
-          "tableTo": "guides",
-          "columnsFrom": [
-            "target_guide_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "checkConstraints": {}
-    },
     "lead_submissions": {
       "name": "lead_submissions",
       "columns": {
@@ -3218,20 +3032,6 @@
           "notNull": false,
           "autoincrement": false
         },
-        "landing_page_id": {
-          "name": "landing_page_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "utm_params": {
-          "name": "utm_params",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
         "privacy_acknowledged": {
           "name": "privacy_acknowledged",
           "type": "integer",
@@ -3314,13 +3114,6 @@
           "name": "lead_submissions_status_idx",
           "columns": [
             "status"
-          ],
-          "isUnique": false
-        },
-        "lead_submissions_landing_page_idx": {
-          "name": "lead_submissions_landing_page_idx",
-          "columns": [
-            "landing_page_id"
           ],
           "isUnique": false
         }
@@ -4224,6 +4017,20 @@
           "autoincrement": false,
           "default": "'draft'"
         },
+        "trashed_at": {
+          "name": "trashed_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "trashed_from_status": {
+          "name": "trashed_from_status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
         "created_at": {
           "name": "created_at",
           "type": "integer",
@@ -4268,6 +4075,13 @@
             "slug"
           ],
           "isUnique": true
+        },
+        "lessons_trashed_at_idx": {
+          "name": "lessons_trashed_at_idx",
+          "columns": [
+            "trashed_at"
+          ],
+          "isUnique": false
         }
       },
       "foreignKeys": {
