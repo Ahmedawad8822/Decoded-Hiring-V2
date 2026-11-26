@@ -36,6 +36,8 @@ export function resolveLessonResourceAccess(opts: {
   /** Batch J: set when the lesson's drip release is still in the future. */
   dripLocked?: boolean;
   dripReleaseAt?: Date | null;
+  /** Learner polish: set when the sequential rule locks this lesson. */
+  sequentialLocked?: boolean;
 }): LessonResourceAccess {
   if (opts.role === "admin") return { status: "allowed" };
   if (!opts.lessonStatus || opts.lessonStatus !== "published") {
@@ -47,5 +49,8 @@ export function resolveLessonResourceAccess(opts: {
   // DRIP (Batch J): enrolled learners get a locked verdict — not a 404 — and
   // never the file bytes.
   if (opts.dripLocked) return { status: "locked", releaseAt: opts.dripReleaseAt ?? null };
+  // SEQUENTIAL (learner polish): same locked verdict; the route answers with
+  // the sequential message (no release date exists for this gate).
+  if (opts.sequentialLocked) return { status: "locked", releaseAt: null };
   return { status: "allowed" };
 }

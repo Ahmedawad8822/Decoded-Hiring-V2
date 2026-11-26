@@ -89,6 +89,9 @@ const courseLandingFields = {
   faq: faqSchema.optional().nullable(),
   instructorName: z.string().trim().max(160).optional().nullable(),
   instructorBio: z.string().trim().max(1500).optional().nullable(),
+  // Learner polish: lock each lesson until every earlier required lesson is
+  // complete (course order). Previews stay readable. OFF by default.
+  sequential: z.boolean().optional(),
   // Batch J learner automations (all OFF by default; Studio course settings).
   notifyUnlocks: z.boolean().optional(),
   nudgeCompleted: z.boolean().optional(),

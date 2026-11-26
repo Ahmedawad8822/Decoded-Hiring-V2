@@ -1,12 +1,23 @@
 import { getDb } from "@/lib/db";
-import { enrollments, type Enrollment } from "@/lib/db";
+import {
+  enrollments,
+  lessonProgress,
+  lessonVideoPositions,
+  lessons,
+  type Enrollment,
+} from "@/lib/db";
 import { and, eq, inArray } from "drizzle-orm";
+import type { BatchItem } from "drizzle-orm/batch";
 import { getAdminCourseById } from "@/features/courses/service";
 import { hasLearnerAccess } from "./access";
 import { isUniqueConstraintError } from "@/lib/db/sqlite-errors";
 import { AppError } from "@/lib/errors";
 import { getEffectiveCourseAccessPolicy } from "@/features/offers/service";
-import { notifyCourseLeft, notifyEnrollmentWelcome } from "@/lib/email/triggers";
+import {
+  notifyCourseLeft,
+  notifyCourseRestarted,
+  notifyEnrollmentWelcome,
+} from "@/lib/email/triggers";
 
 // ============================================================================
 // ENROLLMENTS SERVICE (Mission 06)
@@ -202,6 +213,80 @@ export async function cancelMyEnrollment(userId: string, courseId: string): Prom
     }
   }
   return left;
+}
+
+/**
+ * Learner-initiated course restart (learner polish).
+ * Scoped by user id + course id only — the caller never supplies an
+ * enrollment id, so one learner can never restart another learner's row.
+ * Clears lesson_progress rows for the enrollment AND lesson_video_positions
+ * rows for the learner's lessons in this course (resume positions from D).
+ * Quiz attempts, notes, certificates and the enrollment record (including
+ * the original enrolledAt, so drip still counts from the first start) are
+ * kept. A completed enrollment returns to active with completedAt cleared.
+ * Cancelled enrollments cannot restart — they re-enroll instead.
+ * Audited like leave-course: a never-throwing `course_restarted` email
+ * outbox event (durable, deduped). Never throws the audit failure.
+ */
+export async function restartMyEnrollment(userId: string, courseId: string): Promise<Enrollment> {
+  const db = await getDb();
+  const existing = await getEnrollment(userId, courseId);
+  if (!hasLearnerAccess(existing)) {
+    throw new AppError("forbidden", "Forbidden: You are not enrolled in this course.");
+  }
+  const enrollment = existing;
+
+  // Scope the video-position clear to this course's lessons only — positions
+  // are keyed by (user, lesson), so fetch this course's lesson ids first.
+  // Chunked for D1's bound-parameter limit; most courses are one chunk.
+  const courseLessons = await db
+    .select({ id: lessons.id })
+    .from(lessons)
+    .where(eq(lessons.courseId, courseId));
+  const lessonIds = courseLessons.map((l) => l.id);
+
+  const restartedAt = new Date();
+  // Non-empty tuple: the D1 batch type requires at least one statement, and
+  // this restart always issues the progress clear plus the status reset.
+  const statements: [BatchItem<"sqlite">, ...BatchItem<"sqlite">[]] = [
+    db
+      .delete(lessonProgress)
+      .where(eq(lessonProgress.enrollmentId, enrollment.id)),
+    db
+      .update(enrollments)
+      .set({ status: "active", completedAt: null })
+      .where(
+        and(
+          eq(enrollments.id, enrollment.id),
+          inArray(enrollments.status, ["active", "completed"]),
+        ),
+      ),
+  ];
+  for (let i = 0; i < lessonIds.length; i += 90) {
+    const chunk = lessonIds.slice(i, i + 90);
+    statements.push(
+      db
+        .delete(lessonVideoPositions)
+        .where(and(eq(lessonVideoPositions.userId, userId), inArray(lessonVideoPositions.lessonId, chunk))),
+    );
+  }
+  // ATOMICITY: one D1 batch — progress, positions and the status reset land
+  // together; a partial restart can never strand cleared progress on a
+  // still-completed enrollment.
+  await db.batch(statements);
+
+  const restarted = (await getEnrollment(userId, courseId))!;
+  const course = await getAdminCourseById(courseId);
+  if (course) {
+    await notifyCourseRestarted({
+      userId,
+      courseId,
+      courseSlug: course.slug,
+      courseTitle: course.title,
+      restartedAt,
+    });
+  }
+  return restarted;
 }
 
 /** Server-side ownership check: does this user have an active enrollment path to this course? */

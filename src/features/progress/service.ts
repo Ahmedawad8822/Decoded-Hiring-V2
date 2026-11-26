@@ -5,6 +5,7 @@ import {
   lessons,
   courses,
   courseSections,
+  type Course,
   type CourseSection,
   type Enrollment,
   type Lesson,
@@ -16,7 +17,11 @@ import {
   getCourseCurriculum,
 } from "@/features/courses/service";
 import { hasLearnerAccess } from "@/features/enrollments/access";
-import { isLessonReleased, nextReleaseAt } from "@/features/courses/release";
+import {
+  findSequentialBlocker,
+  isLessonReleased,
+  nextReleaseAt,
+} from "@/features/courses/release";
 import { assertManualLessonCompletionAllowed } from "@/features/quizzes/gate";
 import { isUniqueConstraintError } from "@/lib/db/sqlite-errors";
 import { AppError } from "@/lib/errors";
@@ -149,17 +154,84 @@ export function releasePredicateFor(
     isLessonReleased(sectionById.get(lesson.sectionId) ?? null, lesson, enrolledAt, now);
 }
 
+/**
+ * Sequential-lock predicate for one enrollment. Pure over the given rows.
+ * Inert when the course has `sequential` off; preview lessons are always
+ * open. Drip and sequential combine: callers AND this with the drip
+ * predicate so both must allow.
+ */
+export function sequentialPredicateFor(
+  orderedPublishedLessons: Lesson[],
+  completedLessonIds: Set<string> | Iterable<string>,
+  sequential: boolean,
+): (lesson: Lesson) => boolean {
+  if (!sequential) return () => true;
+  const done = completedLessonIds instanceof Set ? completedLessonIds : new Set(completedLessonIds);
+  return (lesson: Lesson) =>
+    findSequentialBlocker(orderedPublishedLessons, done, lesson.id) === null;
+}
+
+/** Drip AND sequential in one predicate (both must allow). */
+export function availabilityPredicateFor(options: {
+  sections: CourseSection[];
+  enrolledAt: Date;
+  orderedPublishedLessons: Lesson[];
+  completedLessonIds: Set<string> | Iterable<string>;
+  sequential: boolean;
+  now?: Date;
+}): (lesson: Lesson) => boolean {
+  const drip = releasePredicateFor(options.sections, options.enrolledAt, options.now ?? new Date());
+  const sequential = sequentialPredicateFor(
+    options.orderedPublishedLessons,
+    options.completedLessonIds,
+    options.sequential,
+  );
+  return (lesson: Lesson) => drip(lesson) && sequential(lesson);
+}
+
+/**
+ * First earlier required lesson still incomplete for this (course,
+ * enrollment, lesson) triple, or null when sequential does not block.
+ * Returns the blocker row so pages can link "the next lesson to take".
+ * Null when the course has `sequential` off, the lesson is a preview, or
+ * the caller lacks an active enrollment (previews/drip handle the rest).
+ */
+export async function getSequentialBlocker(options: {
+  course: Pick<Course, "id" | "sequential">;
+  enrollment: Enrollment;
+  lesson: Pick<Lesson, "id" | "isPreview">;
+}): Promise<Lesson | null> {
+  if (!options.course.sequential) return null;
+  if (options.lesson.isPreview) return null;
+  const db = await getDb();
+  const curriculum = await getCourseCurriculum(options.course.id);
+  const ordered = curriculum.flatMap((c) => c.publishedLessons);
+  const rows = await db
+    .select({ lessonId: lessonProgress.lessonId })
+    .from(lessonProgress)
+    .where(eq(lessonProgress.enrollmentId, options.enrollment.id));
+  const publishedIds = new Set(ordered.map((l) => l.id));
+  const done = new Set(rows.map((r) => r.lessonId).filter((id) => publishedIds.has(id)));
+  const blockerId = findSequentialBlocker(ordered, done, options.lesson.id);
+  if (!blockerId) return null;
+  return ordered.find((l) => l.id === blockerId) ?? null;
+}
+
 /** Server-owned action result: the same validated, idempotent write path. */
 export async function completeLessonAndContinue(userId: string, enrollmentId: string, lessonId: string) {
   const result = await markLessonComplete(userId, enrollmentId, lessonId);
   const course = await getAdminCourseById(result.enrollment.courseId);
   if (!course) throw new AppError("not_found", "Course not found.");
   const curriculum = await getCourseCurriculum(course.id);
-  const isReleased = releasePredicateFor(
-    curriculum.map((c) => c.section),
-    result.enrollment.enrolledAt,
-  );
-  const nextHref = getLessonContinuationHref(course, lessonId, result.progress.publishedLessons, result.progress.completedLessonIds, isReleased);
+  // Drip AND sequential combine: "Continue" never lands on a locked lesson.
+  const isAvailable = availabilityPredicateFor({
+    sections: curriculum.map((c) => c.section),
+    enrolledAt: result.enrollment.enrolledAt,
+    orderedPublishedLessons: result.progress.publishedLessons,
+    completedLessonIds: result.progress.completedLessonIds,
+    sequential: course.sequential,
+  });
+  const nextHref = getLessonContinuationHref(course, lessonId, result.progress.publishedLessons, result.progress.completedLessonIds, isAvailable);
   return { ...result, course, nextHref };
 }
 
@@ -168,20 +240,29 @@ export async function getEnrollmentProgress(enrollment: Enrollment, now: Date = 
   // doubles as the drip release-rule source — no extra release fetch.
   const curriculum = await getCourseCurriculum(enrollment.courseId);
   const publishedAll = curriculum.flatMap((c) => c.publishedLessons);
-  const isReleased = releasePredicateFor(
-    curriculum.map((c) => c.section),
-    enrollment.enrolledAt,
-    now,
-  );
 
   const db = await getDb();
-  const rows = await db
-    .select()
-    .from(lessonProgress)
-    .where(eq(lessonProgress.enrollmentId, enrollment.id));
+  const [course, rows] = await Promise.all([
+    db.select().from(courses).where(eq(courses.id, enrollment.courseId)).get(),
+    db.select().from(lessonProgress).where(eq(lessonProgress.enrollmentId, enrollment.id)),
+  ]);
+  // Drip AND sequential combine: resume skips lessons locked by either gate.
+  // Locked REQUIRED lessons still count in totalRequired (a course can never
+  // complete early). Completed ids are filtered to published lessons first so
+  // the sequential order check sees the same set as the progress maths.
+  const publishedIds = new Set(publishedAll.map((l) => l.id));
+  const completedIds = new Set(rows.map((r) => r.lessonId).filter((id) => publishedIds.has(id)));
+  const isAvailable = availabilityPredicateFor({
+    sections: curriculum.map((c) => c.section),
+    enrolledAt: enrollment.enrolledAt,
+    orderedPublishedLessons: publishedAll,
+    completedLessonIds: completedIds,
+    sequential: course?.sequential ?? false,
+    now,
+  });
 
   const { totalRequired, completedRequired, percent, completed, completedLessonIds, resumeLesson } =
-    computeCourseProgress(publishedAll, rows.map((r) => r.lessonId), isReleased);
+    computeCourseProgress(publishedAll, completedIds, isAvailable);
 
   const completedSet = new Set(completedLessonIds);
   const sectionById = new Map(curriculum.map((c) => [c.section.id, c.section]));
@@ -306,6 +387,15 @@ export async function markLessonComplete(
     .get();
   if (!isLessonReleased(lessonSection ?? null, lesson, enrollment.enrolledAt)) {
     throw new AppError("forbidden", "This lesson has not unlocked yet.");
+  }
+  // SEQUENTIAL (learner polish): a lesson locked behind earlier required
+  // lessons refuses completion too. Previews stay completable in any order.
+  const completedCourse = await getAdminCourseById(lesson.courseId);
+  if (completedCourse?.sequential) {
+    const blocker = await getSequentialBlocker({ course: completedCourse, enrollment, lesson });
+    if (blocker) {
+      throw new AppError("forbidden", "Finish the previous lesson to unlock this one.");
+    }
   }
 
   const existing = await db
@@ -500,12 +590,20 @@ export async function getBatchedEnrollmentProgress(
 
     const publishedAll = lessonsByCourse.get(enrollment.courseId) ?? [];
     const enrollmentProgressRows = progressByEnrollment.get(enrollment.id) ?? [];
-    const isReleased = releasePredicateFor(
-      sectionsByCourse.get(enrollment.courseId) ?? [],
-      enrollment.enrolledAt,
+    const publishedIds = new Set(publishedAll.map((l) => l.id));
+    const completedIds = new Set(
+      enrollmentProgressRows.map((r) => r.lessonId).filter((id) => publishedIds.has(id)),
     );
+    // Drip AND sequential combine (same rule as the single-enrollment read).
+    const isAvailable = availabilityPredicateFor({
+      sections: sectionsByCourse.get(enrollment.courseId) ?? [],
+      enrolledAt: enrollment.enrolledAt,
+      orderedPublishedLessons: publishedAll,
+      completedLessonIds: completedIds,
+      sequential: course.sequential,
+    });
     const { totalRequired, completedRequired, percent, completed, completedLessonIds, resumeLesson } =
-      computeCourseProgress(publishedAll, enrollmentProgressRows.map((r) => r.lessonId), isReleased);
+      computeCourseProgress(publishedAll, completedIds, isAvailable);
     const completedSet = new Set(completedLessonIds);
 
     const currentEnrollment = currentEnrollmentMap.get(enrollment.id);

@@ -200,6 +200,35 @@ export function courseLeftTemplate(input: {
   return { subject, text, html };
 }
 
+// ---------------------------------------------------------------- course restarted
+
+export function courseRestartedTemplate(input: {
+  userName?: string;
+  courseTitle: string;
+  courseUrl: string;
+}): EmailTemplate {
+  const greeting = input.userName ? `Hi ${input.userName},` : "Hi,";
+  const subject = `You restarted ${input.courseTitle}`;
+  const text =
+    `${greeting}\n\n` +
+    `You restarted "${input.courseTitle}". Your lesson progress is cleared so you can go through it fresh.\n\n` +
+    `Your quiz attempts, notes and certificates are kept. Start again here:\n\n` +
+    `${input.courseUrl}\n\n` +
+    `— ${siteName}`;
+  const html = shell(
+    escapeHtml(subject),
+    escapeHtml(greeting),
+    [
+      `You restarted &ldquo;${escapeHtml(input.courseTitle)}&rdquo;. Your lesson progress is cleared so you can go through it fresh.`,
+      `Your quiz attempts, notes and certificates are kept. Start again here: ${link(input.courseUrl, input.courseTitle)}`,
+    ],
+    escapeHtml(
+      footerFor("You got this email because you restarted this course."),
+    ),
+  );
+  return { subject, text, html };
+}
+
 // ---------------------------------------------------------------- Batch J learner automations
 //
 // Course reminder emails: unlock announcements + three fixed nudges. Every one

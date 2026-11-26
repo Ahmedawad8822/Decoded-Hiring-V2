@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { submitQuizAttemptAction } from "@/features/quizzes/actions";
 import type { LearnerQuiz, LearnerQuizStats } from "@/features/quizzes/types";
 
@@ -41,6 +41,30 @@ export function QuizPanel({
   const [result, setResult] = useState<QuizSubmission | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // Learner polish: on narrow screens (CSS media query, not user-agent
+  // sniffing) one question shows per step with Back/Next. Desktop keeps the
+  // full list. `step` is inert on desktop: every question renders and the
+  // step nav is hidden by CSS.
+  const [step, setStep] = useState(0);
+  const questionRefs = useRef<Array<HTMLFieldSetElement | null>>([]);
+  const focusStepRef = useRef<number | null>(null);
+  const totalQuestions = quiz.questions.length;
+  const lastStep = Math.max(totalQuestions - 1, 0);
+
+  const goStep = (next: number) => {
+    const clamped = Math.min(Math.max(next, 0), lastStep);
+    focusStepRef.current = clamped;
+    setStep(clamped);
+  };
+
+  // Keyboard/screen-reader friendly: moving steps moves focus to the newly
+  // shown question (only for step-nav moves, never on first paint).
+  useEffect(() => {
+    if (focusStepRef.current === step) {
+      focusStepRef.current = null;
+      questionRefs.current[step]?.focus({ preventScroll: true });
+    }
+  }, [step]);
 
   const isPreview = mode === "preview";
   const locked = isPreview || Boolean(result);
@@ -84,6 +108,7 @@ export function QuizPanel({
     setResult(null);
     setAnswers({});
     setError(null);
+    setStep(0);
   };
 
   return (
@@ -117,7 +142,11 @@ export function QuizPanel({
         </div>
       )}
 
-      <form className="quiz-form" onSubmit={handleSubmit} aria-describedby="quiz-help">
+      <form
+        className={`quiz-form is-stepped${step === lastStep ? " is-last-step" : ""}`}
+        onSubmit={handleSubmit}
+        aria-describedby="quiz-help"
+      >
         <p id="quiz-help" className="quiz-help">
           {quiz.questions.length} question{quiz.questions.length === 1 ? "" : "s"} · Select the best answer
           {quiz.questions.some((question) => question.kind === "multiple") ? "s" : ""}.
@@ -129,7 +158,12 @@ export function QuizPanel({
           return (
             <fieldset
               key={question.id}
-              className={`quiz-question${feedback ? (feedback.correct ? " is-correct" : " is-wrong") : ""}`}
+              ref={(node) => {
+                questionRefs.current[questionIndex] = node;
+              }}
+              tabIndex={-1}
+              data-step={questionIndex}
+              className={`quiz-question${questionIndex === step ? " is-active" : ""}${feedback ? (feedback.correct ? " is-correct" : " is-wrong") : ""}`}
               disabled={locked}
             >
               <legend>
@@ -184,9 +218,11 @@ export function QuizPanel({
 
         <div className="quiz-actions">
           {!isPreview && !result && (
-            <button type="submit" className="btn primary" disabled={busy} aria-busy={busy}>
-              {busy ? "Checking…" : "Submit answers"}
-            </button>
+            <span className="quiz-submit-wrap">
+              <button type="submit" className="btn primary" disabled={busy} aria-busy={busy}>
+                {busy ? "Checking…" : "Submit answers"}
+              </button>
+            </span>
           )}
           {result && (
             <button type="button" className="btn secondary" onClick={tryAgain}>
@@ -197,6 +233,32 @@ export function QuizPanel({
             <Link className="btn primary" href={result.nextHref}>
               Continue →
             </Link>
+          )}
+          {totalQuestions > 1 && (
+            <div className="quiz-step-nav" role="group" aria-label="Question steps">
+              <button
+                type="button"
+                className="btn secondary small"
+                onClick={() => goStep(step - 1)}
+                disabled={step === 0}
+                aria-label="Previous question"
+              >
+                ← Back
+              </button>
+              <p className="quiz-step-count mono" aria-live="polite">
+                Question {step + 1} of {totalQuestions}
+              </p>
+              {step < lastStep && (
+                <button
+                  type="button"
+                  className="btn secondary small"
+                  onClick={() => goStep(step + 1)}
+                  aria-label="Next question"
+                >
+                  Next →
+                </button>
+              )}
+            </div>
           )}
         </div>
       </form>

@@ -5,6 +5,7 @@ import { redactEmails, requestEmailDelivery } from "./outbox";
 import {
   courseCompletedTemplate,
   courseLeftTemplate,
+  courseRestartedTemplate,
   emailVerificationTemplate,
   enrollmentWelcomeTemplate,
   passwordResetTemplate,
@@ -141,6 +142,35 @@ export async function notifyCourseCompleted(input: {
     });
   } catch (error) {
     logTriggerFailure("course_completed", error);
+  }
+}
+
+/** restartMyEnrollment cleared lesson progress (no enrollment: no email). */
+export async function notifyCourseRestarted(input: {
+  userId: string;
+  courseId: string;
+  courseSlug: string;
+  courseTitle: string;
+  restartedAt: Date;
+}): Promise<void> {
+  try {
+    const recipient = await lookupRecipient(input.userId);
+    if (!recipient) return;
+    const template = courseRestartedTemplate({
+      userName: recipient.name,
+      courseTitle: input.courseTitle,
+      courseUrl: `${siteBase()}/learn/courses/${input.courseSlug}`,
+    });
+    await requestEmailDelivery({
+      kind: "course_restarted",
+      toAddress: recipient.email,
+      subject: template.subject,
+      textBody: template.text,
+      htmlBody: template.html,
+      dedupeKey: `course_restarted:${input.userId}:${input.courseId}:${input.restartedAt.getTime()}`,
+    });
+  } catch (error) {
+    logTriggerFailure("course_restarted", error);
   }
 }
 
