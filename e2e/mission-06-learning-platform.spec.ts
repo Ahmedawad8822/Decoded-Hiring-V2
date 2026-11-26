@@ -226,6 +226,7 @@ test.describe("mission 06 learning platform lifecycle", () => {
       await clickAction(page, page.getByRole("row", { name: /First Lesson E2E/ }).getByRole("button", { name: "Publish" }));
       await expect(page.getByText("live for learners on next load")).toBeVisible();
       await clickAction(page, page.getByRole("row", { name: /Second Lesson E2E/ }).getByRole("button", { name: "Publish" }));
+      await expect(page.getByRole("row", { name: /Second Lesson E2E/ }).getByRole("button", { name: "Unpublish" })).toBeVisible({ timeout: 30_000 });
       await page.goto("/admin/courses");
       await clickAction(page, page.locator(`[data-course-slug="${courseSlug}"]`).getByRole("button", { name: "Publish", exact: true }));
       await expect(page.locator(`[data-course-slug="${courseSlug}"]`).getByText("PUBLISHED")).toBeVisible({ timeout: 30_000 });
@@ -254,6 +255,7 @@ test.describe("mission 06 learning platform lifecycle", () => {
     await test.step("signed-in non-enrolled learner opens preview; other lessons and files stay gated", async () => {
       const response = await page.goto(`/learn/courses/${courseSlug}`);
       expect(response?.headers()["cache-control"]).toContain("no-store");
+      await expect(page.locator('meta[name="robots"]')).toHaveCount(1);
       await expect(page.locator('meta[name="robots"]')).toHaveAttribute("content", /noindex/);
       await expect(page.getByText("Build a clear learning plan", { exact: true })).toBeVisible();
       await page.getByText("Can I try a lesson?", { exact: true }).click();
@@ -443,6 +445,7 @@ test.describe("mission 06 learning platform lifecycle", () => {
       await expect(page.getByText("2 / 2", { exact: true })).toBeVisible();
       await expect(page.getByText("Downloadable resources")).toBeVisible();
       await expect(page.getByRole("heading", { name: "What's next" })).toBeVisible();
+      await expect(page.locator('meta[name="robots"]')).toHaveCount(1);
       await expect(page.locator('meta[name="robots"]')).toHaveAttribute("content", /noindex.*nofollow/);
       const overflow = await page.evaluate(() => document.documentElement.scrollWidth - innerWidth);
       expect(overflow).toBeLessThanOrEqual(1);
@@ -475,6 +478,7 @@ test.describe("mission 06 learning platform lifecycle", () => {
       certificatePath = new URL(page.url()).pathname;
       await expect(page.getByText("Valid", { exact: true })).toBeVisible();
       await expect(page.getByText("Certificate Learner", { exact: true })).toBeVisible();
+      await expect(page.locator('meta[name="robots"]')).toHaveCount(1);
       await expect(page.locator('meta[name="robots"]')).toHaveAttribute("content", /noindex.*nofollow/);
       expect((await page.request.get(certificatePath)).headers()["cache-control"]).toContain("no-store");
       expect(await page.locator("#main").innerText()).not.toContain(learnerEmail);

@@ -1,0 +1,2 @@
+CREATE INDEX `enrollments_completed_at_idx` ON `enrollments` (`completed_at`);--> statement-breakpoint
+CREATE INDEX `quiz_attempts_enrollment_created_idx` ON `quiz_attempts` (`enrollment_id`,`created_at`);

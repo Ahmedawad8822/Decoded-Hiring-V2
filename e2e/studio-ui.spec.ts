@@ -69,3 +69,53 @@ for (const width of [375, 1024, 1280, 1440]) {
     }
   });
 }
+
+test("Learners tab lists enrollments, filters, and links the CSV export", async ({ page }) => {
+  test.setTimeout(180_000);
+  const run = Date.now().toString(36);
+  const learnerEmail = `e2e-learner-h-${run}@example.com`;
+
+  // A learner row must exist: sign up via the auth API, then enroll in the
+  // seeded demo course through the learner UI.
+  await page.context().clearCookies();
+  const signup = await page.request.post("/api/auth/sign-up/email", {
+    headers: { Origin: `http://localhost:${process.env.E2E_PORT ?? 3000}` },
+    data: { name: "E2E Learner H", email: learnerEmail, password: "e2e-password-123" },
+  });
+  expect(signup.ok()).toBe(true);
+  await page.goto("/learn/courses/mission-01-demo");
+  await waitForHydration(page, page.getByRole("button", { name: "Start free — enroll now" }));
+  await clickAction(page, page.getByRole("button", { name: "Start free — enroll now" }));
+  await expect(page.getByText("Continue where you left off")).toBeVisible({ timeout: 30_000 });
+
+  // Back to the Studio as admin, open the course's Learners tab.
+  await page.context().clearCookies();
+  await signIn(page);
+  await page.goto("/admin/courses");
+  const card = page.locator('[data-course-slug="mission-01-demo"]');
+  await waitForHydration(page, card.getByRole("link", { name: /Learners/ }));
+  await clickAction(page, card.getByRole("link", { name: /Learners/ }));
+  await expect(page).toHaveURL(/\/admin\/courses\/.+\/learners$/, { timeout: 30_000 });
+
+  const main = page.locator("#main");
+  await expect(main.getByRole("heading", { level: 1, name: "Learners" })).toBeVisible({ timeout: 30_000 });
+  await expect(main.getByText(learnerEmail).first()).toBeVisible({ timeout: 30_000 });
+
+  // Switch a filter: the fresh enrollment is Not started, never Stuck.
+  await waitForHydration(page, main.getByRole("link", { name: /Not started/ }));
+  await clickAction(page, main.getByRole("link", { name: /Not started/ }));
+  await expect(page).toHaveURL(/filter=not-started/, { timeout: 30_000 });
+  await expect(main.getByText(learnerEmail).first()).toBeVisible();
+  await clickAction(page, main.getByRole("link", { name: /^Stuck/ }));
+  await expect(page).toHaveURL(/filter=stuck/, { timeout: 30_000 });
+  await expect(main.getByText("No one is stuck. Nice.")).toBeVisible();
+
+  // The Export link carries the current filter into the CSV route.
+  const exportHref = await main.getByRole("link", { name: "Export CSV" }).getAttribute("href");
+  expect(exportHref).toContain("/learners/export");
+  expect(exportHref).toContain("filter=stuck");
+
+  // No horizontal scroll at phone width (cards replace the table).
+  await page.setViewportSize({ width: 375, height: 812 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(1);
+});

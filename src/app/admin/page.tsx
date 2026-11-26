@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { requireAdminPage } from "@/lib/auth";
 import { readStudioAttention } from "./_ui/attention-data";
+import { getStudioLearnerAttention } from "@/features/learners/service";
 import { getAllAdminGuides } from "@/features/guides/service";
 import { getAllAdminFieldNotes } from "@/features/field-notes/service";
 import { getAllAdminCourses, getCourseEnrollmentCounts } from "@/features/courses/service";
@@ -11,8 +12,8 @@ export const dynamic = "force-dynamic";
 export const metadata = { title: "Home · Studio | Decoded Hiring", robots: { index: false, follow: false } };
 export default async function AdminHomePage() {
   const session = await requireAdminPage();
-  const [{ leads, drafts, commerce }, guides, notes, courses, audit] = await Promise.all([
-    readStudioAttention(), getAllAdminGuides(), getAllAdminFieldNotes(),
+  const [{ leads, drafts, commerce }, learners, guides, notes, courses, audit] = await Promise.all([
+    readStudioAttention(), getStudioLearnerAttention(), getAllAdminGuides(), getAllAdminFieldNotes(),
     getAllAdminCourses(), listAdminAudit({ pageSize: 7 }),
   ]);
   const enrollments = await getCourseEnrollmentCounts(courses.map(course => course.id));
@@ -29,6 +30,11 @@ export default async function AdminHomePage() {
       <StatCard icon="orders" value={commerce.summary.openOrders} label="Open orders" attention href="/admin/commerce?tab=orders" />
       <StatCard icon="content" value={[...guides, ...notes].filter(item => item.status === "published").length} label="Published guides & notes" href="/admin/content" />
       <StatCard icon="courses" value={Object.values(enrollments).reduce((sum, count) => sum + count, 0)} label="Course enrollments" detail="Across all courses" href="/admin/courses" />
+    </section>
+    <section aria-label="Learners" className="stat-grid home-stats">
+      <StatCard icon="clock" value={learners.stuck} label="Stuck learners" attention={learners.stuck > 0} detail={learners.stuck > 0 ? "No activity for 14+ days" : "Everyone is moving"} href={learners.topStuckCourseId ? `/admin/courses/${learners.topStuckCourseId}/learners?filter=stuck` : "/admin/courses"} />
+      <StatCard icon="check" value={learners.completedThisWeek} label="Completed this week" href="/admin/courses" />
+      <StatCard icon="edit" value={learners.quizFailuresThisWeek} label="Quiz failures this week" href="/admin/courses" />
     </section>
     <div className="home-columns"><Card className="quick-actions"><p className="page-eyebrow">Make your next move</p><h2>Start with an idea.</h2><p className="muted">Give it a place to grow.</p>
       {[{ title: "New guide", hint: "Share a deeper perspective", href: "/admin/content?new=guide", icon: "content" as const }, { title: "New field note", hint: "Capture a timely observation", href: "/admin/content?new=field-note", icon: "edit" as const }, { title: "New course", hint: "Build the next learning journey", href: "/admin/courses?new=course", icon: "courses" as const }, { title: "New AI draft", hint: "Create with your knowledge library", href: "/admin/editorial/new", icon: "sparkles" as const }].map(item => <Link href={item.href} key={item.title} aria-label={item.title}><span className="quick-icon"><Icon name={item.icon} /></span><span><strong>{item.title}</strong><small>{item.hint}</small></span><Icon name="arrow" /></Link>)}

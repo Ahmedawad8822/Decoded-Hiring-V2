@@ -382,6 +382,8 @@ export const enrollments = sqliteTable(
   (table) => [
     uniqueIndex("enrollments_user_course_unique").on(table.userId, table.courseId),
     index("enrollments_course_idx").on(table.courseId),
+    // Batch H: Studio learner reads filter/sort by completion recency.
+    index("enrollments_completed_at_idx").on(table.completedAt),
   ]
 );
 
@@ -472,6 +474,8 @@ export const quizAttempts = sqliteTable(
   },
   (table) => [
     index("quiz_attempts_user_quiz_created_idx").on(table.userId, table.quizId, table.createdAt),
+    // Batch H: Studio learner reads aggregate latest attempts per enrollment.
+    index("quiz_attempts_enrollment_created_idx").on(table.enrollmentId, table.createdAt),
   ]
 );
 

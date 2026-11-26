@@ -1,5 +1,6 @@
 import { requireAdminPage } from "@/lib/auth";
 import { getAllAdminCourses, getCourseEnrollmentCounts } from "@/features/courses/service";
+import { getStuckCountsForCourses } from "@/features/learners/service";
 import { CoursesClient } from "./courses-client";
 import { getOffersForCourses } from "@/features/offers/service";
 
@@ -26,15 +27,17 @@ export default async function AdminCoursesPage(props: {
   // PERFORMANCE (review correction G): ONE grouped COUNT query for the whole
   // list — the previous per-course Promise.all was N round-trips per page view.
   const courseIds = courseList.map((c) => c.id);
-  const [countsByCourse, offersByCourse] = await Promise.all([
+  const [countsByCourse, offersByCourse, stuckByCourse] = await Promise.all([
     getCourseEnrollmentCounts(courseIds),
     getOffersForCourses(courseIds),
+    getStuckCountsForCourses(courseIds),
   ]);
   const initialCourses = courseList.map((course) => {
     const offer = offersByCourse.get(course.id) ?? null;
     return {
       ...course,
       enrollmentCount: countsByCourse[course.id] ?? 0,
+      stuckCount: stuckByCourse[course.id] ?? 0,
       offerId: offer?.id ?? null,
       offerActive: offer?.active ?? null,
       effectiveAccessMode: offer?.accessMode ?? course.accessMode,
