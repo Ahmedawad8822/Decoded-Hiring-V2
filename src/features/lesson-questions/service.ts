@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gte, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, ne, sql } from "drizzle-orm";
 import {
   courseSections,
   courses,
@@ -17,6 +17,7 @@ import { isLessonReleased } from "@/features/courses/release";
 import { getEnrollment } from "@/features/enrollments/service";
 import { hasLearnerAccess } from "@/features/enrollments/access";
 import { AppError } from "@/lib/errors";
+import { isUniqueConstraintError } from "@/lib/db/sqlite-errors";
 import { notifyQuestionAnswered } from "@/lib/email/triggers";
 import {
   answerQuestionSchema,
@@ -135,12 +136,13 @@ export async function askLessonQuestion(
 
   // Idempotency first: a retried submit must return the original row even
   // when the learner has since hit the daily budget.
-  const prior = await db
-    .select()
-    .from(lessonQuestions)
-    .where(eq(lessonQuestions.idempotencyKey, parsed.data.idempotencyKey))
-    .get();
-  if (prior) {
+  const findPrior = async (): Promise<LessonQuestion | null> => {
+    const prior = await db
+      .select()
+      .from(lessonQuestions)
+      .where(eq(lessonQuestions.idempotencyKey, parsed.data.idempotencyKey))
+      .get();
+    if (!prior) return null;
     if (prior.userId !== userId) {
       throw new AppError("conflict", "This submission was already sent. Please reload.");
     }
@@ -148,7 +150,9 @@ export async function askLessonQuestion(
       throw new AppError("conflict", "This submission was already sent with different content.");
     }
     return prior;
-  }
+  };
+  const prior = await findPrior();
+  if (prior) return prior;
 
   const now = new Date();
   const today = await db
@@ -180,7 +184,16 @@ export async function askLessonQuestion(
     createdAt: now,
     updatedAt: now,
   };
-  await db.insert(lessonQuestions).values(row);
+  try {
+    await db.insert(lessonQuestions).values(row);
+  } catch (error) {
+    // A concurrent submit with the same key won the insert: return its row.
+    // (The daily budget is a soft cap; a race can admit one extra question.)
+    if (!isUniqueConstraintError(error)) throw error;
+    const winner = await findPrior();
+    if (!winner) throw error;
+    return winner;
+  }
   return row;
 }
 
@@ -221,6 +234,7 @@ export async function listPublicLessonQuestions(
     eq(lessonQuestions.lessonId, lessonId),
     eq(lessonQuestions.status, "answered"),
     eq(lessonQuestions.isPublic, true),
+    ...(excludeUserId ? [ne(lessonQuestions.userId, excludeUserId)] : []),
   ];
   const rows = await db
     .select({
@@ -235,7 +249,7 @@ export async function listPublicLessonQuestions(
     .orderBy(asc(lessonQuestions.createdAt), asc(lessonQuestions.id))
     .limit(PUBLIC_QUESTIONS_LIMIT + 1);
   return rows
-    .filter((row) => row.userId !== excludeUserId && row.answerBody !== null && row.answeredAt !== null)
+    .filter((row) => row.answerBody !== null && row.answeredAt !== null)
     .slice(0, PUBLIC_QUESTIONS_LIMIT)
     .map((row) => ({
       id: row.id,

@@ -224,6 +224,19 @@ test("idempotency: same key replays the row; same key with new content conflicts
   );
 });
 
+test("idempotency: concurrent submits with one key save one question", async () => {
+  const idem = key();
+  const input = { courseSlug, lessonSlug, body: "Double click?", idempotencyKey: idem };
+  const [a, b] = await Promise.all([
+    askLessonQuestion(learnerA.id, input),
+    askLessonQuestion(learnerA.id, input),
+  ]);
+  assert.equal(a.id, b.id);
+  const db = await getDb();
+  const rows = await db.select().from(lessonQuestions).where(eq(lessonQuestions.idempotencyKey, idem));
+  assert.equal(rows.length, 1);
+});
+
 test("daily budget: at most 10 questions per learner per day; replay still works at the cap", async () => {
   const db = await getDb();
   await db.delete(lessonQuestions);
