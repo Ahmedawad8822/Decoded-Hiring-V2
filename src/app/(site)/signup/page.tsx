@@ -1,6 +1,6 @@
 "use client";
 
-import React, { Suspense, useState } from "react";
+import React, { Suspense, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { authClient } from "@/lib/auth/client";
@@ -19,6 +19,15 @@ function SignupForm() {
   const [error, setError] = useState<string | null>(null);
   const [sentTo, setSentTo] = useState<string | null>(null);
   const next = safeRedirectPath(redirect);
+  const { data: session, isPending } = authClient.useSession();
+
+  // Already signed in (e.g. followed a stale link): honour the redirect
+  // instead of showing the form.
+  useEffect(() => {
+    if (!isPending && session?.user) {
+      router.replace(next);
+    }
+  }, [isPending, session, next, router]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -195,7 +204,7 @@ function SignupForm() {
           <p style={{ fontSize: "12.5px", color: "var(--muted)", marginTop: "20px", textAlign: "center" }}>
             Already learning?{" "}
             <Link
-              href="/login"
+              href={`/login?redirect=${encodeURIComponent(next)}`}
               style={{ color: "var(--ink)", textDecoration: "underline", textUnderlineOffset: "3px" }}
             >
               Pick up where you left off

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { Suspense, useState } from "react";
+import React, { Suspense, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { authClient } from "@/lib/auth/client";
@@ -12,6 +12,16 @@ function LoginForm() {
   const searchParams = useSearchParams();
   const redirect = searchParams.get("redirect") || "/learn";
   const forbidden = searchParams.get("error") === "forbidden";
+  const next = safeRedirectPath(redirect);
+  const { data: session, isPending } = authClient.useSession();
+
+  // Already signed in (e.g. followed a stale link): honour the redirect
+  // instead of showing the form.
+  useEffect(() => {
+    if (!isPending && session?.user) {
+      router.replace(next);
+    }
+  }, [isPending, session, next, router]);
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -37,7 +47,7 @@ function LoginForm() {
       } else if (res.error) {
         setError(res.error.message || "Invalid credentials. Please try again.");
       } else {
-        router.push(safeRedirectPath(redirect));
+        router.push(next);
         router.refresh();
       }
     } catch (err: unknown) {
@@ -76,7 +86,7 @@ function LoginForm() {
           {unverified && (
             <CheckInbox
               email={unverified}
-              next={safeRedirectPath(redirect)}
+              next={next}
               intro="Please verify your email before signing in."
               sendOnMount
             />
@@ -176,7 +186,7 @@ function LoginForm() {
           <p style={{ fontSize: "12.5px", color: "var(--muted)", marginTop: "20px", textAlign: "center" }}>
             New here?{" "}
             <Link
-              href="/signup"
+              href={`/signup?redirect=${encodeURIComponent(next)}`}
               style={{ color: "var(--ink)", textDecoration: "underline", textUnderlineOffset: "3px" }}
             >
               Create a free account

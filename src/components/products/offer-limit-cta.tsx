@@ -41,6 +41,7 @@ export function OfferLimitCta({
   contactHref,
   contactLabel,
   icon = "down-right",
+  hideNotices = false,
   track,
 }: {
   offerSlug: string;
@@ -53,8 +54,10 @@ export function OfferLimitCta({
   contactHref: string;
   contactLabel: string;
   icon?: "down-right" | "up-right" | "none";
+  /** Hide the seat/close notices (the hero placement owns them). */
+  hideNotices?: boolean;
   track?: {
-    route: "/coaching" | "/workshop";
+    route: "/coaching" | "/workshop" | "/courses";
     surface: "hero-primary" | "hero-secondary" | "inline";
   };
 }) {
@@ -93,7 +96,7 @@ export function OfferLimitCta({
     return () => controller.abort();
   }, [offerSlug]);
 
-  function trackClick(target: "schedule" | "lead" | "contact") {
+  function trackClick(target: "schedule" | "lead" | "contact" | "enroll") {
     if (!track) return;
     void recordPublicOfferCta({
       eventKey: crypto.randomUUID(),
@@ -106,7 +109,13 @@ export function OfferLimitCta({
 
   const ctaHref = scheduleHref ?? primaryHref;
   const ctaLabel = scheduleHref ? scheduleLabel : primaryLabel;
-  const ctaTarget = scheduleHref ? "schedule" : "lead";
+  // Course sales pages link into the classroom enrollment flow ("enroll");
+  // coaching/workshop schedule or fall back to the lead brief ("lead").
+  const ctaTarget = scheduleHref
+    ? "schedule"
+    : track?.route === "/courses"
+      ? "enroll"
+      : "lead";
   const Icon = icon === "up-right" ? ArrowUpRight : ArrowDownRight;
 
   if (snapshot.status === "loaded" && snapshot.state !== "open") {
@@ -146,12 +155,12 @@ export function OfferLimitCta({
 
   return (
     <>
-      {placesLeft && (
+      {placesLeft && !hideNotices && (
         <p className="hg-route-note" role="status">
           {placesLeft}
         </p>
       )}
-      {closesOn && <p className="hg-route-note">{closesOn}</p>}
+      {closesOn && !hideNotices && <p className="hg-route-note">{closesOn}</p>}
       <a
         className="hg-primary"
         href={ctaHref}

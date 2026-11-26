@@ -20,3 +20,14 @@ export function safeRedirectPath(raw: string | null | undefined, fallback = "/le
     return fallback;
   }
 }
+
+/**
+ * `/login` href that returns an anonymous visitor to the requested path
+ * after sign-in. The target is re-validated by `safeRedirectPath`, so an
+ * attacker-controlled pathname can never turn the login redirect into an
+ * open redirect.
+ */
+export function loginRedirectHref(pathname: string, search = ""): string {
+  const target = safeRedirectPath(`${pathname}${search}`);
+  return `/login?redirect=${encodeURIComponent(target)}`;
+}

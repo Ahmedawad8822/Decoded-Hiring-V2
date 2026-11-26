@@ -151,6 +151,13 @@ export default async function CourseOverviewPage(props: {
         {course.description && (
           <p className="muted learner-mb-24">{course.description}</p>
         )}
+        {course.status === "published" && (
+          <p className="muted learner-mb-24" style={{ fontSize: 13 }}>
+            <Link className="learner-inherit" href={`/courses/${course.slug}`}>
+              Course overview →
+            </Link>
+          </p>
+        )}
 
         <dl className="lrn-course-stats" aria-label="Course statistics">
           <div><dt>Lessons</dt><dd>{stats.lessonCount}</dd></div>

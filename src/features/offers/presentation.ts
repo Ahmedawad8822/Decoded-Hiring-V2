@@ -114,8 +114,30 @@ export function resolveOfferPublicPresentation(
 }
 
 /**
+ * One-line access badge for the `/courses` list card. Mirrors the detail
+ * page: inactive offers read as unavailable (the detail page says "not
+ * currently accepting new enrollments"), paid modes show their price when
+ * one is set, and raw access-mode enums never leak. `freeHref` is unused
+ * here (only badge/priceLabel are read); the contact fallback matches the
+ * detail page default.
+ */
+export function resolveCourseListAccessLabel(
+  offer: Offer | null,
+  fallbackAccessMode: string,
+): string {
+  if (offer && !offer.active) return "UNAVAILABLE";
+  if (!offer) return fallbackAccessMode === "FREE" ? "FREE" : "ON REQUEST";
+  const presentation = resolveOfferPublicPresentation(offer, {
+    freeHref: "",
+    contactHref: "/contact",
+  });
+  return presentation.priceLabel ?? presentation.badge;
+}
+
+/**
  * Offer-limit display rule: capped offers show "N places left" once scarcity
- * is material (20 or fewer left). Uncapped offers never show it.
+ * is material (20 or fewer left). Uncapped offers never show it. Zero or
+ * negative counts never render (the sold-out state owns that message).
  */
 export const SEATS_LEFT_NOTICE_THRESHOLD = 20;
 
@@ -123,6 +145,7 @@ export function formatSeatsLeftLabel(
   availability: Pick<OfferAvailability, "seatsLeft">,
 ): string | null {
   if (availability.seatsLeft == null) return null;
+  if (availability.seatsLeft <= 0) return null;
   if (availability.seatsLeft > SEATS_LEFT_NOTICE_THRESHOLD) return null;
   if (availability.seatsLeft === 1) return "1 place left";
   return `${availability.seatsLeft} places left`;

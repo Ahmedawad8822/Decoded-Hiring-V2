@@ -147,6 +147,26 @@ export async function resolveCourseRedirect(oldSlug: string): Promise<string | n
 }
 
 /**
+ * Public sales counterpart: an old course slug 308s to the SALES page, and
+ * only when the target is publicly visible (published, non-trashed). Drafts
+ * and archived courses 404 instead of redirecting; trashed courses (the
+ * `trashed_at` column is landing in a parallel change) are treated as
+ * missing via a runtime check so this stays correct either way.
+ */
+export async function resolvePublicCourseRedirect(oldSlug: string): Promise<string | null> {
+  const entityId = await findRedirectEntityId({ entityType: "course", scope: "", slug: oldSlug });
+  if (!entityId) return null;
+  const db = await getDb();
+  const row = await db.select().from(courses).where(eq(courses.id, entityId)).get();
+  if (!row || row.status !== "published" || row.slug === oldSlug) return null;
+  const marker =
+    (row as unknown as Record<string, unknown>).trashedAt ??
+    (row as unknown as Record<string, unknown>).trashed_at;
+  if (marker !== undefined && marker !== null) return null;
+  return `/courses/${row.slug}`;
+}
+
+/**
  * Resolves a lesson URL whose course slug and/or lesson slug may be stale.
  * `courseSlug` may be current or an old (redirected) course slug.
  * Returns the current lesson path, or null when nothing applies / nothing

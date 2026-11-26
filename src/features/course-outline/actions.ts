@@ -10,6 +10,7 @@
 import { revalidatePath } from "next/cache";
 import { requireAdmin } from "@/lib/auth";
 import { toActionResult } from "@/lib/action-result";
+import { revalidateCourseSales } from "@/features/courses/actions";
 import { applyCourseOutline, draftCourseOutline } from "./service";
 import { applyOutlineSchema, outlineBriefSchema } from "./types";
 
@@ -42,6 +43,9 @@ export async function applyOutlineAction(input: unknown) {
     const parsed = applyOutlineSchema.parse(input);
     const result = await applyCourseOutline(parsed, session.user.id);
     revalidatePath(`/admin/courses/${parsed.courseId}/curriculum`);
+    // Outlines insert sections/lessons into a possibly published course whose
+    // sales page renders them immediately.
+    await revalidateCourseSales(parsed.courseId);
     return result;
   }, "Failed to add outline to curriculum");
 }

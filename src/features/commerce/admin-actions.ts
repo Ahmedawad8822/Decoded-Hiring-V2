@@ -4,6 +4,8 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 
 import { reconcileDurableBusinessEvents } from "@/features/analytics/service";
+import { getAdminCourseById } from "@/features/courses/service";
+import { getOfferById } from "@/features/offers/service";
 import { requireAdmin } from "@/lib/auth";
 import { createCommerceAdminOperations } from "./admin-operations";
 import {
@@ -25,13 +27,34 @@ function refreshCommerce() {
   revalidatePath("/mission-01");
   revalidatePath("/ai-recruiter-os");
   revalidatePath("/admin/courses");
+  // Public course sales pages render the linked offer's access and pricing.
+  revalidatePath("/courses");
+  revalidatePath("/sitemap.xml");
+}
+
+/**
+ * Expire the sales detail page of the course linked to a mutated offer.
+ * Booking-type mutations resolve to no offer and revalidate nothing extra;
+ * the list and sitemap are already covered by refreshCommerce().
+ */
+async function refreshCourseSalesForOffer(id: unknown): Promise<void> {
+  if (typeof id !== "string" || id.length === 0) return;
+  const offer = await getOfferById(id);
+  if (!offer?.courseId) return;
+  const course = await getAdminCourseById(offer.courseId);
+  if (course) revalidatePath(`/courses/${course.slug}`);
 }
 
 async function runMutation<T>(
   operation: () => Promise<{ ok: boolean; data?: T; error?: string }>,
 ) {
   const result = await operation();
-  if (result.ok) refreshCommerce();
+  if (result.ok) {
+    refreshCommerce();
+    await refreshCourseSalesForOffer(
+      (result.data as { id?: unknown } | undefined)?.id,
+    );
+  }
   return result;
 }
 
@@ -40,7 +63,20 @@ export async function createOfferAdminAction(input: unknown) {
 }
 
 export async function updateOfferAdminAction(input: unknown) {
-  return runMutation(() => operations.updateOffer(input));
+  // Capture the linked course BEFORE the mutation: the update may clear or
+  // move courseId, and the post-mutation read in refreshCourseSalesForOffer
+  // would then never expire the OLD course's sales page.
+  const rawId = (input as { id?: unknown } | null)?.id;
+  const before =
+    typeof rawId === "string" && rawId.length > 0
+      ? await getOfferById(rawId).catch(() => null)
+      : null;
+  const result = await runMutation(() => operations.updateOffer(input));
+  if (result.ok && before?.courseId) {
+    const beforeCourse = await getAdminCourseById(before.courseId).catch(() => null);
+    if (beforeCourse) revalidatePath(`/courses/${beforeCourse.slug}`);
+  }
+  return result;
 }
 
 export async function createBookingTypeAdminAction(input: unknown) {

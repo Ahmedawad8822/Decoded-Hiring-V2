@@ -13,6 +13,12 @@ export async function generateMetadata(): Promise<Metadata> {
   });
 }
 
+// Production builds run against an empty D1, so the build-time prerender of
+// this list is empty. A short revalidate lets the post-deploy prewarm (and
+// the first visitor) refresh it from production data; Studio actions still
+// revalidate it immediately on change.
+export const revalidate = 60;
+
 export default async function GuidesIndexPage() {
   const guides = await getPublishedGuides();
 

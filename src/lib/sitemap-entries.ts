@@ -4,6 +4,7 @@ export { staticRoutes } from "./public-routes";
 import { getSiteUrl } from "@/lib/seo";
 import { getPublishedGuides } from "@/features/guides/service";
 import { getPublishedFieldNotes } from "@/features/field-notes/service";
+import { getPublicCourses } from "@/features/courses/sales";
 import { getSitemapLandingPages } from "@/features/landing-pages/service";
 import { getSitemapPages } from "@/features/pages/service";
 
@@ -12,10 +13,10 @@ import { getSitemapPages } from "@/features/pages/service";
 // ----------------------------------------------------------------------------
 // Single source of truth for sitemap content, shared by src/app/sitemap.ts
 // and the regression suite. Static public marketing routes plus the canonical
-// URLs of PUBLISHED guides, field notes, indexable standard pages and
-// indexable live landing pages only. Drafts, archived, trashed, noindex and
-// out-of-schedule content can never appear: the source queries filter at the
-// service layer, and tests assert excluded slugs stay out.
+// URLs of PUBLISHED guides, field notes, courses, indexable standard pages
+// and indexable live landing pages only. Drafts, archived, trashed, noindex
+// and out-of-schedule content can never appear: the source queries filter at
+// the service layer, and tests assert excluded slugs stay out.
 // Static routes omit lastModified (stable timestamp unknown); dynamic content
 // uses updatedAt. Adds max-image-preview: large via robots (not sitemap).
 // ============================================================================
@@ -23,9 +24,10 @@ import { getSitemapPages } from "@/features/pages/service";
 export async function buildSitemapEntries(): Promise<MetadataRoute.Sitemap> {
   const base = getSiteUrl().toString().replace(/\/$/, "");
 
-  const [guides, fieldNotes, stdPages, landingPages] = await Promise.all([
+  const [guides, fieldNotes, courses, stdPages, landingPages] = await Promise.all([
     getPublishedGuides(),
     getPublishedFieldNotes(),
+    getPublicCourses(),
     getSitemapPages(),
     getSitemapLandingPages(),
   ]);
@@ -46,6 +48,12 @@ export async function buildSitemapEntries(): Promise<MetadataRoute.Sitemap> {
     lastModified: note.updatedAt ?? undefined,
   }));
 
+  const courseEntries: MetadataRoute.Sitemap = courses.map((course) => ({
+    url: `${base}/courses/${course.slug}`,
+    lastModified: course.updatedAt ?? undefined,
+  }));
+
+
   const pageEntries: MetadataRoute.Sitemap = stdPages.map((page) => ({
     url: `${base}/${page.slug}`,
     lastModified: page.updatedAt ?? undefined,
@@ -60,5 +68,5 @@ export async function buildSitemapEntries(): Promise<MetadataRoute.Sitemap> {
   }));
 
 
-  return [...staticEntries, ...guideEntries, ...fieldNoteEntries, ...pageEntries, ...landingPageEntries];
+  return [...staticEntries, ...guideEntries, ...fieldNoteEntries, ...courseEntries, ...pageEntries, ...landingPageEntries];
 }

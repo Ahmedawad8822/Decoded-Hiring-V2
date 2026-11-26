@@ -66,6 +66,14 @@ const nextConfig: NextConfig = {
   poweredByHeader: false,
   reactStrictMode: true,
   serverExternalPackages: ["wrangler", "miniflare", "esbuild"],
+  // Static pages that read D1 at build time each start a local workerd on the
+  // same SQLite file. Next spawns a second prerender worker once there are
+  // more than 25 static pages (the default), and two workers racing on that
+  // file fail the build with SQLITE_BUSY_RECOVERY. One worker is plenty for
+  // this site's page count.
+  experimental: {
+    staticGenerationMinPagesPerWorker: 1000,
+  },
   // Staff preview (?preview=true) must read the session, which would make the
   // public article routes dynamic. Rewrite it to dedicated dynamic routes so
   // /guides/[slug], /field-notes/[slug] and /go/[slug] stay static/ISR. The

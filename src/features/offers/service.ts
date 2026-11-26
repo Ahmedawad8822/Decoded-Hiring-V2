@@ -203,10 +203,16 @@ export async function getOfferForCourse(courseId: string): Promise<Offer | null>
 export async function getOffersForCourses(courseIds: string[]): Promise<Map<string, Offer>> {
   if (courseIds.length === 0) return new Map();
   const db = await getDb();
-  const rows = await db
-    .select()
-    .from(offers)
-    .where(inArray(offers.courseId, courseIds));
+  // D1 caps bound parameters per statement (100); chunk large catalogs.
+  const rows: Offer[] = [];
+  for (let i = 0; i < courseIds.length; i += 90) {
+    rows.push(
+      ...(await db
+        .select()
+        .from(offers)
+        .where(inArray(offers.courseId, courseIds.slice(i, i + 90)))),
+    );
+  }
   return new Map(
     rows
       .filter((offer): offer is Offer & { courseId: string } => Boolean(offer.courseId))

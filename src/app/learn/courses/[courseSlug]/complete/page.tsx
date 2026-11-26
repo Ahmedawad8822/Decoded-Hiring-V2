@@ -4,6 +4,7 @@ import { CertificateClaim } from "@/components/learner/certificate-claim";
 import { notFound, permanentRedirect, redirect } from "next/navigation";
 import { resolveCourseRedirect } from "@/features/slug-redirects/service";
 import { getServerSession } from "@/lib/auth";
+import { loginRedirectHref } from "@/lib/safe-redirect";
 import { getCourseCompletionState } from "@/features/progress/completion";
 import { getAccessibleEnrollments } from "@/features/enrollments/service";
 import { getLessonResourcesForLessons, getPublishedCourses } from "@/features/courses/service";
@@ -17,9 +18,11 @@ export const metadata = {
 export default async function CourseCompletionPage({ params }: {
   params: Promise<{ courseSlug: string }>;
 }) {
-  const session = await getServerSession();
-  if (!session?.user) redirect("/login?redirect=/learn");
   const { courseSlug } = await params;
+  const session = await getServerSession();
+  // Backstop only: the optimistic proxy (src/proxy.ts) normally preserves the
+  // deep link first. Keep the full path here for the same reason.
+  if (!session?.user) redirect(loginRedirectHref(`/learn/courses/${courseSlug}/complete`));
   const state = await getCourseCompletionState(session.user.id, courseSlug);
   if (state.kind === "not_found") {
     const target = await resolveCourseRedirect(courseSlug);

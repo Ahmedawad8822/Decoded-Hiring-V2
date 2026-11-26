@@ -76,7 +76,7 @@ test("learner completion route stays dynamic, noindex, and redirects anonymous c
   assert.deepEqual(metadata.robots, { index: false, follow: false });
   await assert.rejects(() => CompletionPage({ params: Promise.resolve({ courseSlug: "unread" }) }), (error: unknown) => {
     assert.ok(isRedirectError(error));
-    assert.match((error as { digest: string }).digest, /;\/login\?redirect=\/learn;/);
+    assert.match((error as { digest: string }).digest, /;\/login\?redirect=%2Flearn%2Fcourses%2Funread%2Fcomplete;/);
     return true;
   });
 });

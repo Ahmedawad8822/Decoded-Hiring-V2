@@ -34,8 +34,8 @@ async function admitPublicAnalytics(now: Date): Promise<boolean> {
 const offerCtaSchema = z.object({
   eventKey: z.string().uuid(),
   offerSlug: z.string().trim().min(1).max(160),
-  route: z.enum(["/coaching", "/workshop"]),
-  target: z.enum(["schedule", "lead", "contact", "checkout"]),
+  route: z.enum(["/coaching", "/workshop", "/courses"]),
+  target: z.enum(["schedule", "lead", "contact", "checkout", "enroll"]),
   surface: z.enum(["hero-primary", "hero-secondary", "inline"]),
 });
 
@@ -46,7 +46,8 @@ export async function recordPublicOfferCta(input: unknown): Promise<void> {
 
   const routeMatchesKind =
     (parsed.route === "/coaching" && offer.kind === "COACHING") ||
-    (parsed.route === "/workshop" && offer.kind === "WORKSHOP");
+    (parsed.route === "/workshop" && offer.kind === "WORKSHOP") ||
+    (parsed.route === "/courses" && offer.kind === "COURSE");
   if (!routeMatchesKind) return;
 
   const now = new Date();

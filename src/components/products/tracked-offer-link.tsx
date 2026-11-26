@@ -13,8 +13,8 @@ export function TrackedOfferLink({
   ...anchorProps
 }: {
   offerSlug: string;
-  route: "/coaching" | "/workshop";
-  target: "schedule" | "lead" | "contact" | "checkout";
+  route: "/coaching" | "/workshop" | "/courses";
+  target: "schedule" | "lead" | "contact" | "checkout" | "enroll";
   surface: "hero-primary" | "hero-secondary" | "inline";
   children: ReactNode;
 } & Omit<ComponentProps<"a">, "onClick">) {

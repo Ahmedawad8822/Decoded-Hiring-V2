@@ -9,6 +9,7 @@ export const staticRoutes = [
   "/ai-recruiter-os",
   "/guides",
   "/field-notes",
+  "/courses",
   "/contact",
   "/privacy",
   "/terms",

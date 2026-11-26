@@ -69,6 +69,41 @@ export function JsonLd({ data }: { data: Record<string, unknown> }) {
   );
 }
 
+export function buildCourseJsonLd({
+  title,
+  description,
+  path,
+  providerName = siteName,
+  datePublished,
+  dateModified,
+}: {
+  title: string;
+  description: string;
+  path: string;
+  providerName?: string;
+  datePublished?: string;
+  dateModified: string;
+}): Record<string, unknown> {
+  const base = getSiteUrl().toString().replace(/\/$/, "");
+  return {
+    "@context": "https://schema.org",
+    "@type": "Course",
+    name: title,
+    description,
+    provider: {
+      "@type": "Organization",
+      name: providerName,
+      url: `${base}/`,
+    },
+    ...(datePublished ? { datePublished } : {}),
+    dateModified,
+    mainEntityOfPage: {
+      "@type": "WebPage",
+      "@id": `${base}${path}`,
+    },
+  };
+}
+
 export function breadcrumbSchema(items: Array<{ name: string; path: string }>) {
   return {
     "@context": "https://schema.org",

@@ -15,6 +15,9 @@ export const metadata = {
 export default async function LearnLayout({ children }: { children: React.ReactNode }) {
   const session = await getServerSession();
   if (!session?.user) {
+    // Secure backstop (database-backed). The optimistic proxy (src/proxy.ts)
+    // already preserved the requested path for cookie-less visitors; this
+    // fallback only fires when a session cookie exists but is invalid.
     redirect("/login?redirect=/learn");
   }
 
