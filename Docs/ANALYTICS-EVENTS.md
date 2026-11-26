@@ -21,7 +21,7 @@ Only one mechanism: the first-party **business-event ledger**, table `business_e
 |---|---|
 | `id` | `bev_<18 hex>`; reconstructed rows use `bev_recon_<historyId>...` |
 | `dedupe_key` | **Unique.** `INSERT OR IGNORE` makes every write idempotent (see section 4) |
-| `event_name` | One of the 12 names below. Unknown names are rejected by zod and ignored when summarising |
+| `event_name` | One of the names below (14 with the two landing-page events). Unknown names are rejected by zod and ignored when summarising |
 | `subject_type`, `subject_id` | `OFFER`, `BOOKING_TYPE`, `BOOKING`, `ORDER`, `PUBLIC` and its id |
 | `offer_id`, `booking_type_id`, `booking_id`, `order_id` | Denormalised links (indexed except `booking_type_id`) |
 | `route`, `surface` | Page and UI placement (max 180 and 120 chars) |
@@ -35,6 +35,8 @@ Privacy guard (`safeMetadata`): a metadata **key** matching `email|name|phone|no
 | Event | Trigger (code) | Subject | Properties (`metadata` plus columns) | Reconstructible |
 |---|---|---|---|---|
 | `offer_cta_clicked` | Click on a tracked offer link on `/coaching` or `/workshop`: `recordPublicOfferCta` | `OFFER` | route (`/coaching` or `/workshop`), surface (`hero-primary`, `hero-secondary`, `inline`); metadata `target` (`schedule`, `lead`, `contact`, `checkout`), `offer_kind`, `access_mode`; `offer_id`, `booking_type_id` | No |
+| `landing_page_viewed` | First view of a live campaign page `/go/[slug]`: `recordLandingPageView` (client island, once per load) | `PUBLIC` | `subject_id` = landing page id, route `/go/<slug>`, surface `landing-page`; metadata `target_kind` (`offer`, `course`, `guide`) | No |
+| `landing_page_cta_clicked` | Click on a landing-page CTA (`TrackedLandingCta`): `recordLandingPageCta` | `PUBLIC` | `subject_id` = landing page id, `offer_id` when the target is an offer, route `/go/<slug>`, surface (`hero`, `cta_band`, `target_summary`, `sticky`); metadata `target_kind`, `cta_surface` | No |
 | `booking_started` | First interaction with the public scheduler form (once per page load): `recordPublicBookingStarted` | `BOOKING_TYPE` | route, surface `public-scheduler`; metadata `offer_kind`, `access_mode`; offer and booking type ids | No |
 | `slot_held` | A public slot hold is acquired, before the booking request is created (`scheduling/public-actions.ts`) | `BOOKING_TYPE` | route, surface `public-scheduler`; metadata `offer_kind`, `offer_slug` | No |
 | `booking_requested` | Booking row created (`createBookingRequest`, `scheduling/bookings.ts`) | `BOOKING` | metadata `confirmation_policy`, `initial_status` | Yes (history action `REQUESTED`) |
@@ -54,6 +56,8 @@ Booking events fire only when the committed row matches the intended `version` a
 | Event group | Key pattern |
 |---|---|
 | `offer_cta_clicked` | `public-cta:<eventKey>` (client `crypto.randomUUID()` per click) |
+| `landing_page_viewed` | `landing-view:<eventKey>` (client `crypto.randomUUID()` per page load) |
+| `landing_page_cta_clicked` | `landing-cta:<eventKey>` (client `crypto.randomUUID()` per click) |
 | `booking_started` | `public-booking:<eventKey>:started` (`eventKey` = the form's `requestKey`) |
 | `slot_held` | `public-slot:<acquisitionKey>:held` |
 | Booking lifecycle | `booking-history:<booking_history.id>:<event_name>` |
@@ -63,7 +67,7 @@ Live writes and reconciliation use the **same** history-based keys, so a reconst
 
 ## 5. Rate limits and abuse controls
 
-Applies to the two browser-triggered events (`offer_cta_clicked`, `booking_started`); `slot_held` is already behind the booking admission limits. Order in `admitPublicAnalytics` (`public-actions.ts`):
+Applies to the browser-triggered events (`offer_cta_clicked`, `booking_started`, `landing_page_viewed`, `landing_page_cta_clicked`); `slot_held` is already behind the booking admission limits. Order in `admitPublicAnalytics` (`public-actions.ts`):
 
 | Step | Limit | Scope key |
 |---|---|---|

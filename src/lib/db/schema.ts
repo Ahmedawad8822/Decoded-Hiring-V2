@@ -211,6 +211,13 @@ export const leadSubmissions = sqliteTable(
     workflowToImprove: text("workflow_to_improve"),
     sourceRoute: text("source_route").notNull(),
     audiencePath: text("audience_path"),
+    // Landing-page attribution (§4 PAGE-TYPE-SPECS): the /go/[slug] lead form
+    // posts through the same intake. landing_page_id is the landing_pages.id
+    // (plain text, no FK, so leads outlive the campaign); utm_params is a
+    // small JSON object of the incoming utm_* query values. Both nullable so
+    // every pre-existing form keeps working unchanged.
+    landingPageId: text("landing_page_id"),
+    utmParams: text("utm_params"),
     privacyAcknowledged: integer("privacy_acknowledged", { mode: "boolean" })
       .notNull(),
     researchAccepted: integer("research_accepted", { mode: "boolean" })
@@ -232,10 +239,63 @@ export const leadSubmissions = sqliteTable(
     index("lead_submissions_kind_created_idx").on(table.kind, table.createdAt),
     index("lead_submissions_email_created_idx").on(table.email, table.createdAt),
     index("lead_submissions_status_idx").on(table.status),
+    index("lead_submissions_landing_page_idx").on(table.landingPageId),
   ],
 );
 
 export type LeadSubmission = typeof leadSubmissions.$inferSelect;
+
+// ============================================================================
+// MARKETING LANDING PAGES (§4 PAGE-TYPE-SPECS, website-and-content batch)
+// ----------------------------------------------------------------------------
+// Campaign conversion pages at /go/[slug]. Approved section blocks only
+// (validated by zod in src/features/landing-pages/types.ts). Target is
+// exactly one of offer / course / guide and drives the primary CTA.
+// Lifecycle follows §1: draft -> published -> archived plus a Trash flag
+// (trashed_at + trashed_from_status). Slugs of trashed rows stay reserved
+// until permanent delete (UNIQUE slug). No revisions (unlike Field Notes),
+// no slug-redirect participation: campaign slugs are never renamed for SEO.
+// ============================================================================
+
+export type LandingPageStatus = ContentStatus;
+export type LandingPageTargetKind = "offer" | "course" | "guide";
+
+export const landingPages = sqliteTable(
+  "landing_pages",
+  {
+    id: text("id").primaryKey(),
+    title: text("title").notNull(),
+    slug: text("slug").notNull().unique(),
+    campaignName: text("campaign_name").notNull(),
+    targetKind: text("target_kind").$type<LandingPageTargetKind>().notNull(),
+    targetOfferId: text("target_offer_id").references(() => offers.id),
+    targetCourseId: text("target_course_id").references(() => courses.id),
+    targetGuideId: text("target_guide_id").references(() => guides.id),
+    ctaLabel: text("cta_label").notNull(),
+    sections: text("sections").notNull(), // JSON-stringified LandingPageSection[]
+    seoTitle: text("seo_title"),
+    seoDescription: text("seo_description"),
+    noindex: integer("noindex", { mode: "boolean" }).notNull().default(true),
+    status: text("status").$type<LandingPageStatus>().notNull().default("draft"),
+    startsAt: integer("starts_at", { mode: "timestamp" }),
+    endsAt: integer("ends_at", { mode: "timestamp" }),
+    trashedAt: integer("trashed_at", { mode: "timestamp" }),
+    trashedFromStatus: text("trashed_from_status").$type<LandingPageStatus>(),
+    createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+    updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+    publishedAt: integer("published_at", { mode: "timestamp" }),
+  },
+  (table) => [
+    index("landing_pages_status_idx").on(table.status),
+    index("landing_pages_trashed_at_idx").on(table.trashedAt),
+    index("landing_pages_ends_at_idx").on(table.endsAt),
+    index("landing_pages_target_offer_idx").on(table.targetOfferId),
+    index("landing_pages_target_course_idx").on(table.targetCourseId),
+    index("landing_pages_target_guide_idx").on(table.targetGuideId),
+  ],
+);
+
+export type LandingPage = typeof landingPages.$inferSelect;
 
 // ============================================================================
 // PUBLIC INTAKE RATE LIMITS (Mission 08.6 remediation)
