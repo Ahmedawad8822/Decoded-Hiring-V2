@@ -54,7 +54,7 @@ export function OfferLimitCta({
   contactLabel: string;
   icon?: "down-right" | "up-right" | "none";
   track?: {
-    route: "/coaching" | "/workshop";
+    route: "/coaching" | "/workshop" | "/courses";
     surface: "hero-primary" | "hero-secondary" | "inline";
   };
 }) {
@@ -93,7 +93,7 @@ export function OfferLimitCta({
     return () => controller.abort();
   }, [offerSlug]);
 
-  function trackClick(target: "schedule" | "lead" | "contact") {
+  function trackClick(target: "schedule" | "lead" | "contact" | "enroll") {
     if (!track) return;
     void recordPublicOfferCta({
       eventKey: crypto.randomUUID(),
@@ -106,7 +106,13 @@ export function OfferLimitCta({
 
   const ctaHref = scheduleHref ?? primaryHref;
   const ctaLabel = scheduleHref ? scheduleLabel : primaryLabel;
-  const ctaTarget = scheduleHref ? "schedule" : "lead";
+  // Course sales pages link into the classroom enrollment flow ("enroll");
+  // coaching/workshop schedule or fall back to the lead brief ("lead").
+  const ctaTarget = scheduleHref
+    ? "schedule"
+    : track?.route === "/courses"
+      ? "enroll"
+      : "lead";
   const Icon = icon === "up-right" ? ArrowUpRight : ArrowDownRight;
 
   if (snapshot.status === "loaded" && snapshot.state !== "open") {

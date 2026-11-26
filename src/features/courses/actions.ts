@@ -26,6 +26,26 @@ function fail(error: unknown, fallback: string): ActionState<never> {
   return { ok: false, error: publicErrorMessage(error, fallback) };
 }
 
+/**
+ * Expire the public sales surfaces together: the `/courses` list, the
+ * affected detail page(s) and the sitemap. Called on every Studio mutation
+ * that changes what the sales pages render (course fields, lifecycle,
+ * curriculum, preview flags, durations). `oldSlug` covers renames so the
+ * previous URL stops serving a stale 200 and becomes the 308.
+ */
+function revalidateCourseSalesPaths(oldSlug?: string | null, newSlug?: string | null) {
+  revalidatePath("/courses");
+  revalidatePath("/sitemap.xml");
+  if (oldSlug && oldSlug !== newSlug) revalidatePath(`/courses/${oldSlug}`);
+  if (newSlug) revalidatePath(`/courses/${newSlug}`);
+}
+
+/** Same as above when only the course id is known (section/lesson edits). */
+async function revalidateCourseSales(courseId: string): Promise<void> {
+  const course = await courseService.getAdminCourseById(courseId);
+  revalidateCourseSalesPaths(course?.slug, course?.slug);
+}
+
 export async function createCourseAction(
   input: unknown
 ): Promise<ActionState<{ id: string; slug: string }>> {
@@ -53,10 +73,12 @@ export async function updateCourseAction(
     if (!parsed.success) {
       return { ok: false, error: parsed.error.issues.map((i) => i.message).join(", ") };
     }
+    const before = await courseService.getAdminCourseById(parsed.data.id);
     const updated = await courseService.updateCourse(parsed.data.id, parsed.data);
     await recordAdminAudit({ actorId: session.user.id, action: "course.update", entityType: "course", entityId: updated.id, details: { slug: updated.slug, certificateEnabled: updated.certificateEnabled, sequential: updated.sequential } });
     revalidatePath("/admin/courses");
     revalidatePath(`/learn/courses/${updated.slug}`);
+    revalidateCourseSalesPaths(before?.slug, updated.slug);
     return { ok: true, data: { id: updated.id, slug: updated.slug } };
   } catch (err: unknown) {
     return fail(err, "Failed to update course");
@@ -70,6 +92,7 @@ export async function publishCourseAction(id: string): Promise<ActionState<{ slu
     await recordAdminAudit({ actorId: session.user.id, action: "course.publish", entityType: "course", entityId: id, details: { slug: course.slug, status: "published" } });
     revalidatePath("/admin/courses");
     revalidatePath(`/learn/courses/${course.slug}`);
+    revalidateCourseSalesPaths(course.slug, course.slug);
     return { ok: true, data: { slug: course.slug } };
   } catch (err: unknown) {
     return fail(err, "Failed to publish course");
@@ -82,6 +105,7 @@ export async function unpublishCourseAction(id: string): Promise<ActionState<{ s
     const course = await courseService.unpublishCourse(id);
     await recordAdminAudit({ actorId: session.user.id, action: "course.unpublish", entityType: "course", entityId: id, details: { slug: course.slug, status: "draft" } });
     revalidatePath("/admin/courses");
+    revalidateCourseSalesPaths(course.slug, course.slug);
     return { ok: true, data: { slug: course.slug } };
   } catch (err: unknown) {
     return fail(err, "Failed to unpublish course");
@@ -94,6 +118,7 @@ export async function archiveCourseAction(id: string): Promise<ActionState<{ slu
     const course = await courseService.archiveCourse(id);
     await recordAdminAudit({ actorId: session.user.id, action: "course.archive", entityType: "course", entityId: id, details: { slug: course.slug, status: "archived" } });
     revalidatePath("/admin/courses");
+    revalidateCourseSalesPaths(course.slug, course.slug);
     return { ok: true, data: { slug: course.slug } };
   } catch (err: unknown) {
     return fail(err, "Failed to archive course");
@@ -112,6 +137,7 @@ export async function createSectionAction(
     const section = await courseService.createSection(parsed.data);
     await recordAdminAudit({ actorId: session.user.id, action: "course_section.create", entityType: "course_section", entityId: section.id, details: { courseId: section.courseId } });
     revalidatePath(`/admin/courses/${section.courseId}/curriculum`);
+    await revalidateCourseSales(section.courseId);
     return { ok: true, data: { id: section.id } };
   } catch (err: unknown) {
     return fail(err, "Failed to create section");
@@ -130,6 +156,7 @@ export async function renameSectionAction(
     const section = await courseService.renameSection(parsed.data.id, parsed.data.title);
     await recordAdminAudit({ actorId: session.user.id, action: "course_section.rename", entityType: "course_section", entityId: section.id, details: { courseId: section.courseId } });
     revalidatePath(`/admin/courses/${section.courseId}/curriculum`);
+    await revalidateCourseSales(section.courseId);
     return { ok: true, data: { id: section.id } };
   } catch (err: unknown) {
     return fail(err, "Failed to rename section");
@@ -165,6 +192,7 @@ export async function updateSectionReleaseAction(
     const section = await courseService.updateSectionRelease(parsed.data);
     await recordAdminAudit({ actorId: session.user.id, action: "course_section.release", entityType: "course_section", entityId: section.id, details: { courseId: section.courseId, releaseMode: section.releaseMode } });
     revalidatePath(`/admin/courses/${section.courseId}/curriculum`);
+    await revalidateCourseSales(section.courseId);
     return { ok: true, data: { id: section.id } };
   } catch (err: unknown) {
     return fail(err, "Failed to update section release");
@@ -183,6 +211,7 @@ export async function createLessonAction(
     const lesson = await courseService.createLesson(parsed.data);
     await recordAdminAudit({ actorId: session.user.id, action: "lesson.create", entityType: "lesson", entityId: lesson.id, details: { courseId: lesson.courseId, slug: lesson.slug, isPreview: lesson.isPreview, durationMinutes: lesson.durationMinutes } });
     revalidatePath(`/admin/courses/${lesson.courseId}/curriculum`);
+    await revalidateCourseSales(lesson.courseId);
     return { ok: true, data: { id: lesson.id, slug: lesson.slug } };
   } catch (err: unknown) {
     return fail(err, "Failed to create lesson");
@@ -201,6 +230,7 @@ export async function updateLessonAction(
     const lesson = await courseService.updateLesson(parsed.data.id, parsed.data);
     await recordAdminAudit({ actorId: session.user.id, action: "lesson.update", entityType: "lesson", entityId: lesson.id, details: { courseId: lesson.courseId, slug: lesson.slug, isPreview: lesson.isPreview, durationMinutes: lesson.durationMinutes } });
     revalidatePath(`/admin/courses/${lesson.courseId}/curriculum`);
+    await revalidateCourseSales(lesson.courseId);
     return { ok: true, data: { id: lesson.id, slug: lesson.slug } };
   } catch (err: unknown) {
     return fail(err, "Failed to update lesson");
@@ -213,6 +243,7 @@ export async function publishLessonAction(id: string): Promise<ActionState<{ slu
     const lesson = await courseService.publishLesson(id);
     await recordAdminAudit({ actorId: session.user.id, action: "lesson.publish", entityType: "lesson", entityId: id, details: { courseId: lesson.courseId, slug: lesson.slug, status: "published" } });
     revalidatePath(`/admin/courses/${lesson.courseId}/curriculum`);
+    await revalidateCourseSales(lesson.courseId);
     return { ok: true, data: { slug: lesson.slug } };
   } catch (err: unknown) {
     return fail(err, "Failed to publish lesson");
@@ -225,6 +256,7 @@ export async function unpublishLessonAction(id: string): Promise<ActionState<{ s
     const lesson = await courseService.unpublishLesson(id);
     await recordAdminAudit({ actorId: session.user.id, action: "lesson.unpublish", entityType: "lesson", entityId: id, details: { courseId: lesson.courseId, slug: lesson.slug, status: "draft" } });
     revalidatePath(`/admin/courses/${lesson.courseId}/curriculum`);
+    await revalidateCourseSales(lesson.courseId);
     return { ok: true, data: { slug: lesson.slug } };
   } catch (err: unknown) {
     return fail(err, "Failed to unpublish lesson");
@@ -260,6 +292,7 @@ export async function updateLessonReleaseAction(
     const lesson = await courseService.updateLessonRelease(parsed.data);
     await recordAdminAudit({ actorId: session.user.id, action: "lesson.release", entityType: "lesson", entityId: lesson.id, details: { courseId: lesson.courseId, releaseMode: lesson.releaseMode } });
     revalidatePath(`/admin/courses/${lesson.courseId}/curriculum`);
+    await revalidateCourseSales(lesson.courseId);
     return { ok: true, data: { id: lesson.id } };
   } catch (err: unknown) {
     return fail(err, "Failed to update lesson release");

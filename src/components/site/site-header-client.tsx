@@ -32,6 +32,8 @@ const learnLinks = [
 
 const exploreLinks = [
   { href: "/about", label: "About" },
+  { href: "/programmes", label: "Programmes" },
+  { href: "/courses", label: "Courses" },
   { href: "/field-notes", label: "Field Notes" },
   { href: "/guides", label: "Guides" },
   { href: "/contact", label: "Contact" },

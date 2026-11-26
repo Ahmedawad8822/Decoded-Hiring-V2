@@ -4,13 +4,15 @@ export { staticRoutes } from "./public-routes";
 import { getSiteUrl } from "@/lib/seo";
 import { getPublishedGuides } from "@/features/guides/service";
 import { getPublishedFieldNotes } from "@/features/field-notes/service";
+import { getPublicCourses } from "@/features/courses/sales";
 
 // ============================================================================
 // SITEMAP ENTRIES — remediation B.2/B.4
 // ----------------------------------------------------------------------------
 // Single source of truth for sitemap content, shared by src/app/sitemap.ts
 // and the regression suite. Static public marketing routes plus the canonical
-// URLs of PUBLISHED guides and field notes only. Drafts and archived content
+// URLs of PUBLISHED guides, field notes and courses only. Drafts, archived
+// and trashed content
 // can never appear: the source queries filter on status = 'published' at the
 // service layer, and tests assert draft/archived slugs stay out.
 // Static routes omit lastModified (stable timestamp unknown); dynamic content
@@ -20,9 +22,10 @@ import { getPublishedFieldNotes } from "@/features/field-notes/service";
 export async function buildSitemapEntries(): Promise<MetadataRoute.Sitemap> {
   const base = getSiteUrl().toString().replace(/\/$/, "");
 
-  const [guides, fieldNotes] = await Promise.all([
+  const [guides, fieldNotes, courses] = await Promise.all([
     getPublishedGuides(),
     getPublishedFieldNotes(),
+    getPublicCourses(),
   ]);
 
   const staticEntries: MetadataRoute.Sitemap = staticRoutes.map((route) => ({
@@ -41,5 +44,10 @@ export async function buildSitemapEntries(): Promise<MetadataRoute.Sitemap> {
     lastModified: note.updatedAt ?? undefined,
   }));
 
-  return [...staticEntries, ...guideEntries, ...fieldNoteEntries];
+  const courseEntries: MetadataRoute.Sitemap = courses.map((course) => ({
+    url: `${base}/courses/${course.slug}`,
+    lastModified: course.updatedAt ?? undefined,
+  }));
+
+  return [...staticEntries, ...guideEntries, ...fieldNoteEntries, ...courseEntries];
 }
