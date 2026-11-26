@@ -1,7 +1,8 @@
-import { getDb, lessonResources, lessons } from "@/lib/db";
+import { getDb, courseSections, lessonResources, lessons } from "@/lib/db";
 import { getServerSession } from "@/lib/auth";
 import { getCourseResourceObject } from "@/lib/course-resources/service";
 import { resolveLessonResourceAccess } from "@/lib/course-resources/access";
+import { lessonReleaseAt } from "@/features/courses/release";
 import { getEnrollment } from "@/features/enrollments/service";
 import { eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
@@ -49,10 +50,26 @@ export async function GET(
   const enrollment =
     role === "admin" ? null : await getEnrollment(session.user.id, resource.courseId);
 
+  // DRIP (Batch J): enrolled learners get a locked verdict (not a 404) while
+  // the lesson is unreleased; admins bypass. Section carries the section rule.
+  let dripLocked = false;
+  let dripReleaseAt: Date | null = null;
+  if (lesson && role !== "admin" && enrollment) {
+    const section = await db
+      .select()
+      .from(courseSections)
+      .where(eq(courseSections.id, lesson.sectionId))
+      .get();
+    dripReleaseAt = lessonReleaseAt(section ?? null, lesson, enrollment.enrolledAt);
+    dripLocked = dripReleaseAt !== null && dripReleaseAt.getTime() > Date.now();
+  }
+
   const verdict = resolveLessonResourceAccess({
     role,
     lessonStatus: lesson?.status ?? null,
     enrollment,
+    dripLocked,
+    dripReleaseAt,
   });
 
   if (verdict.status === "not-found") {
@@ -61,6 +78,15 @@ export async function GET(
   if (verdict.status === "forbidden") {
     return NextResponse.json(
       { error: "Forbidden: You are not enrolled in this course" },
+      { status: 403 }
+    );
+  }
+  if (verdict.status === "locked") {
+    return NextResponse.json(
+      {
+        error: "This lesson has not unlocked yet.",
+        ...(verdict.releaseAt ? { releaseAt: verdict.releaseAt.toISOString() } : {}),
+      },
       { status: 403 }
     );
   }

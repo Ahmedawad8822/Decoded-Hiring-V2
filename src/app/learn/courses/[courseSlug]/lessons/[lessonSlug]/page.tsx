@@ -27,7 +27,9 @@ import {
 } from "@/features/quizzes/service";
 
 import { getLessonReadAccess } from "@/features/courses/lesson-access";
+import { isLessonReleased, lessonReleaseAt } from "@/features/courses/release";
 import { lessonMetaLabel } from "@/features/courses/metadata";
+import { LocalDate } from "@/components/learner/local-date";
 
 export async function generateMetadata(props: {
   params: Promise<{ courseSlug: string; lessonSlug: string }>;
@@ -85,6 +87,38 @@ export default async function LessonPlayerPage(props: {
   }
 
   const curriculum = await getCourseCurriculum(course.id);
+  const lessonSection = curriculum.find((c) => c.section.id === lesson.sectionId)?.section ?? null;
+  // DRIP (Batch J): enrolled learners see a locked state — never the body,
+  // video, resources, quiz or notes — until the release instant. Admins bypass
+  // (they never hold an enrollment here; Studio has its own surface).
+  const releaseAt =
+    activeEnrollment && readAccess === "enrolled"
+      ? lessonReleaseAt(lessonSection, lesson, activeEnrollment.enrolledAt)
+      : null;
+  if (releaseAt && activeEnrollment && !isLessonReleased(lessonSection, lesson, activeEnrollment.enrolledAt)) {
+    return (
+      <main className="sec-app learner-page" id="main">
+        <div className="wrap learner-column">
+          <p className="a-micro learner-mb-6">
+            <Link className="learner-inherit" href={`/learn/courses/${course.slug}`}>
+              {course.title.toUpperCase()}
+            </Link>
+          </p>
+          <h1 className="a-h1"><span aria-hidden="true">🔒 </span>{lesson.title}</h1>
+          <p className="muted-strong learner-intro">
+            This lesson <LocalDate iso={releaseAt.toISOString()} prefix="unlocks" />.
+            {course.notifyUnlocks ? " We\u2019ll email you when it\u2019s ready." : " Come back then to continue."}
+          </p>
+          <div className="learner-mt-16">
+            <Link className="btn primary learner-link" href={`/learn/courses/${course.slug}`}>
+              Back to course →
+            </Link>
+          </div>
+        </div>
+      </main>
+    );
+  }
+
   const progress = activeEnrollment ? await getEnrollmentProgress(activeEnrollment) : null;
   const completedSet = new Set(progress?.completedLessonIds ?? []);
   const resources = activeEnrollment ? await getLessonResources(lesson.id) : [];
@@ -93,7 +127,7 @@ export default async function LessonPlayerPage(props: {
   const [quiz, quizLessonIds, myNote] = await Promise.all([
     getLearnerQuizForLesson(lesson.id),
     getQuizLessonIds(course.id),
-    activeEnrollment ? getMyLessonNote(session!.user.id, lesson.id) : Promise.resolve(null),
+    activeEnrollment ? getMyLessonNote(session!.user.id, lesson.id, { enrolledAt: activeEnrollment.enrolledAt }) : Promise.resolve(null),
   ]);
   const quizStats = quiz && activeEnrollment
     ? await getLearnerQuizStats(session!.user.id, quiz.id)
@@ -129,6 +163,14 @@ export default async function LessonPlayerPage(props: {
           {entry.publishedLessons.map((l) => {
             const done = completedSet.has(l.id);
             const current = l.id === lesson.id;
+            const lockedAt =
+              activeEnrollment && readAccess === "enrolled"
+                ? lessonReleaseAt(entry.section, l, activeEnrollment.enrolledAt)
+                : null;
+            const isLocked =
+              lockedAt !== null &&
+              activeEnrollment !== null &&
+              !isLessonReleased(entry.section, l, activeEnrollment.enrolledAt);
             return (
               <Link
                 key={l.id}
@@ -136,10 +178,16 @@ export default async function LessonPlayerPage(props: {
                 href={activeEnrollment || l.isPreview ? `/learn/courses/${course.slug}/lessons/${l.slug}` : `/learn/courses/${course.slug}`}
                 aria-current={current ? true : undefined}
               >
-                <span className="tick">{done ? "✓" : ""}</span>
+                <span className="tick">{done ? "✓" : isLocked ? "🔒" : ""}</span>
                 <span className="lrn-lesson-info">
                   <span>{l.title}</span>
-                  <span className="lrn-lesson-meta">{lessonMetaLabel(l, false, quizLessonIds.has(l.id))}</span>
+                  <span className="lrn-lesson-meta">
+                    {isLocked && lockedAt ? (
+                      <LocalDate iso={lockedAt.toISOString()} prefix="Unlocks" />
+                    ) : (
+                      lessonMetaLabel(l, false, quizLessonIds.has(l.id))
+                    )}
+                  </span>
                 </span>
                 {l.isPreview && course.status === "published" && <span className="lrn-preview-badge">Preview</span>}
                 {!l.required && <span className="opt">OPTIONAL</span>}

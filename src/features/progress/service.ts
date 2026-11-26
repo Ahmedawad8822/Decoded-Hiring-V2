@@ -5,6 +5,7 @@ import {
   lessons,
   courses,
   courseSections,
+  type CourseSection,
   type Enrollment,
   type Lesson,
 } from "@/lib/db";
@@ -12,9 +13,10 @@ import { and, asc, eq, inArray } from "drizzle-orm";
 import {
   getAdminCourseById,
   getAdminLessonById,
-  getPublishedCourseLessons,
+  getCourseCurriculum,
 } from "@/features/courses/service";
 import { hasLearnerAccess } from "@/features/enrollments/access";
+import { isLessonReleased, nextReleaseAt } from "@/features/courses/release";
 import { assertManualLessonCompletionAllowed } from "@/features/quizzes/gate";
 import { isUniqueConstraintError } from "@/lib/db/sqlite-errors";
 import { AppError } from "@/lib/errors";
@@ -47,6 +49,12 @@ export interface CourseProgress {
   resumeLesson: Lesson | null;
   nextAfterLessonId: Record<string, Lesson | null>;
   publishedLessons: Lesson[];
+  /**
+   * Batch J drip: earliest future release instant among incomplete lessons, or
+   * null when nothing pending is scheduled. The course page shows "Next lesson
+   * unlocks on <date>" when resumeLesson is null but this is set.
+   */
+  nextUnlockAt: Date | null;
 }
 
 /** Shape of the shared progress maths (everything derivable from the curriculum + completions). */
@@ -65,14 +73,20 @@ export interface ComputedCourseProgress {
  * so they can never drift. Pure: no I/O.
  *
  * `publishedLessons` must already be ordered section.position then
- * lesson.position — resume selection is the first incomplete REQUIRED lesson
+ * lesson.position — resume selection is the first incomplete RELEASED lesson
  * in that order. Completions of unpublished/unknown lessons are ignored.
  * A course with zero required published lessons has nothing to complete:
  * percent 0, completed false.
+ *
+ * Batch J drip: `isReleased` marks lessons the learner may already open.
+ * Locked REQUIRED lessons still count in totalRequired (a course can never
+ * complete early), but resume skips them — the UI shows "Next lesson unlocks
+ * on <date>" instead. Defaults to all released (pre-drip callers).
  */
 export function computeCourseProgress(
   publishedLessons: Lesson[],
-  completedLessonIds: Iterable<string>
+  completedLessonIds: Iterable<string>,
+  isReleased?: (lesson: Lesson) => boolean,
 ): ComputedCourseProgress {
   const publishedIds = new Set(publishedLessons.map((l) => l.id));
   // completedLessonIds covers ALL completed published lessons (required +
@@ -87,7 +101,8 @@ export function computeCourseProgress(
   const percent =
     totalRequired === 0 ? 0 : Math.round((completedRequired / totalRequired) * 100);
   const completed = totalRequired > 0 && completedRequired >= totalRequired;
-  const resumeLesson = required.find((l) => !completedSet.has(l.id)) ?? null;
+  const released = isReleased ?? (() => true);
+  const resumeLesson = required.find((l) => !completedSet.has(l.id) && released(l)) ?? null;
 
   return { totalRequired, completedRequired, percent, completed, completedLessonIds: completedIds, resumeLesson };
 }
@@ -97,23 +112,41 @@ export function computeCourseProgress(
  * Otherwise continue through ALL unfinished published lessons after the current
  * one, wrapping to earlier lessons. Inputs come only from server curriculum reads;
  * no client href is accepted. Reject a lesson outside this course before routing.
+ * Batch J: `isReleased` (when given) skips drip-locked lessons so "Continue"
+ * never lands on a locked lesson page.
  */
 export function getLessonContinuationHref(
   course: { id: string; slug: string },
   currentLessonId: string,
   publishedLessons: Lesson[],
   completedLessonIds: Iterable<string>,
+  isReleased?: (lesson: Lesson) => boolean,
 ): string {
   const ordered = publishedLessons.filter((lesson) => lesson.courseId === course.id && lesson.status === "published");
   const index = ordered.findIndex((lesson) => lesson.id === currentLessonId);
   if (index < 0) throw new AppError("invalid", "Lesson is not in this course curriculum.");
-  const progress = computeCourseProgress(ordered, completedLessonIds);
+  const progress = computeCourseProgress(ordered, completedLessonIds, isReleased);
   const courseHref = `/learn/courses/${encodeURIComponent(course.slug)}`;
   if (progress.completed) return `${courseHref}/complete`;
   const completed = new Set(progress.completedLessonIds);
+  const released = isReleased ?? (() => true);
   const next = [...ordered.slice(index + 1), ...ordered.slice(0, index)]
-    .find((lesson) => !completed.has(lesson.id));
+    .find((lesson) => !completed.has(lesson.id) && released(lesson));
   return next ? `${courseHref}/lessons/${encodeURIComponent(next.slug)}` : courseHref;
+}
+
+/**
+ * Build the drip-release predicate for one enrollment from an already-loaded
+ * curriculum. Pure over the given rows; admins never call this (they bypass).
+ */
+export function releasePredicateFor(
+  sections: CourseSection[],
+  enrolledAt: Date,
+  now: Date = new Date(),
+): (lesson: Lesson) => boolean {
+  const sectionById = new Map(sections.map((s) => [s.id, s]));
+  return (lesson: Lesson) =>
+    isLessonReleased(sectionById.get(lesson.sectionId) ?? null, lesson, enrolledAt, now);
 }
 
 /** Server-owned action result: the same validated, idempotent write path. */
@@ -121,24 +154,43 @@ export async function completeLessonAndContinue(userId: string, enrollmentId: st
   const result = await markLessonComplete(userId, enrollmentId, lessonId);
   const course = await getAdminCourseById(result.enrollment.courseId);
   if (!course) throw new AppError("not_found", "Course not found.");
-  const nextHref = getLessonContinuationHref(course, lessonId, result.progress.publishedLessons, result.progress.completedLessonIds);
+  const curriculum = await getCourseCurriculum(course.id);
+  const isReleased = releasePredicateFor(
+    curriculum.map((c) => c.section),
+    result.enrollment.enrolledAt,
+  );
+  const nextHref = getLessonContinuationHref(course, lessonId, result.progress.publishedLessons, result.progress.completedLessonIds, isReleased);
   return { ...result, course, nextHref };
 }
 
-export async function getEnrollmentProgress(enrollment: Enrollment): Promise<CourseProgress> {
-  const db = await getDb();
-  // PERFORMANCE (review correction F): ONE published-lessons fetch. The
-  // previous code called getPublishedCourseLessons twice (required set +
-  // next-map) — 2x the curriculum queries per progress read.
-  const publishedAll = await getPublishedCourseLessons(enrollment.courseId);
+export async function getEnrollmentProgress(enrollment: Enrollment, now: Date = new Date()): Promise<CourseProgress> {
+  // Batch J: one curriculum read (sections + ALL lessons in 2 queries) which
+  // doubles as the drip release-rule source — no extra release fetch.
+  const curriculum = await getCourseCurriculum(enrollment.courseId);
+  const publishedAll = curriculum.flatMap((c) => c.publishedLessons);
+  const isReleased = releasePredicateFor(
+    curriculum.map((c) => c.section),
+    enrollment.enrolledAt,
+    now,
+  );
 
+  const db = await getDb();
   const rows = await db
     .select()
     .from(lessonProgress)
     .where(eq(lessonProgress.enrollmentId, enrollment.id));
 
   const { totalRequired, completedRequired, percent, completed, completedLessonIds, resumeLesson } =
-    computeCourseProgress(publishedAll, rows.map((r) => r.lessonId));
+    computeCourseProgress(publishedAll, rows.map((r) => r.lessonId), isReleased);
+
+  const completedSet = new Set(completedLessonIds);
+  const sectionById = new Map(curriculum.map((c) => [c.section.id, c.section]));
+  const nextUnlockAt = nextReleaseAt(
+    publishedAll.map((l) => ({ id: l.id, section: sectionById.get(l.sectionId) ?? null, lesson: l })),
+    enrollment.enrolledAt,
+    completedSet,
+    now,
+  );
 
   const nextAfterLessonId: Record<string, Lesson | null> = {};
   for (let i = 0; i < publishedAll.length; i++) {
@@ -157,6 +209,7 @@ export async function getEnrollmentProgress(enrollment: Enrollment): Promise<Cou
     totalPublished: publishedAll.length,
     completedLessonIds,
     resumeLesson,
+    nextUnlockAt,
     nextAfterLessonId,
     publishedLessons: publishedAll,
   };
@@ -243,6 +296,16 @@ export async function markLessonComplete(
   }
   if (lesson.status !== "published") {
     throw new AppError("invalid", "This lesson is not published and cannot be completed.");
+  }
+  // DRIP (Batch J): a locked lesson refuses completion — it still counts in
+  // totalRequired, so the course cannot complete early.
+  const lessonSection = await db
+    .select()
+    .from(courseSections)
+    .where(eq(courseSections.id, lesson.sectionId))
+    .get();
+  if (!isLessonReleased(lessonSection ?? null, lesson, enrollment.enrolledAt)) {
+    throw new AppError("forbidden", "This lesson has not unlocked yet.");
   }
 
   const existing = await db
@@ -342,6 +405,8 @@ export interface BatchedProgressSummary {
    *  any per-enrollment lesson fetch. */
   resumeLessonSlug: string | null;
   resumeLessonTitle: string | null;
+  /** Batch J: earliest future unlock among incomplete lessons (null if none). */
+  nextUnlockAt: Date | null;
   enrollmentStatus: string;
   enrollmentCompletedAt: Date | null;
   /** Latest recorded lesson completion, falling back to the enrollment date. */
@@ -374,24 +439,32 @@ export async function getBatchedEnrollmentProgress(
     .where(inArray(courses.id, courseIds));
   const courseMap = new Map(courseRows.map((c) => [c.id, c]));
 
-  // 2. Batch fetch ALL published lessons for all involved courses in ONE query.
-  // CURRICULUM ORDERING: resume selection must be deterministic by
-  // section.position then lesson.position (not insertion order). The single
-  // bounded query joins course_sections purely to order by the section
-  // position column — no per-enrollment or per-section fetch.
-  const allPublishedLessons = (
-    await db
-      .select({ lesson: lessons })
-      .from(lessons)
-      .innerJoin(courseSections, eq(lessons.sectionId, courseSections.id))
-      .where(
-        and(
-          inArray(lessons.courseId, courseIds),
-          eq(lessons.status, "published")
-        )
+  // 2. Batch fetch ALL sections + published lessons for all involved courses
+  // in ONE query (sections carry the Batch J release rules; the join below
+  // preserves section.position ordering — no per-enrollment fetch). The
+  // section repeats on every lesson row; it is deduped into maps in memory.
+  const sectionAndLessons = await db
+    .select({ lesson: lessons, section: courseSections })
+    .from(lessons)
+    .innerJoin(courseSections, eq(lessons.sectionId, courseSections.id))
+    .where(
+      and(
+        inArray(lessons.courseId, courseIds),
+        eq(lessons.status, "published")
       )
-      .orderBy(asc(courseSections.position), asc(lessons.position), asc(lessons.createdAt))
-  ).map((row) => row.lesson);
+    )
+    .orderBy(asc(courseSections.position), asc(lessons.position), asc(lessons.createdAt));
+  const allPublishedLessons = sectionAndLessons.map((row) => row.lesson);
+  const sectionsByCourse = new Map<string, CourseSection[]>();
+  const sectionById = new Map<string, CourseSection>();
+  for (const { section } of sectionAndLessons) {
+    if (!sectionById.has(section.id)) {
+      sectionById.set(section.id, section);
+      const bucket = sectionsByCourse.get(section.courseId);
+      if (bucket) bucket.push(section);
+      else sectionsByCourse.set(section.courseId, [section]);
+    }
+  }
   const lessonsByCourse = new Map<string, typeof allPublishedLessons>();
   for (const lesson of allPublishedLessons) {
     const bucket = lessonsByCourse.get(lesson.courseId);
@@ -418,7 +491,7 @@ export async function getBatchedEnrollmentProgress(
     .where(inArray(enrollments.id, enrollmentIds));
   const currentEnrollmentMap = new Map(currentEnrollments.map((e) => [e.id, e]));
 
-  // 5. Compute summaries in memory
+  // 5. Compute summaries in memory (Batch J: drip-aware resume per enrollment)
   const summaries = new Map<string, BatchedProgressSummary>();
 
   for (const enrollment of enrollmentsList) {
@@ -427,8 +500,13 @@ export async function getBatchedEnrollmentProgress(
 
     const publishedAll = lessonsByCourse.get(enrollment.courseId) ?? [];
     const enrollmentProgressRows = progressByEnrollment.get(enrollment.id) ?? [];
+    const isReleased = releasePredicateFor(
+      sectionsByCourse.get(enrollment.courseId) ?? [],
+      enrollment.enrolledAt,
+    );
     const { totalRequired, completedRequired, percent, completed, completedLessonIds, resumeLesson } =
-      computeCourseProgress(publishedAll, enrollmentProgressRows.map((r) => r.lessonId));
+      computeCourseProgress(publishedAll, enrollmentProgressRows.map((r) => r.lessonId), isReleased);
+    const completedSet = new Set(completedLessonIds);
 
     const currentEnrollment = currentEnrollmentMap.get(enrollment.id);
 
@@ -448,6 +526,11 @@ export async function getBatchedEnrollmentProgress(
       resumeLessonId: resumeLesson?.id ?? null,
       resumeLessonSlug: resumeLesson?.slug ?? null,
       resumeLessonTitle: resumeLesson?.title ?? null,
+      nextUnlockAt: nextReleaseAt(
+        publishedAll.map((l) => ({ id: l.id, section: sectionById.get(l.sectionId) ?? null, lesson: l })),
+        enrollment.enrolledAt,
+        completedSet,
+      ),
       lastActivityAt: enrollmentProgressRows.length
         ? new Date(enrollmentProgressRows.reduce((latest, row) => Math.max(latest, row.completedAt.getTime()), 0))
         : (currentEnrollment ?? enrollment).enrolledAt,

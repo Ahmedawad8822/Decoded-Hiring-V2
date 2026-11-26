@@ -199,3 +199,156 @@ export function courseLeftTemplate(input: {
   );
   return { subject, text, html };
 }
+
+// ---------------------------------------------------------------- Batch J learner automations
+//
+// Course reminder emails: unlock announcements + three fixed nudges. Every one
+// carries an unsubscribe link (course reminders opt-out). Same plain styling
+// as the transactional templates; every interpolated value is escaped.
+
+function automationFooter(reason: string, unsubscribeUrl: string): string {
+  return (
+    `${reason} ` +
+    `Don't want these emails? ${`Unsubscribe from course reminders: ${unsubscribeUrl}`} ` +
+    `This is a message from ${siteName}.`
+  );
+}
+
+function nudgeParagraphs(bodyParagraphs: string[], unsubscribeUrl: string): string[] {
+  return [...bodyParagraphs, `Don't want these emails? ${link(unsubscribeUrl, "Unsubscribe from course reminders")}`];
+}
+
+function nudgeText(text: string, unsubscribeUrl: string): string {
+  return `${text}\n\nDon't want these emails? Unsubscribe from course reminders:\n\n${unsubscribeUrl}\n\n— ${siteName}`;
+}
+
+export function lessonUnlockedTemplate(input: {
+  userName?: string;
+  courseTitle: string;
+  lessonTitle: string;
+  lessonUrl: string;
+  unsubscribeUrl: string;
+}): EmailTemplate {
+  const greeting = input.userName ? `Hi ${input.userName},` : "Hi,";
+  const subject = `New lesson unlocked: ${input.lessonTitle}`;
+  const text = nudgeText(
+    `${greeting}\n\nA new lesson unlocked in "${input.courseTitle}": "${input.lessonTitle}".\n\nContinue here:\n\n${input.lessonUrl}`,
+    input.unsubscribeUrl,
+  );
+  const html = shell(
+    escapeHtml(subject),
+    escapeHtml(greeting),
+    nudgeParagraphs(
+      [
+        `A new lesson unlocked in &ldquo;${escapeHtml(input.courseTitle)}&rdquo;: &ldquo;${escapeHtml(input.lessonTitle)}&rdquo;.`,
+        `Continue here: ${link(input.lessonUrl, input.lessonTitle)}`,
+      ],
+      input.unsubscribeUrl,
+    ),
+    escapeHtml(
+      automationFooter(
+        "You got this email because a lesson unlocked in a course you're taking.",
+        input.unsubscribeUrl,
+      ),
+    ),
+  );
+  return { subject, text, html };
+}
+
+export function nudgeCompletedTemplate(input: {
+  userName?: string;
+  courseTitle: string;
+  coachingUrl: string;
+  unsubscribeUrl: string;
+}): EmailTemplate {
+  const greeting = input.userName ? `Hi ${input.userName},` : "Hi,";
+  const subject = `What's next after ${input.courseTitle}?`;
+  const text = nudgeText(
+    `${greeting}\n\nYou completed "${input.courseTitle}" — well done. If you want to go further, a coaching call can help you apply it:\n\n${input.coachingUrl}`,
+    input.unsubscribeUrl,
+  );
+  const html = shell(
+    escapeHtml(subject),
+    escapeHtml(greeting),
+    nudgeParagraphs(
+      [
+        `You completed &ldquo;${escapeHtml(input.courseTitle)}&rdquo; — well done. If you want to go further, a coaching call can help you apply it:`,
+        link(input.coachingUrl, "Book a coaching call"),
+      ],
+      input.unsubscribeUrl,
+    ),
+    escapeHtml(
+      automationFooter("You got this email because you completed this course.", input.unsubscribeUrl),
+    ),
+  );
+  return { subject, text, html };
+}
+
+export function nudgeInactiveTemplate(input: {
+  userName?: string;
+  courseTitle: string;
+  courseUrl: string;
+  coachingUrl: string;
+  unsubscribeUrl: string;
+}): EmailTemplate {
+  const greeting = input.userName ? `Hi ${input.userName},` : "Hi,";
+  const subject = `Pick up where you left off in ${input.courseTitle}`;
+  const text = nudgeText(
+    `${greeting}\n\nIt's been a week since your last session in "${input.courseTitle}". Small steps count — pick up where you left off:\n\n${input.courseUrl}\n\nWant a hand? ${input.coachingUrl}`,
+    input.unsubscribeUrl,
+  );
+  const html = shell(
+    escapeHtml(subject),
+    escapeHtml(greeting),
+    nudgeParagraphs(
+      [
+        `It&rsquo;s been a week since your last session in &ldquo;${escapeHtml(input.courseTitle)}&rdquo;. Small steps count — pick up where you left off:`,
+        link(input.courseUrl, input.courseTitle),
+        `Want a hand? ${link(input.coachingUrl, "Book a coaching call")}`,
+      ],
+      input.unsubscribeUrl,
+    ),
+    escapeHtml(
+      automationFooter(
+        "You got this email because you paused this course for a week.",
+        input.unsubscribeUrl,
+      ),
+    ),
+  );
+  return { subject, text, html };
+}
+
+export function nudgeQuizFailedTemplate(input: {
+  userName?: string;
+  courseTitle: string;
+  lessonTitle: string;
+  quizUrl: string;
+  coachingUrl: string;
+  unsubscribeUrl: string;
+}): EmailTemplate {
+  const greeting = input.userName ? `Hi ${input.userName},` : "Hi,";
+  const subject = `Stuck on ${input.lessonTitle}? Let's talk it through`;
+  const text = nudgeText(
+    `${greeting}\n\nThe quiz in "${input.lessonTitle}" (${input.courseTitle}) didn't pass twice. That's normal — a quick call can unblock you:\n\n${input.coachingUrl}\n\nOr try the quiz again here:\n\n${input.quizUrl}`,
+    input.unsubscribeUrl,
+  );
+  const html = shell(
+    escapeHtml(subject),
+    escapeHtml(greeting),
+    nudgeParagraphs(
+      [
+        `The quiz in &ldquo;${escapeHtml(input.lessonTitle)}&rdquo; (&ldquo;${escapeHtml(input.courseTitle)}&rdquo;) didn&rsquo;t pass twice. That&rsquo;s normal — a quick call can unblock you:`,
+        link(input.coachingUrl, "Book a call"),
+        `Or try the quiz again here: ${link(input.quizUrl, input.lessonTitle)}`,
+      ],
+      input.unsubscribeUrl,
+    ),
+    escapeHtml(
+      automationFooter(
+        "You got this email because a quiz in your course needs another try.",
+        input.unsubscribeUrl,
+      ),
+    ),
+  );
+  return { subject, text, html };
+}

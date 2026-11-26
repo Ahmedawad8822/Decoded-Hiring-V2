@@ -44,7 +44,7 @@ export async function GET(
     return NextResponse.json({ error: "Course not found" }, { status: 404, headers: NO_STORE });
   }
 
-  const notes = await listMyCourseNotes(session.user.id, course.id);
+  const notes = await listMyCourseNotes(session.user.id, course.id, { enrolledAt: enrollment.enrolledAt });
   const header = `${course.title} — My notes`;
   const text =
     notes.length === 0

@@ -122,6 +122,11 @@ export async function createCourse(input: CreateCourseInput): Promise<Course> {
       audience: input.audience || null,
       instructorName: input.instructorName || null,
       instructorBio: input.instructorBio || null,
+      notifyUnlocks: input.notifyUnlocks ?? false,
+      nudgeCompleted: input.nudgeCompleted ?? false,
+      nudgeInactive: input.nudgeInactive ?? false,
+      nudgeQuizFailed: input.nudgeQuizFailed ?? false,
+      coachingPath: input.coachingPath?.trim() ? input.coachingPath.trim() : null,
       status: "draft",
       accessMode: input.accessMode ?? "FREE",
       coverImage: input.coverImage || null,
@@ -187,6 +192,14 @@ export async function updateCourse(id: string, input: UpdateCourseInput): Promis
   if (typeof input.description !== "undefined") patch.description = input.description || null;
   if (typeof input.accessMode !== "undefined") patch.accessMode = input.accessMode;
   if (typeof input.coverImage !== "undefined") patch.coverImage = input.coverImage || null;
+  // Batch J learner automations (Studio course settings; all OFF by default).
+  if (typeof input.notifyUnlocks !== "undefined") patch.notifyUnlocks = input.notifyUnlocks;
+  if (typeof input.nudgeCompleted !== "undefined") patch.nudgeCompleted = input.nudgeCompleted;
+  if (typeof input.nudgeInactive !== "undefined") patch.nudgeInactive = input.nudgeInactive;
+  if (typeof input.nudgeQuizFailed !== "undefined") patch.nudgeQuizFailed = input.nudgeQuizFailed;
+  if (typeof input.coachingPath !== "undefined") {
+    patch.coachingPath = input.coachingPath?.trim() ? input.coachingPath.trim() : null;
+  }
 
   try {
     // Same batch (one D1 transaction): the UPDATE plus the old-slug redirect.
@@ -308,6 +321,33 @@ export async function renameSection(id: string, title: string): Promise<CourseSe
     .set({ title, updatedAt: new Date() })
     .where(eq(courseSections.id, id));
   return (await db.select().from(courseSections).where(eq(courseSections.id, id)).get())!;
+}
+
+/**
+ * Batch J: update a section's drip-release rule. Validated by
+ * sectionReleaseSchema (drip 1–365, date required for 'date'). 'immediate'
+ * clears the stored rule columns.
+ */
+export async function updateSectionRelease(input: {
+  id: string;
+  releaseMode: "immediate" | "date" | "drip";
+  releaseAt?: string | null;
+  dripDays?: number | null;
+}): Promise<CourseSection> {
+  const db = await getDb();
+  const current = await db.select().from(courseSections).where(eq(courseSections.id, input.id)).get();
+  if (!current) throw new AppError("not_found", `Section with id "${input.id}" not found`);
+  const now = new Date();
+  await db
+    .update(courseSections)
+    .set({
+      releaseMode: input.releaseMode,
+      releaseAt: input.releaseMode === "date" && input.releaseAt ? new Date(input.releaseAt) : null,
+      dripDays: input.releaseMode === "drip" ? (input.dripDays ?? null) : null,
+      updatedAt: now,
+    })
+    .where(eq(courseSections.id, input.id));
+  return (await db.select().from(courseSections).where(eq(courseSections.id, input.id)).get())!;
 }
 
 export async function moveSection(id: string, direction: "up" | "down"): Promise<CourseSection[]> {
@@ -489,6 +529,33 @@ export async function updateLesson(id: string, input: UpdateLessonInput): Promis
     await reconcileCourseEnrollments(current.courseId);
   }
   return (await getAdminLessonById(id))!;
+}
+
+/**
+ * Batch J: update a lesson's drip-release rule. Validated by
+ * lessonReleaseSchema (drip 1–365, date required for 'date'). 'immediate'
+ * clears the stored rule columns. Release changes never alter completion
+ * (locked required lessons still count in totalRequired), so no reconcile.
+ */
+export async function updateLessonRelease(input: {
+  id: string;
+  releaseMode: "immediate" | "date" | "drip";
+  releaseAt?: string | null;
+  dripDays?: number | null;
+}): Promise<Lesson> {
+  const db = await getDb();
+  const current = await getAdminLessonById(input.id);
+  if (!current) throw new AppError("not_found", `Lesson with id "${input.id}" not found`);
+  await db
+    .update(lessons)
+    .set({
+      releaseMode: input.releaseMode,
+      releaseAt: input.releaseMode === "date" && input.releaseAt ? new Date(input.releaseAt) : null,
+      dripDays: input.releaseMode === "drip" ? (input.dripDays ?? null) : null,
+      updatedAt: new Date(),
+    })
+    .where(eq(lessons.id, input.id));
+  return (await getAdminLessonById(input.id))!;
 }
 
 export async function publishLesson(id: string): Promise<Lesson> {

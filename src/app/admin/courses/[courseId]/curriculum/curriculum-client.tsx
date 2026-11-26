@@ -17,6 +17,8 @@ import {
   renameSectionAction,
   unpublishLessonAction,
   updateLessonAction,
+  updateLessonReleaseAction,
+  updateSectionReleaseAction,
 } from "@/features/courses/actions";
 import { deleteQuizAction, saveQuizAction } from "@/features/quizzes/actions";
 import type { CourseQuizStats } from "@/features/quizzes/service";
@@ -115,6 +117,36 @@ function draftToInput(questions: QuizDraftQuestion[]) {
   }));
 }
 
+// ---------------------------------------------------------------- Batch J release helpers
+
+type ReleaseInitial = {
+  releaseMode: string;
+  releaseAt: Date | string | null;
+  dripDays: number | null;
+};
+
+/** Short badge for the curriculum list: "Day N" / date / nothing. */
+export function releaseBadge(initial: ReleaseInitial): string | null {
+  if (initial.releaseMode === "drip") return `Unlocks day ${initial.dripDays ?? "?"}`;
+  if (initial.releaseMode === "date" && initial.releaseAt) {
+    const d = new Date(initial.releaseAt);
+    if (!Number.isNaN(d.getTime())) {
+      return `Unlocks ${d.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" })}`;
+    }
+    return "Unlocks on date";
+  }
+  return null;
+}
+
+/** ISO instant -> datetime-local value in the ADMIN's browser timezone. */
+function toLocalInput(value: Date | string | null): string {
+  if (!value) return "";
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return "";
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
 export function CurriculumClient({
   course,
   sections,
@@ -150,6 +182,15 @@ export function CurriculumClient({
 
   const [uploadTitle, setUploadTitle] = useState("");
   const [uploadingTo, setUploadingTo] = useState<string | null>(null);
+
+  // Batch J release editors: per-section inline panel + per-lesson dialog fields.
+  const [releaseOpenFor, setReleaseOpenFor] = useState<string | null>(null);
+  const [releaseMode, setReleaseMode] = useState("immediate");
+  const [releaseDate, setReleaseDate] = useState("");
+  const [releaseDays, setReleaseDays] = useState("7");
+  const [editReleaseMode, setEditReleaseMode] = useState("immediate");
+  const [editReleaseDate, setEditReleaseDate] = useState("");
+  const [editReleaseDays, setEditReleaseDays] = useState("7");
 
   const flash = (msg: string) => {
     setNotice(msg);
@@ -190,6 +231,46 @@ export function CurriculumClient({
     });
   };
 
+  const openReleaseFor = (section: CourseSection) => {
+    setReleaseOpenFor(section.id);
+    setReleaseMode(section.releaseMode);
+    setReleaseDate(toLocalInput(section.releaseAt));
+    setReleaseDays(section.dripDays?.toString() ?? "7");
+    setError(null);
+  };
+
+  const handleSaveRelease = async (sectionId: string) => {
+    const days = Number(releaseDays);
+    await runAction(`rel-${sectionId}`, async () => {
+      const res = await updateSectionReleaseAction({
+        id: sectionId,
+        releaseMode,
+        releaseAt: releaseMode === "date" ? (releaseDate ? new Date(releaseDate).toISOString() : null) : null,
+        dripDays: releaseMode === "drip" ? (Number.isSafeInteger(days) ? days : null) : null,
+      });
+      if (res.ok) {
+        setReleaseOpenFor(null);
+        return { ok: true, notice: "Section release updated." };
+      }
+      return res;
+    });
+  };
+
+  const handleSaveLessonRelease = async () => {
+    if (!editingLesson) return;
+    const days = Number(editReleaseDays);
+    await runAction(`lrel-${editingLesson.lesson.id}`, async () => {
+      const res = await updateLessonReleaseAction({
+        id: editingLesson.lesson.id,
+        releaseMode: editReleaseMode,
+        releaseAt: editReleaseMode === "date" ? (editReleaseDate ? new Date(editReleaseDate).toISOString() : null) : null,
+        dripDays: editReleaseMode === "drip" ? (Number.isSafeInteger(days) ? days : null) : null,
+      });
+      if (res.ok) return { ok: true, notice: "Lesson release updated." };
+      return res;
+    });
+  };
+
   const handleCreateLesson = async (e: React.FormEvent, sectionId: string) => {
     e.preventDefault();
     await runAction(`add-lesson-${sectionId}`, async () => {
@@ -214,6 +295,9 @@ export function CurriculumClient({
     setEditingLesson(entry);
     setEditTitle(entry.lesson.title);
     setEditSlug(entry.lesson.slug);
+    setEditReleaseMode(entry.lesson.releaseMode);
+    setEditReleaseDate(toLocalInput(entry.lesson.releaseAt));
+    setEditReleaseDays(entry.lesson.dripDays?.toString() ?? "7");
     setEditVideo(entry.lesson.videoUrl || "");
     setEditRequired(entry.lesson.required);
     setEditPreview(entry.lesson.isPreview);
@@ -471,12 +555,50 @@ export function CurriculumClient({
                 <>
                   <b className="s-text-sm s-flex-1" >{entry.section.title}</b>
                   <span className="a-micro">{entry.lessons.length} LESSONS</span>
+                  {releaseBadge(entry.section) && (
+                    <span className="a-micro" aria-label={`Section release: ${releaseBadge(entry.section)}`}>{releaseBadge(entry.section)}</span>
+                  )}
                   <Button className="btn ghost small" type="button" onClick={() => { setRenamingId(entry.section.id); setRenameValue(entry.section.title); }}>
                     Rename
+                  </Button>
+                  <Button className="btn ghost small" type="button" onClick={() => { setReleaseOpenFor(releaseOpenFor === entry.section.id ? null : entry.section.id); if (releaseOpenFor !== entry.section.id) openReleaseFor(entry.section); }}>
+                    Release
                   </Button>
                 </>
               )}
             </div>
+            {releaseOpenFor === entry.section.id && (
+              <form
+                className="s-row s-gap-8 s-flex-wrap-wrap s-align-items-center s-padding-10px-18px s-border-top-1px-dashed-line"
+                aria-label={`Release schedule for ${entry.section.title}`}
+                onSubmit={(e) => { e.preventDefault(); handleSaveRelease(entry.section.id); }}
+              >
+                <label className="s-stack s-gap-4 s-text-sm">
+                  Release
+                  <select className="s-padding-6px-10px s-text-sm" aria-label="Section release mode" value={releaseMode} onChange={(e) => setReleaseMode(e.target.value)}>
+                    <option value="immediate">Immediately</option>
+                    <option value="date">On a date</option>
+                    <option value="drip">N days after enrolling</option>
+                  </select>
+                </label>
+                {releaseMode === "date" && (
+                  <label className="s-stack s-gap-4 s-text-sm">
+                    Date (your timezone)
+                    <Input type="datetime-local" aria-label="Section release date" value={releaseDate} onChange={(e) => setReleaseDate(e.target.value)} required />
+                  </label>
+                )}
+                {releaseMode === "drip" && (
+                  <label className="s-stack s-gap-4 s-text-sm">
+                    Days after enrolling (1–365)
+                    <Input type="number" min={1} max={365} step={1} aria-label="Section drip days" value={releaseDays} onChange={(e) => setReleaseDays(e.target.value)} required />
+                  </label>
+                )}
+                <Button className="btn primary small" type="submit" disabled={busy === `rel-${entry.section.id}`}>
+                  {busy === `rel-${entry.section.id}` ? "Saving…" : "Save release"}
+                </Button>
+                <Button className="btn ghost small" type="button" onClick={() => setReleaseOpenFor(null)}>Cancel</Button>
+              </form>
+            )}
 
             <div className="table-scroll">
               <DataTable className="data">
@@ -496,7 +618,7 @@ export function CurriculumClient({
                         </td>
                         <td>
                           <span className="cell-main">{lesson.title}</span>
-                          <span className="cell-sub s-block s-text-xs" >/{lesson.slug}{lesson.videoUrl ? " · ▶ video" : ""}{resources.length > 0 ? ` · ${resources.length} PDF${resources.length === 1 ? "" : "s"}` : ""}{quiz ? " · Quiz" : ""}</span>
+                          <span className="cell-sub s-block s-text-xs" >/{lesson.slug}{lesson.videoUrl ? " · ▶ video" : ""}{resources.length > 0 ? ` · ${resources.length} PDF${resources.length === 1 ? "" : "s"}` : ""}{quiz ? " · Quiz" : ""}{releaseBadge(lesson) ? ` · ${releaseBadge(lesson)}` : ""}</span>
                           {quiz && (
                             <span className="cell-sub s-block s-text-xs" >
                               Quiz results: {quizStats?.attemptedLearners ?? 0} learner{(quizStats?.attemptedLearners ?? 0) === 1 ? "" : "s"} attempted · {quizStats?.passRate ?? 0}% pass rate
@@ -618,6 +740,35 @@ export function CurriculumClient({
                 Length (minutes)
                 <Input type="number" min={1} max={600} step={1} value={editDuration} onChange={(e) => setEditDuration(e.target.value)} />
               </label>
+              <section className="s-stack s-gap-12 s-margin-top-8" aria-label="Lesson release">
+                <b>Release</b>
+                <div className="s-row s-gap-10 s-flex-wrap-wrap s-align-items-center">
+                  <label className="s-stack s-gap-4 s-text-sm">
+                    Mode
+                    <select className="s-padding-6px-10px s-text-sm" aria-label="Lesson release mode" value={editReleaseMode} onChange={(e) => setEditReleaseMode(e.target.value)}>
+                      <option value="immediate">Immediately</option>
+                      <option value="date">On a date</option>
+                      <option value="drip">N days after enrolling</option>
+                    </select>
+                  </label>
+                  {editReleaseMode === "date" && (
+                    <label className="s-stack s-gap-4 s-text-sm">
+                      Date (your timezone)
+                      <Input type="datetime-local" aria-label="Lesson release date" value={editReleaseDate} onChange={(e) => setEditReleaseDate(e.target.value)} />
+                    </label>
+                  )}
+                  {editReleaseMode === "drip" && (
+                    <label className="s-stack s-gap-4 s-text-sm">
+                      Days after enrolling (1–365)
+                      <Input type="number" min={1} max={365} step={1} aria-label="Lesson drip days" value={editReleaseDays} onChange={(e) => setEditReleaseDays(e.target.value)} />
+                    </label>
+                  )}
+                  <Button className="btn secondary small" type="button" disabled={busy === `lrel-${editingLesson.lesson.id}`} onClick={handleSaveLessonRelease}>
+                    {busy === `lrel-${editingLesson.lesson.id}` ? "Saving…" : "Save release"}
+                  </Button>
+                </div>
+                <span className="help s-text-xs">Section and lesson rules combine — the later date wins. Previews ignore release.</span>
+              </section>
               <StructuredBlockEditor blocks={editBlocks} onChange={setEditBlocks} allowedBlockTypes={LESSON_BLOCK_TYPES} eyebrowHint="LESSON BODY" />
 
               <section className="s-stack s-gap-12 s-margin-top-8" aria-label="Lesson quiz">

@@ -25,13 +25,17 @@ import type { Enrollment } from "@/lib/db";
 export type LessonResourceAccess =
   | { status: "allowed" }
   | { status: "not-found" }
-  | { status: "forbidden" };
+  | { status: "forbidden" }
+  | { status: "locked"; releaseAt: Date | null };
 
 export function resolveLessonResourceAccess(opts: {
   role: string | null | undefined;
   /** null when the lesson row does not exist. */
   lessonStatus: string | null;
   enrollment: Enrollment | null;
+  /** Batch J: set when the lesson's drip release is still in the future. */
+  dripLocked?: boolean;
+  dripReleaseAt?: Date | null;
 }): LessonResourceAccess {
   if (opts.role === "admin") return { status: "allowed" };
   if (!opts.lessonStatus || opts.lessonStatus !== "published") {
@@ -40,5 +44,8 @@ export function resolveLessonResourceAccess(opts: {
   // SECURITY (review correction C): cancelled enrollments download nothing —
   // same 403 as strangers, so revocation is real on every boundary.
   if (!hasLearnerAccess(opts.enrollment)) return { status: "forbidden" };
+  // DRIP (Batch J): enrolled learners get a locked verdict — not a 404 — and
+  // never the file bytes.
+  if (opts.dripLocked) return { status: "locked", releaseAt: opts.dripReleaseAt ?? null };
   return { status: "allowed" };
 }

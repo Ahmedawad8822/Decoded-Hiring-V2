@@ -12,6 +12,8 @@ import {
   renameSectionSchema,
   createLessonSchema,
   updateLessonSchema,
+  sectionReleaseSchema,
+  lessonReleaseSchema,
 } from "./types";
 
 export type ActionState<T = unknown> = {
@@ -151,6 +153,24 @@ export async function moveSectionAction(
   }
 }
 
+export async function updateSectionReleaseAction(
+  input: unknown
+): Promise<ActionState<{ id: string }>> {
+  try {
+    const session = await requireAdmin();
+    const parsed = sectionReleaseSchema.safeParse(input);
+    if (!parsed.success) {
+      return { ok: false, error: parsed.error.issues.map((i) => i.message).join(", ") };
+    }
+    const section = await courseService.updateSectionRelease(parsed.data);
+    await recordAdminAudit({ actorId: session.user.id, action: "course_section.release", entityType: "course_section", entityId: section.id, details: { courseId: section.courseId, releaseMode: section.releaseMode } });
+    revalidatePath(`/admin/courses/${section.courseId}/curriculum`);
+    return { ok: true, data: { id: section.id } };
+  } catch (err: unknown) {
+    return fail(err, "Failed to update section release");
+  }
+}
+
 export async function createLessonAction(
   input: unknown
 ): Promise<ActionState<{ id: string; slug: string }>> {
@@ -225,5 +245,23 @@ export async function moveLessonAction(
     return { ok: true, data: null };
   } catch (err: unknown) {
     return fail(err, "Failed to move lesson");
+  }
+}
+
+export async function updateLessonReleaseAction(
+  input: unknown
+): Promise<ActionState<{ id: string }>> {
+  try {
+    const session = await requireAdmin();
+    const parsed = lessonReleaseSchema.safeParse(input);
+    if (!parsed.success) {
+      return { ok: false, error: parsed.error.issues.map((i) => i.message).join(", ") };
+    }
+    const lesson = await courseService.updateLessonRelease(parsed.data);
+    await recordAdminAudit({ actorId: session.user.id, action: "lesson.release", entityType: "lesson", entityId: lesson.id, details: { courseId: lesson.courseId, releaseMode: lesson.releaseMode } });
+    revalidatePath(`/admin/courses/${lesson.courseId}/curriculum`);
+    return { ok: true, data: { id: lesson.id } };
+  } catch (err: unknown) {
+    return fail(err, "Failed to update lesson release");
   }
 }

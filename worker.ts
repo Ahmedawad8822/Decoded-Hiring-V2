@@ -4,6 +4,7 @@ import handler from "./.open-next/worker.js";
 import { canonicalRedirect } from "./src/lib/cloudflare/canonical-host";
 import { withRenderStart } from "./src/lib/cloudflare/render-context";
 import { getDrainToken } from "./src/lib/email/drain-token";
+import { shouldRunLearnerAutomations } from "./src/features/automations/service";
 
 // @ts-expect-error OpenNext generates this JavaScript module at build time.
 export { DOQueueHandler } from "./.open-next/worker.js";
@@ -22,8 +23,29 @@ const worker = {
   // in-process POST to the internal route, so the D1 binding and request
   // context resolve exactly as in normal requests. Any token mismatch or
   // drain failure stays inside the cron invocation and is only logged.
-  async scheduled(_event: unknown, env: unknown, ctx: unknown) {
+  // Batch J: roughly hourly (scheduled minute < 5) the learner automations
+  // (drip unlocks + nudges) run first via their own internal route, then the
+  // existing drain sends whatever they queued.
+  async scheduled(event: unknown, env: unknown, ctx: unknown) {
     try {
+      const scheduledTime =
+        event && typeof event === "object" && "scheduledTime" in event
+          ? new Date((event as { scheduledTime: number }).scheduledTime)
+          : new Date();
+      if (shouldRunLearnerAutomations(scheduledTime)) {
+        try {
+          const automations = new Request("https://internal.local/api/cron/learner-automations", {
+            method: "POST",
+            headers: { "x-email-drain-token": getDrainToken() },
+          });
+          await handler.fetch(automations, env, ctx);
+        } catch (error) {
+          console.error(
+            "[automations] scheduled run failed:",
+            error instanceof Error ? error.message : String(error),
+          );
+        }
+      }
       const request = new Request("https://internal.local/api/cron/email-drain", {
         method: "POST",
         headers: { "x-email-drain-token": getDrainToken() },

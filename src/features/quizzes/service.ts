@@ -1,6 +1,7 @@
 import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import {
   getDb,
+  courseSections,
   learnerTags,
   lessonQuizzes,
   quizAttempts,
@@ -14,6 +15,7 @@ import {
   getPublishedLessonBySlug,
 } from "@/features/courses/service";
 import { getLessonReadAccess } from "@/features/courses/lesson-access";
+import { isLessonReleased } from "@/features/courses/release";
 import { getEnrollment } from "@/features/enrollments/service";
 import { hasLearnerAccess } from "@/features/enrollments/access";
 import {
@@ -374,6 +376,16 @@ export async function submitQuizAttempt(
   });
   if (access !== "enrolled" || !activeEnrollment) {
     throw new AppError("forbidden", "Enroll in this course to take the quiz.");
+  }
+  // DRIP (Batch J): locked lessons refuse quiz attempts (fetch and submit).
+  const dbForRelease = await getDb();
+  const quizSection = await dbForRelease
+    .select()
+    .from(courseSections)
+    .where(eq(courseSections.id, lesson.sectionId))
+    .get();
+  if (!isLessonReleased(quizSection ?? null, lesson, activeEnrollment.enrolledAt)) {
+    throw new AppError("forbidden", "This lesson has not unlocked yet.");
   }
 
   const quiz = await getLessonQuiz(lesson.id);
