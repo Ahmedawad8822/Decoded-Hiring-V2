@@ -5,7 +5,7 @@ import {
   getPublishedLessonCounts,
 } from "@/features/courses/service";
 import { getOffersForCourses } from "@/features/offers/service";
-import { formatOfferPrice } from "@/features/offers/presentation";
+import { resolveCourseListAccessLabel } from "@/features/offers/presentation";
 import { publicMetadata, JsonLd, breadcrumbSchema } from "@/lib/seo";
 
 export async function generateMetadata(): Promise<Metadata> {
@@ -136,14 +136,10 @@ export default async function CoursesIndexPage() {
             {courses.map((course) => {
               const count = lessonCounts[course.id] ?? 0;
               const offer = offers.get(course.id);
-              const price = offer ? formatOfferPrice(offer) : null;
-              const accessLabel = offer
-                ? (offer.accessMode === "FREE"
-                    ? "FREE"
-                    : (price ?? offer.accessMode))
-                : course.accessMode === "FREE"
-                  ? "FREE"
-                  : "ON REQUEST";
+              const accessLabel = resolveCourseListAccessLabel(
+                offer ?? null,
+                course.accessMode,
+              );
               return (
                 <article
                   key={course.id}

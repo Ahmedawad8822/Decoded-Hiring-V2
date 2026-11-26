@@ -42,8 +42,9 @@ export async function getPublicCourseBySlug(slug: string): Promise<Course | null
 
 /** All published, non-trashed courses for the `/courses` list and sitemap.
  *  Trashed rows are filtered in memory so the list stays correct before and
- *  after the Trash column lands; the source query itself is one indexed read
- *  on the status column. */
+ *  after the Trash column lands; the source query filters on status (there
+ *  is no status index — the courses table is small, so this stays a single
+ *  cheap read). */
 export async function getPublicCourses(): Promise<Course[]> {
   const db = await getDb();
   const rows = await db

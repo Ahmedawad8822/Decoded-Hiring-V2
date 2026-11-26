@@ -3,6 +3,7 @@
 import { requireAdmin, requireUser } from "@/lib/auth";
 import { publicErrorMessage } from "@/lib/errors";
 import { recordAdminAudit } from "@/features/audit/service";
+import { revalidateCourseSales } from "@/features/courses/actions";
 import { revalidatePath } from "next/cache";
 import {
   deleteLessonQuiz,
@@ -48,6 +49,8 @@ export async function saveQuizAction(input: unknown): Promise<QuizActionState<{ 
       },
     });
     revalidatePath(`/admin/courses/${quiz.courseId}/curriculum`);
+    // The sales page renders a quiz badge per lesson.
+    await revalidateCourseSales(quiz.courseId);
     return { ok: true, data: { id: quiz.id, lessonId: quiz.lessonId } };
   } catch (err: unknown) {
     return fail(err, "Could not save the quiz");
@@ -71,6 +74,8 @@ export async function deleteQuizAction(input: unknown): Promise<QuizActionState<
       details: { lessonId: deleted.lessonId, courseId: deleted.courseId },
     });
     revalidatePath(`/admin/courses/${deleted.courseId}/curriculum`);
+    // The sales page renders a quiz badge per lesson.
+    await revalidateCourseSales(deleted.courseId);
     return { ok: true, data: { id: deleted.id } };
   } catch (err: unknown) {
     return fail(err, "Could not delete the quiz");

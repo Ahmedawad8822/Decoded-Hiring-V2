@@ -63,7 +63,20 @@ export async function createOfferAdminAction(input: unknown) {
 }
 
 export async function updateOfferAdminAction(input: unknown) {
-  return runMutation(() => operations.updateOffer(input));
+  // Capture the linked course BEFORE the mutation: the update may clear or
+  // move courseId, and the post-mutation read in refreshCourseSalesForOffer
+  // would then never expire the OLD course's sales page.
+  const rawId = (input as { id?: unknown } | null)?.id;
+  const before =
+    typeof rawId === "string" && rawId.length > 0
+      ? await getOfferById(rawId).catch(() => null)
+      : null;
+  const result = await runMutation(() => operations.updateOffer(input));
+  if (result.ok && before?.courseId) {
+    const beforeCourse = await getAdminCourseById(before.courseId).catch(() => null);
+    if (beforeCourse) revalidatePath(`/courses/${beforeCourse.slug}`);
+  }
+  return result;
 }
 
 export async function createBookingTypeAdminAction(input: unknown) {

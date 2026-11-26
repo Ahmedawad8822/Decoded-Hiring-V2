@@ -9,8 +9,6 @@ import { parseCourseLanding } from "@/features/courses/metadata";
 import { getEffectiveCourseAccessPolicy } from "@/features/offers/service";
 import { getOfferAvailability } from "@/features/offers/availability";
 import {
-  formatClosesLabel,
-  formatSeatsLeftLabel,
   resolveOfferPublicPresentation,
 } from "@/features/offers/presentation";
 import { publicMetadata } from "@/lib/seo";
@@ -100,16 +98,12 @@ export default async function PublicCourseSalesPage(props: PageProps) {
     : null;
   // Render-time snapshot only: the ISR shell cannot know the live seat count,
   // so the hero CTA island refreshes it client-side from
-  // /api/public/offer-availability.
+  // /api/public/offer-availability. The island also owns the seat/close
+  // notices — the server shell renders none, so they can never double up.
   const availability = access.offer
     ? await getOfferAvailability(access.offer.id)
     : null;
   const limitClosed = availability != null && availability.state !== "open";
-  const seatsNote = availability ? formatSeatsLeftLabel(availability) : null;
-  const closesNote =
-    access.offer?.closesAt != null
-      ? formatClosesLabel(access.offer.closesAt)
-      : null;
 
   const lessons = curriculum.flatMap((entry) => entry.lessons);
   const timed = lessons.filter(
@@ -145,8 +139,7 @@ export default async function PublicCourseSalesPage(props: PageProps) {
       alternativeUrl: access.offer?.alternativeCtaUrl ?? null,
       priceLabel: offerPresentation?.priceLabel ?? null,
       priceBadge: offerPresentation?.badge ?? null,
-      seatsNote,
-      closesNote,
+      anonymousHref: null,
       lessonCount: lessons.length,
       lessonLabel:
         lessons.length === 1 ? "1 lesson" : `${lessons.length} lessons`,
@@ -172,8 +165,7 @@ export default async function PublicCourseSalesPage(props: PageProps) {
       alternativeUrl: access.offer?.alternativeCtaUrl ?? null,
       priceLabel: offerPresentation?.priceLabel ?? null,
       priceBadge: offerPresentation?.badge ?? null,
-      seatsNote,
-      closesNote,
+      anonymousHref: signupHref,
       lessonCount: lessons.length,
       lessonLabel:
         lessons.length === 1 ? "1 lesson" : `${lessons.length} lessons`,
@@ -202,8 +194,7 @@ export default async function PublicCourseSalesPage(props: PageProps) {
       alternativeUrl: access.offer.alternativeCtaUrl,
       priceLabel: offerPresentation?.priceLabel ?? null,
       priceBadge: offerPresentation?.badge ?? null,
-      seatsNote,
-      closesNote,
+      anonymousHref: null,
       lessonCount: lessons.length,
       lessonLabel:
         lessons.length === 1 ? "1 lesson" : `${lessons.length} lessons`,
@@ -229,8 +220,7 @@ export default async function PublicCourseSalesPage(props: PageProps) {
       alternativeUrl: null,
       priceLabel: null,
       priceBadge: null,
-      seatsNote,
-      closesNote,
+      anonymousHref: null,
       lessonCount: lessons.length,
       lessonLabel:
         lessons.length === 1 ? "1 lesson" : `${lessons.length} lessons`,

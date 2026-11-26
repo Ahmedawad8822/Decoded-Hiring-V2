@@ -21,13 +21,14 @@ export type CourseSalesView = {
   cta: CourseSalesCtaState;
   primaryHref: string;
   primaryLabel: string;
+  /** Sign-up href (with classroom redirect) for signed-out visitors. Only
+   *  set when the primary href points at the classroom enrollment flow. */
+  anonymousHref: string | null;
   offerSlug: string | null;
   alternativeLabel: string | null;
   alternativeUrl: string | null;
   priceLabel: string | null;
   priceBadge: string | null;
-  seatsNote: string | null;
-  closesNote: string | null;
   lessonCount: number;
   lessonLabel: string;
   totalTimeLabel: string | null;
@@ -172,27 +173,17 @@ export function CourseSalesArticle({
           <p style={{ margin: "0 0 20px", color: "var(--muted-strong)" }}>
             {view.cta.note}
           </p>
-          {view.seatsNote && (
-            <p className="hg-route-note" role="status">
-              {view.seatsNote}
-            </p>
-          )}
-          {view.closesNote && (
-            <p className="hg-route-note">{view.closesNote}</p>
-          )}
-          {view.offerSlug ? (
-            <CourseSalesCta
-              offerSlug={view.offerSlug}
-              primaryHref={view.primaryHref}
-              primaryLabel={view.primaryLabel}
-              alternativeLabel={view.alternativeLabel}
-              alternativeUrl={view.alternativeUrl}
-            />
-          ) : (
-            <a className="hg-primary" href={view.primaryHref}>
-              {view.primaryLabel}
-            </a>
-          )}
+          {/* Seat/close notices are owned by the island below (live
+              availability); the SSR shell renders none so they never double
+              up. */}
+          <CourseSalesCta
+            offerSlug={view.offerSlug}
+            primaryHref={view.primaryHref}
+            primaryLabel={view.primaryLabel}
+            anonymousHref={view.anonymousHref}
+            alternativeLabel={view.alternativeLabel}
+            alternativeUrl={view.alternativeUrl}
+          />
           <p
             style={{ margin: "16px 0 0", fontSize: "13px", color: "var(--muted)" }}
           >
@@ -359,9 +350,16 @@ export function CourseSalesArticle({
           <h2 style={{ margin: "0 0 8px", fontSize: "20px" }}>
             {view.cta.title}
           </h2>
-          <a className="hg-primary" href={view.primaryHref}>
-            {view.primaryLabel}
-          </a>
+          <CourseSalesCta
+            offerSlug={view.offerSlug}
+            primaryHref={view.primaryHref}
+            primaryLabel={view.primaryLabel}
+            anonymousHref={view.anonymousHref}
+            hideNotices
+            surface="inline"
+            alternativeLabel={view.alternativeLabel}
+            alternativeUrl={view.alternativeUrl}
+          />
         </section>
 
         <footer
@@ -400,9 +398,16 @@ export function CourseSalesArticle({
         role="region"
         aria-label="Course enrollment"
       >
-        <a className="hg-primary" href={view.primaryHref}>
-          {view.primaryLabel}
-        </a>
+        <CourseSalesCta
+          offerSlug={view.offerSlug}
+          primaryHref={view.primaryHref}
+          primaryLabel={view.primaryLabel}
+          anonymousHref={view.anonymousHref}
+          hideNotices
+          surface="inline"
+          alternativeLabel={view.alternativeLabel}
+          alternativeUrl={view.alternativeUrl}
+        />
       </div>
     </div>
   );

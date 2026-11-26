@@ -41,6 +41,7 @@ export function OfferLimitCta({
   contactHref,
   contactLabel,
   icon = "down-right",
+  hideNotices = false,
   track,
 }: {
   offerSlug: string;
@@ -53,6 +54,8 @@ export function OfferLimitCta({
   contactHref: string;
   contactLabel: string;
   icon?: "down-right" | "up-right" | "none";
+  /** Hide the seat/close notices (the hero placement owns them). */
+  hideNotices?: boolean;
   track?: {
     route: "/coaching" | "/workshop" | "/courses";
     surface: "hero-primary" | "hero-secondary" | "inline";
@@ -152,12 +155,12 @@ export function OfferLimitCta({
 
   return (
     <>
-      {placesLeft && (
+      {placesLeft && !hideNotices && (
         <p className="hg-route-note" role="status">
           {placesLeft}
         </p>
       )}
-      {closesOn && <p className="hg-route-note">{closesOn}</p>}
+      {closesOn && !hideNotices && <p className="hg-route-note">{closesOn}</p>}
       <a
         className="hg-primary"
         href={ctaHref}

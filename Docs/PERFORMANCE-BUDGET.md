@@ -87,7 +87,8 @@ Static (○) means served from prerender/cache with no D1 read at request time. 
 
 | Type | Routes |
 |---|---|
-| ○ Static | `/`, `/about`, `/contact`, `/cookies`, `/courses`, `/field-notes`, `/guides`, `/login`, `/privacy`, `/programmes`, `/robots.txt`, `/signup`, `/terms`, `/_not-found` |
+| ○ Static | `/`, `/about`, `/contact`, `/cookies`, `/login`, `/privacy`, `/programmes`, `/robots.txt`, `/signup`, `/terms`, `/_not-found` |
+| ○ Static, timed ISR (`revalidate = 60`) | `/courses`, `/guides`, `/field-notes` |
 | ○ Static, timed ISR (`revalidate = 300`) | `/mission-01`, `/ai-recruiter-os` |
 | ○ Static, timed ISR (`revalidate = 300`), live part client-side | `/coaching`, `/workshop` |
 | ● ISR on demand (`generateStaticParams` returns `[]`, `revalidate = 3600`) | `/guides/[slug]`, `/field-notes/[slug]`, `/courses/[slug]` |

@@ -41,7 +41,7 @@ function revalidateCourseSalesPaths(oldSlug?: string | null, newSlug?: string | 
 }
 
 /** Same as above when only the course id is known (section/lesson edits). */
-async function revalidateCourseSales(courseId: string): Promise<void> {
+export async function revalidateCourseSales(courseId: string): Promise<void> {
   const course = await courseService.getAdminCourseById(courseId);
   revalidateCourseSalesPaths(course?.slug, course?.slug);
 }
@@ -172,8 +172,16 @@ export async function moveSectionAction(
     if (direction !== "up" && direction !== "down") {
       return { ok: false, error: "Direction must be 'up' or 'down'." };
     }
-    await courseService.moveSection(id, direction);
+    const sections = await courseService.moveSection(id, direction);
     await recordAdminAudit({ actorId: session.user.id, action: "course_section.move", entityType: "course_section", entityId: id, details: { direction } });
+    // The moved section is always in its own sibling list, so the course id
+    // is available without an extra read. The sales page renders section
+    // order, so it must expire with the admin curriculum page.
+    const courseId = sections[0]?.courseId;
+    if (courseId) {
+      revalidatePath(`/admin/courses/${courseId}/curriculum`);
+      await revalidateCourseSales(courseId);
+    }
     return { ok: true, data: null };
   } catch (err: unknown) {
     return fail(err, "Failed to move section");
@@ -272,8 +280,16 @@ export async function moveLessonAction(
     if (direction !== "up" && direction !== "down") {
       return { ok: false, error: "Direction must be 'up' or 'down'." };
     }
-    await courseService.moveLesson(id, direction);
+    const lessons = await courseService.moveLesson(id, direction);
     await recordAdminAudit({ actorId: session.user.id, action: "lesson.move", entityType: "lesson", entityId: id, details: { direction } });
+    // The moved lesson is always in its own sibling list, so the course id
+    // is available without an extra read. The sales page renders lesson
+    // order, so it must expire with the admin curriculum page.
+    const courseId = lessons[0]?.courseId;
+    if (courseId) {
+      revalidatePath(`/admin/courses/${courseId}/curriculum`);
+      await revalidateCourseSales(courseId);
+    }
     return { ok: true, data: null };
   } catch (err: unknown) {
     return fail(err, "Failed to move lesson");

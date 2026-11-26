@@ -816,12 +816,16 @@ export async function getPublishedLessonCounts(courseIds: string[]): Promise<Rec
   const out: Record<string, number> = {};
   if (courseIds.length === 0) return out;
   const db = await getDb();
-  const rows = await db
-    .select({ courseId: lessons.courseId, count: sql<number>`count(*)` })
-    .from(lessons)
-    .where(and(inArray(lessons.courseId, courseIds), eq(lessons.status, "published")))
-    .groupBy(lessons.courseId);
-  for (const id of courseIds) out[id] = 0;
-  for (const row of rows) out[row.courseId] = row.count;
+  // D1 caps bound parameters per statement (100); chunk large catalogs.
+  for (let i = 0; i < courseIds.length; i += 90) {
+    const chunk = courseIds.slice(i, i + 90);
+    const rows = await db
+      .select({ courseId: lessons.courseId, count: sql<number>`count(*)` })
+      .from(lessons)
+      .where(and(inArray(lessons.courseId, chunk), eq(lessons.status, "published")))
+      .groupBy(lessons.courseId);
+    for (const row of rows) out[row.courseId] = row.count;
+  }
+  for (const id of courseIds) out[id] ??= 0;
   return out;
 }

@@ -32,7 +32,7 @@ Contributor conventions for the current implementation. Related: `Docs/DEFINITIO
 | Gate (`src/lib/auth`) | Use in | Behaviour |
 |---|---|---|
 | `requireAdmin()` | Server actions, route handlers, services that mutate | Throws `AppError` `unauthorized` / `forbidden` |
-| `requireAdminPage()` | Every admin `page.tsx` | Redirects to `/admin/login` or `/admin/login?error=forbidden`. It is **not** in `admin/layout.tsx` because `/admin/login` lives under that layout. No middleware or `proxy.ts` gate exists |
+| `requireAdminPage()` | Every admin `page.tsx` | Redirects to `/admin/login` or `/admin/login?error=forbidden`. It is **not** in `admin/layout.tsx` because `/admin/login` lives under that layout. No admin middleware gate exists; `src/proxy.ts` only preserves deep links for signed-out `/learn/*` visitors (cookie presence, no DB) |
 | `requireUser()` | Learner actions and routes | Throws `unauthorized` |
 | `getServerSession()` / `getAuth()` | Anywhere a session is optional | Request-cached with React `cache()`; no process singleton |
 
