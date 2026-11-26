@@ -365,7 +365,7 @@ export async function deleteCoursePermanently(
   if (current.trashedAt === null) {
     throw new AppError("invalid", "Only items in Trash can be deleted permanently. Move this course to Trash first.");
   }
-  if (confirmTitle.trim() !== current.title) {
+  if (confirmTitle.trim() !== current.title.trim()) {
     throw new AppError("invalid", "The typed title does not match. Type the exact title to confirm permanent deletion.");
   }
   // Re-check protection at delete time — the purge path relies on this.
@@ -425,7 +425,7 @@ export async function deleteCoursePermanently(
     if (!key.startsWith("course-resources/") || key.includes("..")) continue;
     await bucket.delete(key).catch(() => undefined);
   }
-  await deleteMediaIfUnreferenced(collectContentMediaKeys(current.coverImage, null), {
+  await deleteMediaIfUnreferenced(collectContentMediaKeys(current.coverImage, current.description), {
     table: "courses",
     id,
     coverImage: current.coverImage,
@@ -854,7 +854,7 @@ export async function deleteLessonPermanently(
   if (current.trashedAt === null) {
     throw new AppError("invalid", "Only items in Trash can be deleted permanently. Move this lesson to Trash first.");
   }
-  if (confirmTitle.trim() !== current.title) {
+  if (confirmTitle.trim() !== current.title.trim()) {
     throw new AppError("invalid", "The typed title does not match. Type the exact title to confirm permanent deletion.");
   }
   // Re-check protection at delete time — the purge path relies on this.

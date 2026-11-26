@@ -353,11 +353,16 @@ export async function deleteGuidePermanently(
   if (current.trashedAt === null) {
     throw new AppError("invalid", "Only items in Trash can be deleted permanently. Move this guide to Trash first.");
   }
-  if (confirmTitle.trim() !== current.title) {
+  if (confirmTitle.trim() !== current.title.trim()) {
     throw new AppError("invalid", "The typed title does not match. Type the exact title to confirm permanent deletion.");
   }
 
-  const mediaKeys = collectContentMediaKeys(current.coverImage, current.body);
+  const mediaKeys = [
+    ...new Set([
+      ...collectContentMediaKeys(current.coverImage, current.body),
+      ...collectContentMediaKeys(current.ogImage, null),
+    ]),
+  ];
   const redirectRows = await db
     .select({ oldSlug: slugRedirects.oldSlug })
     .from(slugRedirects)

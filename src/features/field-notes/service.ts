@@ -414,7 +414,7 @@ export async function deleteFieldNotePermanently(
   if (current.trashedAt === null) {
     throw new AppError("invalid", "Only items in Trash can be deleted permanently. Move this field note to Trash first.");
   }
-  if (confirmTitle.trim() !== current.title) {
+  if (confirmTitle.trim() !== current.title.trim()) {
     throw new AppError("invalid", "The typed title does not match. Type the exact title to confirm permanent deletion.");
   }
 

@@ -4,6 +4,7 @@ import {
   fieldNotes,
   getDb,
   guides,
+  lessons,
   media,
 } from "@/lib/db";
 import { getR2Bucket } from "@/lib/cloudflare/bindings";
@@ -68,37 +69,52 @@ export async function isMediaKeyReferencedElsewhere(
 ): Promise<boolean> {
   const db = await getDb();
   const urlPattern = `%${MEDIA_URL_PREFIX}${key}%`;
+  const keyPattern = `%${key}%`;
 
-  // Guides + field notes: cover image or embedded body URL.
-  for (const table of [guides, fieldNotes] as const) {
-    const tableName: ContentTable = table === guides ? "guides" : "field_notes";
-    const conditions = [like(table.body, urlPattern)];
-    if (exclude.coverImage) conditions.push(eq(table.coverImage, exclude.coverImage));
-    const rows = await db
-      .select({ id: table.id })
-      .from(table)
-      .where(
-        exclude.table === tableName
-          ? and(or(...conditions), ne(table.id, exclude.id))
-          : or(...conditions)
+  // Every column that can hold the key (as a URL or a bare key) counts:
+  // cover images, guide OG images, block bodies and course descriptions.
+  const guideRows = await db
+    .select({ id: guides.id })
+    .from(guides)
+    .where(
+      and(
+        or(like(guides.body, urlPattern), like(guides.coverImage, keyPattern), like(guides.ogImage, keyPattern)),
+        exclude.table === "guides" ? ne(guides.id, exclude.id) : undefined
       )
-      .limit(1);
-    if (rows.length > 0) return true;
-  }
+    )
+    .limit(1);
+  if (guideRows.length > 0) return true;
 
-  // Courses: cover image or description text (no block body column).
-  const courseConditions = [like(courses.description, urlPattern)];
-  if (exclude.coverImage) courseConditions.push(eq(courses.coverImage, exclude.coverImage));
+  const noteRows = await db
+    .select({ id: fieldNotes.id })
+    .from(fieldNotes)
+    .where(
+      and(
+        or(like(fieldNotes.body, urlPattern), like(fieldNotes.coverImage, keyPattern)),
+        exclude.table === "field_notes" ? ne(fieldNotes.id, exclude.id) : undefined
+      )
+    )
+    .limit(1);
+  if (noteRows.length > 0) return true;
+
   const courseRows = await db
     .select({ id: courses.id })
     .from(courses)
     .where(
-      exclude.table === "courses"
-        ? and(or(...courseConditions), ne(courses.id, exclude.id))
-        : or(...courseConditions)
+      and(
+        or(like(courses.description, urlPattern), like(courses.coverImage, keyPattern)),
+        exclude.table === "courses" ? ne(courses.id, exclude.id) : undefined
+      )
     )
     .limit(1);
-  return courseRows.length > 0;
+  if (courseRows.length > 0) return true;
+
+  const lessonRows = await db
+    .select({ id: lessons.id })
+    .from(lessons)
+    .where(like(lessons.body, urlPattern))
+    .limit(1);
+  return lessonRows.length > 0;
 }
 
 /**
